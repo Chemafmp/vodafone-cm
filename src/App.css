@@ -1,0 +1,5 @@
+/* App fills the full viewport — no constraints */
+#root {
+  width: 100%;
+  height: 100%;
+}
