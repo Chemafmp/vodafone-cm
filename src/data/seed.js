@@ -1,35 +1,25 @@
-import { d, now } from "../utils/date.js";
-import { genId } from "../utils/id.js";
+import { d } from "../utils/helpers.js";
+import { genId } from "../utils/helpers.js";
 
 export const MW = [
-  {id:"mw1",name:"Weekly Maintenance — Network",start:d(1)+"T22:00",end:d(2)+"T04:00",teams:["Core Transport","Data Core"],recurrence:"Weekly",active:true},
-  {id:"mw2",name:"Monthly Security Patching",start:d(5)+"T00:00",end:d(5)+"T06:00",teams:["Security Ops"],recurrence:"Monthly",active:true},
-  {id:"mw3",name:"Q4 Change Freeze",start:d(3)+"T00:00",end:d(10)+"T23:59",teams:["All"],recurrence:"None",active:true,freeze:true},
+  {id:"mw1",name:"Weekly Maintenance — Network",start:d(1)+"T22:00",end:d(2)+"T04:00",teams:["Network Ops","Transport"],recurrence:"Weekly",active:true},
+  {id:"mw2",name:"Monthly Security Patching",start:d(5)+"T00:00",end:d(5)+"T06:00",teams:["Security"],recurrence:"Monthly",active:true},
+  {id:"mw3",name:"Q4 Freeze Period",start:d(3)+"T00:00",end:d(10)+"T23:59",teams:["All"],recurrence:"None",active:true,freeze:true},
 ];
 
 export const PEAK_PERIODS = [
-  {id:"p1", name:"Change Freeze — Prime Day 2025",       start:"2025-07-08", end:"2025-07-09", color:"#dc2626"},
-  {id:"p2", name:"Change Freeze — Black Friday 2025",    start:"2025-11-28", end:"2025-11-28", color:"#dc2626"},
-  {id:"p3", name:"Change Freeze — Cyber Monday 2025",    start:"2025-12-01", end:"2025-12-01", color:"#dc2626"},
-  {id:"p4", name:"Change Freeze — Holiday Peak Q4 2025", start:"2025-12-15", end:"2026-01-05", color:"#b91c1c"},
-  {id:"p5", name:"Change Freeze — Super Promo MAR 2026", start:"2026-03-07", end:"2026-03-14", color:"#dc2626"},
+  {id:"p1", name:"Prime Day 2025",       start:"2025-07-08", end:"2025-07-09", color:"#dc2626"},
+  {id:"p2", name:"Black Friday 2025",    start:"2025-11-28", end:"2025-11-28", color:"#dc2626"},
+  {id:"p3", name:"Cyber Monday 2025",    start:"2025-12-01", end:"2025-12-01", color:"#dc2626"},
+  {id:"p4", name:"Holiday Peak Q4 2025", start:"2025-12-15", end:"2026-01-05", color:"#b91c1c"},
+  {id:"p5", name:"Super Promo MAR 2026", start:"2026-03-07", end:"2026-03-14", color:"#dc2626"},
 ];
-
-export function isInPeakPeriod(dateIso) {
-  if (!dateIso) return null;
-  const day = new Date(dateIso).toISOString().slice(0,10);
-  return PEAK_PERIODS.find(p => day >= p.start && day <= p.end) || null;
-}
-export function getActivePeak() {
-  const today = new Date().toISOString().slice(0,10);
-  return PEAK_PERIODS.find(p => today >= p.start && today <= p.end) || null;
-}
 
 export const SEED_CHANGES = [
   // 1. SW Upgrade - Completed
   {id:genId(),name:"Core Router OS Upgrade — MNL01",domain:"Core Network",risk:"High",status:"Completed",approvalLevel:"L3",
    type:"Template",execMode:"Manual",intrusion:"Intrusive",execResult:"Successful",
-   team:"Core Transport",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
+   country:"DE",team:"Core Transport",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
    isTemplate:false,templateId:"t1",freezePeriod:false,freezeJustification:"",
    description:"IOS-XR upgrade from 7.5.1 to 7.7.2 on core PE router MNL01. Scheduled during maintenance window.",
    serviceImpact:"Potential 10-min BGP re-convergence on MNL→SGP path. MPLS-VPN traffic may reroute via backup LSP.",
@@ -89,14 +79,14 @@ export const SEED_CHANGES = [
      5:{status:"done",lines:["[MANUAL] All ISIS adjacencies UP","[MANUAL] All BGP sessions Established","[MANUAL] No Active Alarms","[MANUAL] ✓ Full validation passed"],completedAt:d(-5),by:"Alex Torres",mode:"manual",note:"All protocols re-converged. No new alarms.",subCheckResults:{0:true,1:true,2:true,3:true}},
      6:{status:"done",lines:["[MANUAL] NOC/SAC notified at 11:05 UTC","[MANUAL] 30-min observation — zero incidents","[MANUAL] ✓ Change closed Successful"],completedAt:d(-5),by:"Alex Torres",mode:"manual",note:"Clean close. No customer impact.",subCheckResults:{0:true,1:true,2:true,3:true}},
    },
-   approvals:[{by:"Chema F.",action:"approved",at:d(-6),comment:"Reviewed OK"},{by:"Matt I.",action:"approved",at:d(-6),comment:"Director sign-off"}],
-   auditLog:[{at:d(-7),msg:"Change created",type:"info",by:"Alex Torres"},{at:d(-6),msg:"Preflight passed",type:"success",by:"Alex Torres"},{at:d(-6),msg:"Approved by Matt I.",type:"success",by:"Matt I."},{at:d(-5),msg:"Execution started",type:"info",by:"Alex Torres"},{at:d(-5),msg:"All steps completed — Successful",type:"success",by:"Alex Torres"}],
+   approvals:[{by:"Sam Reyes",action:"approved",at:d(-6),comment:"Reviewed OK"},{by:"Jordan Lee",action:"approved",at:d(-6),comment:"Director sign-off"}],
+   auditLog:[{at:d(-7),msg:"Change created",type:"info",by:"Alex Torres"},{at:d(-6),msg:"Preflight passed",type:"success",by:"Alex Torres"},{at:d(-6),msg:"Approved by Jordan Lee",type:"success",by:"Jordan Lee"},{at:d(-5),msg:"Execution started",type:"info",by:"Alex Torres"},{at:d(-5),msg:"All steps completed — Successful",type:"success",by:"Alex Torres"}],
    notifications:[],comments:[],category:"Normal"},
 
   // 2. BGP Config Change - Approved, ready to execute
   {id:genId(),name:"BGP Route Update — PE-LON02",domain:"IP/MPLS",risk:"Medium",status:"Approved",approvalLevel:"L2",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"Core Transport",dept:"Operations",director:"Didier C.",manager:"Chema F.",
+   country:"UK",team:"Core Transport",dept:"Operations",director:"Didier C.",manager:"Chema F.",
    isTemplate:false,templateId:"t1",freezePeriod:false,freezeJustification:"",
    description:"Add new /24 prefixes for EMEA expansion on PE-LON02. Non-intrusive — no service disruption expected.",
    serviceImpact:"Brief BGP update burst possible (< 1 sec). No traffic loss expected.",
@@ -140,16 +130,16 @@ export const SEED_CHANGES = [
       rollback:"Remove route-map and clear bgp soft (see step 3 rollback).",
       subChecks:["NOC/SAC notified","15 min observation passed","No BGP sessions went Active","No customer impact"]},
    ],
-   preflightResults:{syntax:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)},conflict:{status:"pass",log:"No conflicts",by:"Ivan M.",at:d(-1)},reachability:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)},policy:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)},rollback:{status:"pass",log:"Defined",by:"Ivan M.",at:d(-1)},window:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)}},
+   preflightResults:{syntax:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)},conflict:{status:"pass",log:"No conflicts",by:"Morgan Silva",at:d(-1)},reachability:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)},policy:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)},rollback:{status:"pass",log:"Defined",by:"Morgan Silva",at:d(-1)},window:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)}},
    stepLogs:{},
-   approvals:[{by:"Chema F.",action:"approved",at:d(-1),comment:"L2 sign-off — proceed in MW"}],
-   auditLog:[{at:d(-2),msg:"Change created",type:"info",by:"Ivan M."},{at:d(-1),msg:"Preflight passed",type:"success",by:"Ivan M."},{at:d(-1),msg:"Approved by Chema F. (L2)",type:"success",by:"Chema F."}],
+   approvals:[{by:"Tom Brandt",action:"approved",at:d(-1),comment:"L2 sign-off — proceed in MW"}],
+   auditLog:[{at:d(-2),msg:"Change created",type:"info",by:"Morgan Silva"},{at:d(-1),msg:"Preflight passed",type:"success",by:"Morgan Silva"},{at:d(-1),msg:"Approved by Tom Brandt (L2)",type:"success",by:"Tom Brandt"}],
    notifications:[],comments:[],category:"Normal"},
 
   // 3. Firewall ACL - Failed
   {id:genId(),name:"Firewall ACL Update — DC-MAD01",domain:"Security GW",risk:"High",status:"Failed",approvalLevel:"L3",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Intrusive",execResult:"Aborted",
-   team:"Core Transport",dept:"Security Ops",director:"Matt I.",manager:"Chema F.",
+   country:"ES",team:"Access",dept:"Security Ops",director:"Michael T.",manager:"Sam Reyes",
    isTemplate:false,templateId:null,freezePeriod:false,freezeJustification:"",
    description:"Emergency ACL change to block suspicious traffic pattern detected by SOC.",
    serviceImpact:"May block legitimate traffic if misconfigured. Priority P2.",
@@ -179,19 +169,19 @@ export const SEED_CHANGES = [
       rollback:"no ip access-list extended INBOUND-BLOCK\ncopy startup-config running-config",
       subChecks:["Rule applied to production","No customer impact","Startup config updated"]},
    ],
-   preflightResults:{syntax:{status:"pass",log:"OK",by:"Adam S.",at:d(-4)},conflict:{status:"pass",log:"OK",by:"Adam S.",at:d(-4)},reachability:{status:"pass",log:"OK",by:"Adam S.",at:d(-4)},policy:{status:"fail",log:"Policy violation: ACL missing mandatory comment field per SEC-POL-012",by:"Adam S.",at:d(-4)},rollback:{status:"pass",log:"OK",by:"Adam S.",at:d(-4)},window:{status:"pass",log:"OK",by:"Adam S.",at:d(-4)}},
+   preflightResults:{syntax:{status:"pass",log:"OK",by:"Casey Nguyen",at:d(-4)},conflict:{status:"pass",log:"OK",by:"Casey Nguyen",at:d(-4)},reachability:{status:"pass",log:"OK",by:"Casey Nguyen",at:d(-4)},policy:{status:"fail",log:"Policy violation: ACL missing mandatory comment field per SEC-POL-012",by:"Casey Nguyen",at:d(-4)},rollback:{status:"pass",log:"OK",by:"Casey Nguyen",at:d(-4)},window:{status:"pass",log:"OK",by:"Casey Nguyen",at:d(-4)}},
    stepLogs:{
-     1:{status:"done",lines:["[MANUAL] ✓ ACL backed up to TFTP","[MANUAL] ✓ Git tag created"],completedAt:d(-3),by:"Adam S.",mode:"manual",note:"Backup committed.",subCheckResults:{0:true,1:true}},
-     2:{status:"fail",lines:["[MANUAL] Applied deny rule to staging","[MANUAL] ✗ ping 8.8.8.8 — 0% success rate","[MANUAL] ✗ Rule blocking legitimate egress — ABORTED"],completedAt:d(-3),by:"Adam S.",mode:"manual",note:"Staging test failed. Rule too broad. Change aborted.",subCheckResults:{0:true,1:false,2:false}},
+     1:{status:"done",lines:["[MANUAL] ✓ ACL backed up to TFTP","[MANUAL] ✓ Git tag created"],completedAt:d(-3),by:"Casey Nguyen",mode:"manual",note:"Backup committed.",subCheckResults:{0:true,1:true}},
+     2:{status:"fail",lines:["[MANUAL] Applied deny rule to staging","[MANUAL] ✗ ping 8.8.8.8 — 0% success rate","[MANUAL] ✗ Rule blocking legitimate egress — ABORTED"],completedAt:d(-3),by:"Casey Nguyen",mode:"manual",note:"Staging test failed. Rule too broad. Change aborted.",subCheckResults:{0:true,1:false,2:false}},
    },
-   approvals:[{by:"Chema F.",action:"approved",at:d(-4),comment:"Emergency approval"},{by:"Matt I.",action:"approved",at:d(-4),comment:"Director override"}],
-   auditLog:[{at:d(-4),msg:"Change created (ad-hoc emergency)",type:"info",by:"Adam S."},{at:d(-4),msg:"Approved — emergency override",type:"success",by:"Matt I."},{at:d(-3),msg:"Step 2 FAILED — connectivity test error",type:"error",by:"Adam S."},{at:d(-3),msg:"Change ABORTED — rollback initiated",type:"warning",by:"Adam S."}],
+   approvals:[{by:"Lucia Ferrer",action:"approved",at:d(-4),comment:"Emergency approval"},{by:"Priya Nair",action:"approved",at:d(-4),comment:"Director override"}],
+   auditLog:[{at:d(-4),msg:"Change created (ad-hoc emergency)",type:"info",by:"Casey Nguyen"},{at:d(-4),msg:"Approved — emergency override",type:"success",by:"Priya Nair"},{at:d(-3),msg:"Step 2 FAILED — connectivity test error",type:"error",by:"Casey Nguyen"},{at:d(-3),msg:"Change ABORTED — rollback initiated",type:"warning",by:"Casey Nguyen"}],
    notifications:[],comments:[],category:"Normal"},
 
   // 4. DNS - Draft
   {id:genId(),name:"DNS Zone Update — vodafone.internal",domain:"DNS/NTP",risk:"Low",status:"Draft",approvalLevel:"L1",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"Core Transport",dept:"Operations",director:"Matt I.",manager:"Mike Ohara",
+   country:"DE",team:"Data Core",dept:"Operations",director:"Didier C.",manager:"Sam Reyes",
    isTemplate:false,templateId:"t3",freezePeriod:false,freezeJustification:"",
    description:"Add new A records for internal tooling deployment.",
    serviceImpact:"None expected. DNS TTL propagation within 5 min.",
@@ -232,10 +222,10 @@ export const SEED_CHANGES = [
    auditLog:[{at:d(-1),msg:"Change created",type:"info",by:"Alex Torres"}],
    notifications:[],comments:[],category:"Normal"},
 
-  // 5. RAN Push - In Execution (2 steps done)
+  // 5. RAN Push - Executing (2 steps done)
   {id:genId(),name:"RAN Parameter Push — Madrid Cluster",domain:"RAN",risk:"Medium",status:"In Execution",approvalLevel:"L2",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"RAN",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
+   country:"ES",team:"RAN",dept:"Engineering",director:"Matt I.",manager:"Ivan M.",
    isTemplate:false,templateId:null,freezePeriod:true,
    freezeJustification:"Critical SLA degradation in Madrid cluster. Deferral would breach contractual KPIs.",
    description:"Push updated load-balancing parameters to 24 RAN sites in Madrid cluster.",
@@ -280,12 +270,12 @@ export const SEED_CHANGES = [
       rollback:"ansible-playbook rollback-ran.yml --limit madrid-cluster",
       subChecks:["HO_SR >= 95% cluster-wide","No critical alarms","NOC/SAC notified","30-min observation passed"]},
    ],
-   preflightResults:{syntax:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)},conflict:{status:"pass",log:"No conflicts",by:"Ivan M.",at:d(-1)},reachability:{status:"pass",log:"All 24 sites reachable",by:"Ivan M.",at:d(-1)},policy:{status:"pass",log:"OK",by:"Ivan M.",at:d(-1)},rollback:{status:"pass",log:"Playbook validated",by:"Ivan M.",at:d(-1)},window:{status:"pass",log:"Change freeze override justified",by:"Ivan M.",at:d(-1)}},
+   preflightResults:{syntax:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)},conflict:{status:"pass",log:"No conflicts",by:"Morgan Silva",at:d(-1)},reachability:{status:"pass",log:"All 24 sites reachable",by:"Morgan Silva",at:d(-1)},policy:{status:"pass",log:"OK",by:"Morgan Silva",at:d(-1)},rollback:{status:"pass",log:"Playbook validated",by:"Morgan Silva",at:d(-1)},window:{status:"pass",log:"Freeze override justified",by:"Morgan Silva",at:d(-1)}},
    stepLogs:{
-     1:{status:"done",lines:["[MANUAL] KPI baseline: HO_SR=94.2%, RRC_DR=0.8%","[MANUAL] All 24 sites reachable","[MANUAL] ✓ Baseline saved"],completedAt:d(0),by:"Ivan M.",mode:"manual",note:"Baseline captured. All sites up.",subCheckResults:{0:true,1:true,2:true}},
-     2:{status:"done",lines:["[MANUAL] Ansible — ok=24 changed=12 failed=0","[MANUAL] HO_THRESHOLD updated on all 12 batch-A sites","[MANUAL] ✓ Batch A complete"],completedAt:d(0),by:"Ivan M.",mode:"manual",note:"Batch A pushed successfully.",subCheckResults:{0:true,1:true,2:true}},
+     1:{status:"done",lines:["[MANUAL] KPI baseline: HO_SR=94.2%, RRC_DR=0.8%","[MANUAL] All 24 sites reachable","[MANUAL] ✓ Baseline saved"],completedAt:d(0),by:"Morgan Silva",mode:"manual",note:"Baseline captured. All sites up.",subCheckResults:{0:true,1:true,2:true}},
+     2:{status:"done",lines:["[MANUAL] Ansible — ok=24 changed=12 failed=0","[MANUAL] HO_THRESHOLD updated on all 12 batch-A sites","[MANUAL] ✓ Batch A complete"],completedAt:d(0),by:"Morgan Silva",mode:"manual",note:"Batch A pushed successfully.",subCheckResults:{0:true,1:true,2:true}},
    },
-   approvals:[{by:"Chema F.",action:"approved",at:d(-1),comment:"L2 OK"},{by:"Matt I.",action:"approved",at:d(-1),comment:"Director change freeze override approved"}],
-   auditLog:[{at:d(-2),msg:"Change created (change freeze period)",type:"info",by:"Ivan M."},{at:d(-1),msg:"Preflight passed",type:"success",by:"Ivan M."},{at:d(-1),msg:"Approved — change freeze override by Matt I.",type:"success",by:"Matt I."},{at:d(0),msg:"Execution started",type:"info",by:"Ivan M."},{at:d(0),msg:"Step 1 completed",type:"success",by:"Ivan M."},{at:d(0),msg:"Step 2 completed",type:"success",by:"Ivan M."}],
+   approvals:[{by:"Tom Brandt",action:"approved",at:d(-1),comment:"L2 OK"},{by:"Elena Martín",action:"approved",at:d(-1),comment:"Director freeze override approved"}],
+   auditLog:[{at:d(-2),msg:"Change created (freeze period)",type:"info",by:"Morgan Silva"},{at:d(-1),msg:"Preflight passed",type:"success",by:"Morgan Silva"},{at:d(-1),msg:"Approved — freeze override by Elena Martín",type:"success",by:"Elena Martín"},{at:d(0),msg:"Execution started",type:"info",by:"Morgan Silva"},{at:d(0),msg:"Step 1 completed",type:"success",by:"Morgan Silva"},{at:d(0),msg:"Step 2 completed",type:"success",by:"Morgan Silva"}],
    notifications:[],comments:[],category:"Normal"},
 ];
