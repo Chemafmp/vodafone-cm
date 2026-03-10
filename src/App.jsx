@@ -6,6 +6,16 @@ const DEPTS = ["Engineering", "Operations", "Infrastructure", "Security Ops"];
 const DIRECTORS = ["Matt I.","Didier C.","Michael T.","Elena Martín"];
 const MANAGERS  = ["Chema F.","Sam Reyes","Ivan M.","Adam S."];
 const SYSTEMS   = ["Core Network","RAN","Transport","IP/MPLS","Cloud Infra","DNS/NTP","Security GW","OSS/BSS","Voice","Data Core"];
+const COUNTRIES = [
+  {code:"DE",name:"Germany"},    {code:"IT",name:"Italy"},
+  {code:"UK",name:"United Kingdom"},{code:"ES",name:"Spain"},
+  {code:"CZ",name:"Czech Republic"},{code:"RO",name:"Romania"},
+  {code:"AL",name:"Albania"},    {code:"PT",name:"Portugal"},
+  {code:"IE",name:"Ireland"},    {code:"GR",name:"Greece"},
+  {code:"TR",name:"Turkey"},     {code:"HU",name:"Hungary"},
+  {code:"NL",name:"Netherlands"},{code:"ZA",name:"South Africa"},
+  {code:"GH",name:"Ghana"},      {code:"EG",name:"Egypt"},
+];
 const RISK_LEVELS = ["Low","Medium","High","Critical"];
 const CHANGE_TYPES = ["Template","Ad-hoc"];
 const EXEC_MODES   = ["Manual","Automated"];
@@ -62,7 +72,7 @@ const SEED_CHANGES = [
   // 1. SW Upgrade - Completed
   {id:genId(),name:"Core Router OS Upgrade — MNL01",domain:"Core Network",risk:"High",status:"Completed",approvalLevel:"L3",
    type:"Template",execMode:"Manual",intrusion:"Intrusive",execResult:"Successful",
-   team:"Core Transport",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
+   country:"DE",team:"Core Transport",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
    isTemplate:false,templateId:"t1",freezePeriod:false,freezeJustification:"",
    description:"IOS-XR upgrade from 7.5.1 to 7.7.2 on core PE router MNL01. Scheduled during maintenance window.",
    serviceImpact:"Potential 10-min BGP re-convergence on MNL→SGP path. MPLS-VPN traffic may reroute via backup LSP.",
@@ -129,7 +139,7 @@ const SEED_CHANGES = [
   // 2. BGP Config Change - Approved, ready to execute
   {id:genId(),name:"BGP Route Update — PE-LON02",domain:"IP/MPLS",risk:"Medium",status:"Approved",approvalLevel:"L2",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"Core Transport",dept:"Operations",director:"Didier C.",manager:"Chema F.",
+   country:"UK",team:"Core Transport",dept:"Operations",director:"Didier C.",manager:"Chema F.",
    isTemplate:false,templateId:"t1",freezePeriod:false,freezeJustification:"",
    description:"Add new /24 prefixes for EMEA expansion on PE-LON02. Non-intrusive — no service disruption expected.",
    serviceImpact:"Brief BGP update burst possible (< 1 sec). No traffic loss expected.",
@@ -182,7 +192,7 @@ const SEED_CHANGES = [
   // 3. Firewall ACL - Failed
   {id:genId(),name:"Firewall ACL Update — DC-MAD01",domain:"Security GW",risk:"High",status:"Failed",approvalLevel:"L3",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Intrusive",execResult:"Aborted",
-   team:"Access",dept:"Security Ops",director:"Michael T.",manager:"Sam Reyes",
+   country:"ES",team:"Access",dept:"Security Ops",director:"Michael T.",manager:"Sam Reyes",
    isTemplate:false,templateId:null,freezePeriod:false,freezeJustification:"",
    description:"Emergency ACL change to block suspicious traffic pattern detected by SOC.",
    serviceImpact:"May block legitimate traffic if misconfigured. Priority P2.",
@@ -224,7 +234,7 @@ const SEED_CHANGES = [
   // 4. DNS - Draft
   {id:genId(),name:"DNS Zone Update — vodafone.internal",domain:"DNS/NTP",risk:"Low",status:"Draft",approvalLevel:"L1",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"Data Core",dept:"Operations",director:"Didier C.",manager:"Sam Reyes",
+   country:"DE",team:"Data Core",dept:"Operations",director:"Didier C.",manager:"Sam Reyes",
    isTemplate:false,templateId:"t3",freezePeriod:false,freezeJustification:"",
    description:"Add new A records for internal tooling deployment.",
    serviceImpact:"None expected. DNS TTL propagation within 5 min.",
@@ -268,7 +278,7 @@ const SEED_CHANGES = [
   // 5. RAN Push - Executing (2 steps done)
   {id:genId(),name:"RAN Parameter Push — Madrid Cluster",domain:"RAN",risk:"Medium",status:"In Execution",approvalLevel:"L2",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
-   team:"RAN",dept:"Engineering",director:"Matt I.",manager:"Ivan M.",
+   country:"ES",team:"RAN",dept:"Engineering",director:"Matt I.",manager:"Ivan M.",
    isTemplate:false,templateId:null,freezePeriod:true,
    freezeJustification:"Critical SLA degradation in Madrid cluster. Deferral would breach contractual KPIs.",
    description:"Push updated load-balancing parameters to 24 RAN sites in Madrid cluster.",
@@ -522,7 +532,7 @@ function ChangeDetail({change,currentUser,onClose,onUpdate,windows}){
     const s=change.status;
     if(t==="preflight") return ["Draft","Preflight"].includes(s);
     if(t==="approval")  return ["Pending Approval","Approved"].includes(s);
-    if(t==="execution") return ["Approved","Executing","Completed","Failed","Rolled Back","Aborted","Off-Script"].includes(s);
+    if(t==="execution") return ["Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"].includes(s);
     if(t==="cab") return !!(change.cab);
     return true;
   };
@@ -870,7 +880,7 @@ function ChangeDetail({change,currentUser,onClose,onUpdate,windows}){
         </div>}
       </div>
       {[
-        ["Domain",change.domain],["Risk",change.risk],["Category",change.category||"Normal"],
+        ["Domain",change.domain],["Risk",change.risk],["Country",change.country?(COUNTRIES.find(c=>c.code===change.country)?.name??change.country):"—"],
         ["Approval",change.approvalLevel],["Exec Mode",change.execMode],["Intrusion",change.intrusion],
         ["Team",change.team],["Manager",change.manager],["Director",change.director],
         ["Scheduled Start",fmt(change.scheduledFor)],["Scheduled End",fmt(change.scheduledEnd)],
@@ -914,7 +924,7 @@ function ChangeDetail({change,currentUser,onClose,onUpdate,windows}){
       </div>}
       <div style={{gridColumn:"1/-1",display:"flex",gap:10,paddingTop:6,flexWrap:"wrap",alignItems:"center"}}>
         {change.status==="Draft"&&<Btn onClick={()=>{moveTo("Preflight");setTab("preflight");}}>→ Start Preflight</Btn>}
-        {change.status==="Approved"&&<Btn variant="success" onClick={()=>{const t=now();moveTo("Executing");onUpdate(c=>({...c,actualStart:t}));if(change.steps?.[0]) setStepStartTimes({[change.steps[0].id]:t});setTab("execution");}}>▶ Begin Execution</Btn>}
+        {change.status==="Approved"&&<Btn variant="success" onClick={()=>{const t=now();moveTo("In Execution");onUpdate(c=>({...c,actualStart:t}));if(change.steps?.[0]) setStepStartTimes({[change.steps[0].id]:t});setTab("execution");}}>▶ Begin Execution</Btn>}
         <div style={{marginLeft:"auto"}}>
           {!change.isTemplate
             ? <Btn variant="ghost" small onClick={()=>{onUpdate(c=>({...c,isTemplate:true}));addLog("Saved as reusable template","info");}}>⊡ Save as Template</Btn>
@@ -1068,7 +1078,7 @@ function NotificationsPanel({changes,onClose}){
   changes.forEach(c=>{
     if(c.status==="Pending Approval") notifs.push({type:"approval",msg:`${c.id}: "${c.name}" needs approval (${c.approvalLevel})`,at:c.auditLog?.slice(-1)[0]?.at,change:c,color:"#3b82f6"});
     if(c.freezePeriod&&["Draft","Preflight","Pending Approval"].includes(c.status)) notifs.push({type:"freeze",msg:`❄ Freeze period change: "${c.name}" — Director approval required`,at:c.auditLog?.slice(-1)[0]?.at,change:c,color:T.freeze});
-    if(c.status==="Executing") notifs.push({type:"executing",msg:`▶ Currently executing: "${c.name}"`,at:c.actualStart,change:c,color:"#0e7490"});
+    if(c.status==="In Execution") notifs.push({type:"executing",msg:`▶ Currently executing: "${c.name}"`,at:c.actualStart,change:c,color:"#0e7490"});
     if(["Failed","Aborted","Rolled Back"].includes(c.status)) notifs.push({type:"alert",msg:`⚠ ${c.status}: "${c.name}" requires attention`,at:c.auditLog?.slice(-1)[0]?.at,change:c,color:"#b91c1c"});
   });
   notifs.sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
@@ -1448,6 +1458,7 @@ function TemplateQuickFill({template, activePeak, currentUser, windows, onCreate
   const [scheduledEnd, setScheduledEnd] = useState("");
   const [mw, setMw] = useState(template.maintenanceWindow||"");
   const [assignedTo, setAssignedTo] = useState(currentUser.name);
+  const [country, setCountry] = useState(template.country||"");
   const [notes, setNotes] = useState("");
   const [copiedId, setCopiedId] = useState(false);
 
@@ -1463,6 +1474,7 @@ function TemplateQuickFill({template, activePeak, currentUser, windows, onCreate
       scheduledEnd,
       maintenanceWindow: mw || template.maintenanceWindow || null,
       assignedTo,
+      country,
       status: "Draft",
       isTemplate: false,
       steps: (template.steps||[]).map(s => ({...s, id: Date.now()+Math.random()})),
@@ -1529,8 +1541,12 @@ function TemplateQuickFill({template, activePeak, currentUser, windows, onCreate
           <Sel label="Maintenance Window" value={mw} onChange={setMw}
             options={[{value:"",label:"— None —"},...windows.map(w=>({value:w.id,label:w.name}))]}/>
 
-          <Inp label="Assigned Technician *" value={assignedTo} onChange={setAssignedTo}
-            placeholder={currentUser.name}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Assigned Technician *" value={assignedTo} onChange={setAssignedTo}
+              placeholder={currentUser.name}/>
+            <Sel label="Country *" value={country} onChange={setCountry}
+              options={[{value:"",label:"— Select Country —"},...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
+          </div>
 
           <Inp label="Instance Notes (device names, sites, variables)" value={notes} onChange={setNotes} type="textarea" rows={3}
             placeholder={"Specific devices, site IDs, or any change to the template defaults…\ne.g. Target device: rmu1-acc-sw-14-7, Site: Madrid DC1"}/>
@@ -1638,7 +1654,6 @@ function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, curre
     if (ncStep === 4) return true; // approvers optional
     if (ncStep === 5) return nc.rollbackPlan.trim().length >= 10;
     if (ncStep === 6) {
-      if (nc.category === "Emergency" && !nc.incidentId.trim()) return false;
       if (nc.freezePeriod && nc.freezeJustification.trim().length < 10) return false;
       return nc.name.trim() && nc.rollbackPlan.trim();
     }
@@ -1740,7 +1755,8 @@ function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, curre
 
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <Sel label="Intrusion Type" value={nc.intrusion} onChange={ncSf("intrusion")} options={INTRUSION}/>
-                <div/>
+                <Sel label="Country *" value={nc.country||""} onChange={ncSf("country")}
+                  options={[{value:"",label:"— Select Country —"},...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <Inp label="Scheduled Start *" value={nc.scheduledFor} onChange={v=>{ncSf("scheduledFor")(v); ncSf("freezePeriod")(!!isInPeakPeriod(v));}} type="datetime-local"/>
@@ -1995,10 +2011,10 @@ function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, curre
               {(nc.freezePeriod || peakConflict) && (
                 <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:8, padding:"14px 16px" }}>
                   <div style={{ fontSize:13, fontWeight:700, color:T.freeze, marginBottom:8 }}>
-                    ❄ {peakConflict ? `Peak Period: ${peakConflict.name}` : "Freeze Period"} — Director Approval Required
+                    ❄ {peakConflict ? `Change Freeze: ${peakConflict.name}` : "Change Freeze Active"} — Director Approval Required
                   </div>
                   <Inp label="Business Justification (mandatory) *" value={nc.freezeJustification} onChange={ncSf("freezeJustification")} type="textarea" rows={3}
-                    placeholder="Explain why this change cannot be deferred beyond this peak period. Min 10 characters."/>
+                    placeholder="Explain why this change cannot be deferred beyond this change freeze period. Min 10 characters."/>
                 </div>
               )}
 
@@ -2095,7 +2111,7 @@ function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, curre
 
               {peakConflict && (
                 <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:8, padding:"11px 14px" }}>
-                  <div style={{ fontWeight:700, color:T.freeze, fontSize:13 }}>⚠ Peak Period: {peakConflict.name}</div>
+                  <div style={{ fontWeight:700, color:T.freeze, fontSize:13 }}>⚠ Change Freeze: {peakConflict.name}</div>
                   <div style={{ fontSize:12, color:"#b91c1c", marginTop:4 }}>Justification: {nc.freezeJustification}</div>
                 </div>
               )}
@@ -2173,7 +2189,7 @@ export default function App(){
   // filters
   const [filters,setFilters]=useState({
     search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",
-    team:"All",dept:"All",director:"All",manager:"All",domain:"All",
+    team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",
     dateFrom:"",dateTo:"",sortBy:"date",sortDir:"desc",viewMode:"list",kind:"All",
   });
   const sf=k=>v=>setFilters(f=>({...f,[k]:v}));
@@ -2201,6 +2217,7 @@ export default function App(){
     if(filters.director!=="All") r=r.filter(c=>c.director===filters.director);
     if(filters.manager!=="All") r=r.filter(c=>c.manager===filters.manager);
     if(filters.domain!=="All") r=r.filter(c=>c.domain===filters.domain);
+    if(filters.country&&filters.country!=="All") r=r.filter(c=>c.country===filters.country);
     if(filters.dateFrom) r=r.filter(c=>c.scheduledFor&&new Date(c.scheduledFor)>=new Date(filters.dateFrom));
     if(filters.dateTo)   r=r.filter(c=>c.scheduledFor&&new Date(c.scheduledFor)<=new Date(filters.dateTo+"T23:59"));
     r=[...r].sort((a,b)=>{
@@ -2216,13 +2233,28 @@ export default function App(){
 
   const notifCount=[...crs].filter(c=>["Pending Approval","Failed","Aborted"].includes(c.status)||c.freezePeriod&&["Draft","Preflight","Pending Approval"].includes(c.status)).length;
 
+  const [dashFilters,setDashFilters]=useState({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""});
+  const sdf=k=>v=>setDashFilters(f=>({...f,[k]:v}));
+  const dashCrs=useMemo(()=>{
+    let r=crs;
+    if(dashFilters.team!=="All") r=r.filter(c=>c.team===dashFilters.team);
+    if(dashFilters.manager!=="All") r=r.filter(c=>c.manager===dashFilters.manager);
+    if(dashFilters.director!=="All") r=r.filter(c=>c.director===dashFilters.director);
+    if(dashFilters.status!=="All") r=r.filter(c=>c.status===dashFilters.status);
+    if(dashFilters.risk!=="All") r=r.filter(c=>c.risk===dashFilters.risk);
+    if(dashFilters.country&&dashFilters.country!=="All") r=r.filter(c=>c.country===dashFilters.country);
+    if(dashFilters.dateFrom) r=r.filter(c=>c.scheduledFor&&new Date(c.scheduledFor)>=new Date(dashFilters.dateFrom));
+    if(dashFilters.dateTo)   r=r.filter(c=>c.scheduledFor&&new Date(c.scheduledFor)<=new Date(dashFilters.dateTo+"T23:59"));
+    return r;
+  },[crs,dashFilters]);
+
   const stats={
-    total:crs.length,
-    pending:crs.filter(c=>c.status==="Pending Approval").length,
-    executing:crs.filter(c=>c.status==="Executing").length,
-    completed:crs.filter(c=>c.status==="Completed").length,
-    failed:crs.filter(c=>["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,
-    frozen:crs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back"].includes(c.status)).length,
+    total:dashCrs.length,
+    pending:dashCrs.filter(c=>c.status==="Pending Approval").length,
+    executing:dashCrs.filter(c=>c.status==="In Execution").length,
+    completed:dashCrs.filter(c=>c.status==="Completed").length,
+    failed:dashCrs.filter(c=>["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,
+    frozen:dashCrs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back"].includes(c.status)).length,
   };
 
   // My Work — changes for current user's team or where user is manager/director
@@ -2234,7 +2266,7 @@ export default function App(){
   const myUpcoming = myChanges
     .filter(c => !["Completed","Failed","Aborted","Rolled Back"].includes(c.status))
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
-  const myActionable = myUpcoming.filter(c => ["Approved","Executing"].includes(c.status));
+  const myActionable = myUpcoming.filter(c => ["Approved","In Execution"].includes(c.status));
 
   const NAV=[
     {id:"mywork",   icon:"👤",label:"My Work",  badge:myActionable.length||null},
@@ -2247,7 +2279,7 @@ export default function App(){
   const NC_DEFAULTS={
     name:"",domain:SYSTEMS[0],risk:"Low",type:"Ad-hoc",execMode:"Manual",
     intrusion:"Non-Intrusive",approvalLevel:"L1",scheduledFor:"",scheduledEnd:"",maintenanceWindow:"",isTemplate:false,
-    assignedTo:"",
+    assignedTo:"",country:"",
     // Outage/Activity Details (MCM style)
     purpose:"",requirementsPermissions:"",expectedEndState:"",assumptions:"",
     // Impact
@@ -2294,7 +2326,7 @@ export default function App(){
 
         <div style={{borderTop:`1px solid ${T.sidebarBorder}`,marginTop:10,paddingTop:10}}>
           <button onClick={()=>setView("peakcal")} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"inherit",marginBottom:2,background:view==="peakcal"?"rgba(255,255,255,0.1)":"transparent",color:view==="peakcal"?"#fff":T.sidebarMuted,fontSize:13,fontWeight:view==="peakcal"?600:400,transition:"background 0.15s,color 0.15s"}}>
-            📅 Peak Calendar
+            🔴 Change Freeze
           </button>
         </div>
       </nav>
@@ -2314,10 +2346,9 @@ export default function App(){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {/* Topbar */}
       <div style={{padding:"13px 28px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14,background:T.surface,flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{view==="mywork"?"My Work":NAV.find(n=>n.id===view)?.label ?? "Peak Calendar"}</div>
+        <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{view==="mywork"?"My Work":view==="peakcal"?"Change Freeze":NAV.find(n=>n.id===view)?.label ?? "Change Freeze"}</div>
         <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
           <Btn onClick={()=>setCreatingMode("picker")}>+ New Change</Btn>
-          <div style={{fontSize:12,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"5px 12px"}}><span style={{color:T.text,fontWeight:600}}>{user.name}</span> <span style={{color:T.light}}>·</span> {user.role}</div>
         </div>
       </div>
 
@@ -2364,7 +2395,7 @@ export default function App(){
             </div>
             {myActionable.map(c=>{
               const mw=MW.find(w=>w.id===c.maintenanceWindow);
-              return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:8,cursor:"pointer",borderLeft:`4px solid ${c.status==="Executing"?"#06b6d4":"#15803d"}`}}>
+              return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:8,cursor:"pointer",borderLeft:`4px solid ${c.status==="In Execution"?"#06b6d4":"#15803d"}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:4}}>{c.name}</div>
@@ -2443,6 +2474,7 @@ export default function App(){
                             {mw.freeze?"❄":"🔧"} {mw.name}
                           </span>:<span style={{color:"#b45309",fontWeight:600}}>⚠ No window</span>}
                           <span>· {c.domain}</span>
+                          {c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
                           <span>· {c.approvalLevel}</span>
                           {c.freezePeriod&&<FreezeTag/>}
                         </div>
@@ -2469,7 +2501,7 @@ export default function App(){
                 <div style={{flex:1}}>
                   <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.name}</div>
                   <div style={{fontSize:11,color:T.muted}}>
-                    Scheduled: {c.scheduledFor?fmt(c.scheduledFor,true):"TBD"} · {c.domain} · {c.manager}
+                    Scheduled: {c.scheduledFor?fmt(c.scheduledFor,true):"TBD"} · {c.domain} · {c.manager}{c.country&&` · ${c.country}`}
                   </div>
                 </div>
                 <RiskPill risk={c.risk}/><Badge status={c.status}/>
@@ -2480,11 +2512,28 @@ export default function App(){
 
         {/* DASHBOARD */}
         {view==="dashboard"&&<div>
+          {/* Dashboard filters */}
+          <Card style={{marginBottom:16,padding:"12px 16px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",gap:10,alignItems:"end"}}>
+              <Sel label="Team"     value={dashFilters.team}     onChange={sdf("team")}     options={["All",...TEAMS]}/>
+              <Sel label="Manager"  value={dashFilters.manager}  onChange={sdf("manager")}  options={["All",...MANAGERS]}/>
+              <Sel label="Director" value={dashFilters.director} onChange={sdf("director")} options={["All",...DIRECTORS]}/>
+              <Sel label="Status"   value={dashFilters.status}   onChange={sdf("status")}   options={["All","Draft","Preflight","Pending Approval","Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]}/>
+              <Sel label="Risk"     value={dashFilters.risk}     onChange={sdf("risk")}     options={["All",...RISK_LEVELS]}/>
+              <Sel label="Country"  value={dashFilters.country}  onChange={sdf("country")}  options={["All",...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
+              <Inp label="From"     value={dashFilters.dateFrom} onChange={sdf("dateFrom")} type="date"/>
+              <Inp label="To"       value={dashFilters.dateTo}   onChange={sdf("dateTo")}   type="date"/>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:8,alignItems:"center"}}>
+              <span style={{fontSize:12,color:T.muted}}>{dashCrs.length} change{dashCrs.length!==1?"s":""} match filters</span>
+              <Btn small variant="ghost" style={{marginLeft:"auto"}} onClick={()=>setDashFilters({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""})}>Clear filters</Btn>
+            </div>
+          </Card>
           <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:24}}>
             {[
               {label:"Total Changes",value:stats.total,col:T.primary,icon:"↻"},
               {label:"Pending Approval",value:stats.pending,col:"#b45309",icon:"⏳"},
-              {label:"Executing",value:stats.executing,col:"#0e7490",icon:"⚡"},
+              {label:"In Execution",value:stats.executing,col:"#0e7490",icon:"⚡"},
               {label:"Completed",value:stats.completed,col:"#15803d",icon:"✓"},
               {label:"Failed / Aborted",value:stats.failed,col:"#b91c1c",icon:"✕"},
               {label:"Freeze Period",value:stats.frozen,col:T.freeze,icon:"❄"},
@@ -2508,14 +2557,14 @@ export default function App(){
             <Card>
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:12}}>Execution Results</div>
               {EXEC_RESULTS.map(r=>{
-                const cnt=crs.filter(c=>c.execResult===r).length;
+                const cnt=dashCrs.filter(c=>c.execResult===r).length;
                 const col={Successful:"#15803d",Failed:"#b91c1c",Aborted:"#7c3aed","Off-Script":"#b45309","Rolled Back":"#f97316"}[r]||T.muted;
                 return cnt>0&&<div key={r} style={{display:"flex",gap:10,alignItems:"center",marginBottom:7}}>
                   <div style={{width:7,height:7,borderRadius:"50%",background:col,flexShrink:0}}/>
                   <span style={{fontSize:13,color:T.text,flex:1}}>{r}</span>
                   <span style={{fontSize:13,fontWeight:700,color:col,fontFamily:"monospace"}}>{cnt}</span>
                   <div style={{width:80,height:5,background:T.bg,borderRadius:3,overflow:"hidden"}}>
-                    <div style={{width:`${(cnt/Math.max(crs.length,1))*100}%`,height:"100%",background:col,borderRadius:3}}/>
+                    <div style={{width:`${(cnt/Math.max(dashCrs.length,1))*100}%`,height:"100%",background:col,borderRadius:3}}/>
                   </div>
                 </div>;
               })}
@@ -2523,12 +2572,12 @@ export default function App(){
             <Card>
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:12}}>By Team</div>
               {TEAMS.map(t=>{
-                const cnt=crs.filter(c=>c.team===t).length;
+                const cnt=dashCrs.filter(c=>c.team===t).length;
                 return cnt>0&&<div key={t} style={{display:"flex",gap:10,alignItems:"center",marginBottom:7}}>
                   <span style={{fontSize:12,color:T.text,flex:1}}>{t}</span>
                   <span style={{fontSize:12,fontWeight:700,color:T.primary,fontFamily:"monospace"}}>{cnt}</span>
                   <div style={{width:80,height:5,background:T.bg,borderRadius:3,overflow:"hidden"}}>
-                    <div style={{width:`${(cnt/Math.max(crs.length,1))*100}%`,height:"100%",background:T.primary,borderRadius:3}}/>
+                    <div style={{width:`${(cnt/Math.max(dashCrs.length,1))*100}%`,height:"100%",background:T.primary,borderRadius:3}}/>
                   </div>
                 </div>;
               })}
@@ -2539,11 +2588,12 @@ export default function App(){
             <h2 style={{fontSize:15,fontWeight:700,color:T.text}}>Recent Changes</h2>
             <Btn small variant="ghost" onClick={()=>setView("changes")}>View all →</Btn>
           </div>
-          {crs.slice(0,5).map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:7,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+          {dashCrs.slice(0,5).map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:7,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
             <div style={{flex:1}}>
               <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:3}}>
                 <span style={{fontWeight:700,fontSize:13,color:T.text}}>{c.name}</span>
                 {c.freezePeriod&&<FreezeTag/>}
+                {c.country&&<span style={{fontSize:10,fontWeight:700,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:4,padding:"1px 6px"}}>{c.country}</span>}
               </div>
               <div style={{fontSize:11,color:T.muted}}>{c.team} · {c.manager} · {fmt(c.scheduledFor,true)}</div>
             </div>
@@ -2571,17 +2621,18 @@ export default function App(){
               <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:T.muted,fontSize:13,pointerEvents:"none"}}>🔍</span>
               <input value={filters.search} onChange={e=>sf("search")(e.target.value)} placeholder="Search by name or ID…" style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px 8px 34px",fontSize:13,fontFamily:"inherit",outline:"none",boxShadow:T.shadow}}/>
             </div>
-            <Sel value={filters.status} onChange={sf("status")} options={["All","Draft","Preflight","Pending Approval","Approved","Executing","Completed","Failed","Rolled Back","Aborted","Off-Script"]} style={{minWidth:160}}/>
+            <Sel value={filters.status} onChange={sf("status")} options={["All","Draft","Preflight","Pending Approval","Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]} style={{minWidth:160}}/>
             <Sel value={filters.risk} onChange={sf("risk")} options={["All",...RISK_LEVELS]} style={{minWidth:100}}/></>}
           </div>
 
           {/* Secondary filters collapsible row */}
           {filters.kind!=="Windows"&&<Card style={{marginBottom:12,padding:"10px 14px"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 1fr",gap:10,alignItems:"end"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 1fr 1fr",gap:10,alignItems:"end"}}>
               <Sel label="Team"     value={filters.team}     onChange={sf("team")}     options={["All",...TEAMS]}/>
               <Sel label="Dept"     value={filters.dept}     onChange={sf("dept")}     options={["All",...DEPTS]}/>
               <Sel label="Director" value={filters.director} onChange={sf("director")} options={["All",...DIRECTORS]}/>
               <Sel label="Manager"  value={filters.manager}  onChange={sf("manager")}  options={["All",...MANAGERS]}/>
+              <Sel label="Country"  value={filters.country||"All"} onChange={sf("country")} options={["All",...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
               <Inp label="From" value={filters.dateFrom} onChange={sf("dateFrom")} type="date"/>
               <Inp label="To"   value={filters.dateTo}   onChange={sf("dateTo")}   type="date"/>
             </div>
@@ -2594,7 +2645,7 @@ export default function App(){
                 {["list","grid"].map(m=><button key={m} onClick={()=>sf("viewMode")(m)} style={{padding:"7px 12px",border:"none",background:filters.viewMode===m?T.primaryBg:"transparent",color:filters.viewMode===m?T.primary:T.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:filters.viewMode===m?600:400}}>{m==="list"?"☰ List":"⊞ Grid"}</button>)}
               </div>
               <span style={{fontSize:12,color:T.muted,marginLeft:"auto"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
-              <Btn small variant="ghost" onClick={()=>setFilters(f=>({...f,search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",team:"All",dept:"All",director:"All",manager:"All",domain:"All",dateFrom:"",dateTo:"",kind:"All"}))}>Clear</Btn>
+              <Btn small variant="ghost" onClick={()=>setFilters(f=>({...f,search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",dateFrom:"",dateTo:"",kind:"All"}))}>Clear</Btn>
             </div>
           </Card>}
 
@@ -2638,6 +2689,7 @@ export default function App(){
                 </div>
                 <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
                   <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button><span>·</span><span>{c.team}</span><span>·</span><span>{c.manager}</span>
+                  {c.country&&<><span>·</span><span style={{fontWeight:700}}>{c.country}</span></>}
                   {c.scheduledFor&&<><span>·</span><span>📅 {fmt(c.scheduledFor,true)}</span></>}
                   {c.scheduledEnd&&<><span>→</span><span>{fmt(c.scheduledEnd,true)}</span></>}
                   {c.execResult&&<><span>·</span><span style={{color:{Successful:"#15803d",Failed:"#b91c1c",Aborted:"#7c3aed"}[c.execResult]||T.muted,fontWeight:600}}>{c.execResult}</span></>}
@@ -2686,8 +2738,8 @@ export default function App(){
         {/* PEAK CALENDAR */}
         {view==="peakcal"&&<div>
           <Card style={{marginBottom:16,padding:"16px 20px"}}>
-            <div style={{fontSize:15,fontWeight:800,color:T.text,marginBottom:4}}>📅 Peak Period Calendar</div>
-            <div style={{fontSize:13,color:T.muted}}>Changes scheduled during peak periods require Director approval and business justification. Normal changes may be blocked.</div>
+            <div style={{fontSize:15,fontWeight:800,color:T.text,marginBottom:4}}>🔴 Change Freeze Calendar</div>
+            <div style={{fontSize:13,color:T.muted}}>Changes scheduled during freeze periods require Director approval and business justification. Non-critical changes may be blocked.</div>
           </Card>
           {PEAK_PERIODS.map(p=>{
             const now2=new Date().toISOString().slice(0,10);
@@ -2708,17 +2760,17 @@ export default function App(){
                 </span>
               </div>
               {active&&<div style={{marginTop:10,background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:7,padding:"9px 13px",fontSize:12,color:T.freeze}}>
-                ⚠ This peak period is currently active. All changes require Director approval and freeze justification.
+                ⚠ This change freeze is currently active. All changes require Director approval and business justification.
               </div>}
             </Card>;
           })}
           <Card style={{marginTop:16,background:"#fffbeb",border:"1px solid #fcd34d"}}>
-            <div style={{fontWeight:700,color:"#92400e",fontSize:13,marginBottom:6}}>ℹ How peak periods affect changes</div>
+            <div style={{fontWeight:700,color:"#92400e",fontSize:13,marginBottom:6}}>ℹ How change freezes affect changes</div>
             <div style={{fontSize:12,color:T.text,lineHeight:1.8}}>
-              • <b>Standard changes</b>: Allowed with normal approval<br/>
-              • <b>Normal changes</b>: Require additional Director approval during peak<br/>
-              • <b>Emergency changes</b>: Always allowed but require Director + Bar Raiser<br/>
-              • Business justification is mandatory for all non-standard changes during peak
+              • <b>Low / Medium risk</b>: Allowed with normal approval outside freeze<br/>
+              • <b>High / Critical risk</b>: Require Director approval at all times<br/>
+              • <b>During Change Freeze</b>: Director approval + business justification mandatory for all changes<br/>
+              • <b>Critical SLA breach</b>: Director may grant freeze override with Bar Raiser review
             </div>
           </Card>
         </div>}
