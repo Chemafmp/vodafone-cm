@@ -4,8 +4,11 @@ import { genId, now, fmt, applyVars } from "../utils/helpers.js";
 import { isInPeakPeriod, CAT_META, getCategoryRules } from "../utils/helpers.js";
 import { RiskPill, Btn, Inp, Sel } from "./ui/index.jsx";
 
+// severity helpers (mirrors FreezeManager SEV)
+const SEV_LABEL = { orange:"🟠 Orange — Head of / Manager approval", red:"🔴 Red — Director approval" };
+
 // ─── CREATE MODE PICKER ───────────────────────────────────────────────────────
-export function CreateModePicker({templates, activePeak, currentUser, onPickAdHoc, onPickTemplate, onPickNewTemplate, onClose, onCreate}) {
+export function CreateModePicker({templates, activePeak, currentUser, peaks=[], onPickAdHoc, onPickTemplate, onPickNewTemplate, onClose, onCreate}) {
   const [step, setStep] = useState("pick"); // "pick" | "template-list" | "template-fill"
   const [selectedTemplate, setSelectedTemplate] = useState(null);
 
@@ -40,6 +43,7 @@ export function CreateModePicker({templates, activePeak, currentUser, onPickAdHo
     return <TemplateQuickFill
       template={selectedTemplate}
       activePeak={activePeak}
+      peaks={peaks}
       currentUser={currentUser}
       onCreate={c => { onCreate(c); onClose(); }}
       onClose={onClose}
@@ -59,15 +63,18 @@ export function CreateModePicker({templates, activePeak, currentUser, onPickAdHo
             <button onClick={onClose} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,cursor:"pointer",fontSize:16,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
           </div>
 
-          {activePeak && (
-            <div style={{margin:"16px 24px 0",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:10,padding:"12px 16px",display:"flex",gap:12,alignItems:"flex-start"}}>
-              <span style={{fontSize:18,flexShrink:0}}>❄</span>
+          {activePeak && (()=>{
+            const isOrange=activePeak.severity==="orange";
+            const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+            const approver=isOrange?"Head of / Manager":"Director";
+            return <div style={{margin:"16px 24px 0",background:fb,border:`1px solid ${fb2}`,borderRadius:10,padding:"12px 16px",display:"flex",gap:12,alignItems:"flex-start"}}>
+              <span style={{fontSize:18,flexShrink:0}}>{isOrange?"⚠":"❄"}</span>
               <div>
-                <div style={{fontWeight:700,color:T.freeze,fontSize:13}}>Network Freeze Active: {activePeak.name}</div>
-                <div style={{fontSize:12,color:"#b91c1c",marginTop:2}}>Any change created now will require <b>Director approval + business justification</b>. All changes are affected.</div>
+                <div style={{fontWeight:700,color:fc,fontSize:13}}>{SEV_LABEL[activePeak.severity]||"Network Freeze"} Active: {activePeak.name}</div>
+                <div style={{fontSize:12,color:fc,marginTop:2}}>Any change created now will require <b>{approver} approval + business justification</b>.</div>
               </div>
-            </div>
-          )}
+            </div>;
+          })()}
 
           <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:12}}>
             {OPTIONS.map(o=>(
@@ -150,7 +157,7 @@ export function StepEditorForm({draft, sdSf, onSave, onCancel}) {
 }
 
 // ─── TEMPLATE QUICK-FILL ─────────────────────────────────────────────────────
-export function TemplateQuickFill({template, activePeak, currentUser, onCreate, onClose}) {
+export function TemplateQuickFill({template, activePeak, peaks=[], currentUser, onCreate, onClose}) {
   const tvars = template.variables || [];
   const [vars, setVars] = useState(
     Object.fromEntries(tvars.map(v => [v.key, v.defaultValue || ""]))
@@ -167,7 +174,7 @@ export function TemplateQuickFill({template, activePeak, currentUser, onCreate, 
   const [assignedTo, setAssignedTo] = useState(currentUser.name);
   const [country, setCountry] = useState(template.country || "");
 
-  const peakConflict = isInPeakPeriod(scheduledFor);
+  const peakConflict = isInPeakPeriod(scheduledFor, peaks);
 
   // Required vars validation
   const missingRequired = tvars.filter(v => v.required && !vars[v.key]?.trim());
@@ -198,11 +205,12 @@ export function TemplateQuickFill({template, activePeak, currentUser, onCreate, 
       actualStart: null,
       actualEnd: null,
       freezePeriod: !!peakConflict,
+      freezeSeverity: peakConflict?.severity || null,
       auditLog: [
         {at: now(), msg: `Change created from template: ${template.name}`, type:"info", by: currentUser.name},
         {at: now(), msg: `Assigned to: ${assignedTo}`, type:"info", by: currentUser.name},
         ...(tvars.length ? [{at:now(), msg:`Variables: ${tvars.map(v=>`${v.label}=${vars[v.key]||"(empty)"}`).join(", ")}`, type:"info", by:currentUser.name}] : []),
-        ...(peakConflict ? [{at:now(), msg:`❄ Network freeze — Director approval required`, type:"warning", by: currentUser.name}] : []),
+        ...(peakConflict ? [{at:now(), msg:`${peakConflict.severity==="orange"?"⚠ Orange":"❄ Red"} freeze — ${peakConflict.severity==="orange"?"Head of":"Director"} approval required`, type:"warning", by: currentUser.name}] : []),
       ],
       notifications: [],
     };
@@ -225,15 +233,17 @@ export function TemplateQuickFill({template, activePeak, currentUser, onCreate, 
 
         <div style={{padding:"22px 24px",display:"flex",flexDirection:"column",gap:14}}>
 
-          {activePeak && (
-            <div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:9,padding:"11px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
-              <span style={{fontSize:16,flexShrink:0}}>❄</span>
+          {activePeak && (()=>{
+            const isOrange=activePeak.severity==="orange";
+            const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+            return <div style={{background:fb,border:`1px solid ${fb2}`,borderRadius:9,padding:"11px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:16,flexShrink:0}}>{isOrange?"⚠":"❄"}</span>
               <div>
-                <div style={{fontWeight:700,color:T.freeze,fontSize:13}}>Network Freeze: {activePeak.name}</div>
-                <div style={{fontSize:12,color:"#b91c1c",marginTop:1}}>All changes require Director approval + business justification.</div>
+                <div style={{fontWeight:700,color:fc,fontSize:13}}>{isOrange?"🟠 Orange":"🔴 Red"} Freeze: {activePeak.name}</div>
+                <div style={{fontSize:12,color:fc,marginTop:1}}>{isOrange?"Head of / Manager":"Director"} approval + business justification required.</div>
               </div>
-            </div>
-          )}
+            </div>;
+          })()}
 
           {/* ── Template Variables ── */}
           {tvars.length > 0 && (
@@ -285,11 +295,14 @@ export function TemplateQuickFill({template, activePeak, currentUser, onCreate, 
             <Inp label="Scheduled End" value={scheduledEnd} onChange={setScheduledEnd} type="datetime-local"/>
           </div>
 
-          {peakConflict && (
-            <div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:7,padding:"9px 13px",fontSize:12,color:T.freeze}}>
-              ⚠ Selected date falls in <b>{peakConflict.name}</b> freeze. Director approval will be required.
-            </div>
-          )}
+          {peakConflict && (()=>{
+            const isOrange=peakConflict.severity==="orange";
+            const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+            const approver=isOrange?"Head of / Manager":"Director";
+            return <div style={{background:fb,border:`1px solid ${fb2}`,borderRadius:7,padding:"9px 13px",fontSize:12,color:fc}}>
+              {isOrange?"⚠":"❄"} Selected date falls in <b>{peakConflict.name}</b> ({isOrange?"🟠 Orange":"🔴 Red"} freeze). {approver} approval will be required.
+            </div>;
+          })()}
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Assigned Technician *" value={assignedTo} onChange={setAssignedTo}
@@ -357,8 +370,8 @@ const USERS=[
   {id:"u10",name:"Sam Reyes",  role:"Manager",  team:"Data Core",     dept:"Operations"},
 ];
 
-export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, currentUser, onClose, onCreate}) {
-  const peakConflict = isInPeakPeriod(nc.scheduledFor);
+export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, currentUser, peaks=[], onClose, onCreate}) {
+  const peakConflict = isInPeakPeriod(nc.scheduledFor, peaks);
   const catRules = getCategoryRules(nc.category, nc.risk);
   const catM = CAT_META[nc.category] || CAT_META.Normal;
 
@@ -471,7 +484,7 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
       auditLog: [
         { at: now(), msg: `Change created — ${normSteps.length} step${normSteps.length!==1?"s":""}`, type:"info", by: currentUser.name },
         ...(nc.approvers.length ? [{ at:now(), msg:`Approvers assigned: ${nc.approvers.map(a=>a.name).join(", ")}`, type:"info", by: currentUser.name }] : []),
-        ...(nc.freezePeriod ? [{ at:now(), msg:`⚠ Network freeze — Director approval required`, type:"warning", by: currentUser.name }] : []),
+        ...(nc.freezePeriod ? [{ at:now(), msg:`${nc.freezeSeverity==="orange"?"⚠ Orange":"❄ Red"} freeze — ${nc.freezeSeverity==="orange"?"Head of":"Director"} approval required`, type:"warning", by: currentUser.name }] : []),
       ],
       notifications: [],
     };
@@ -541,24 +554,27 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
                   options={[{value:"",label:"— Select Country —"},...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <Inp label="Scheduled Start *" value={nc.scheduledFor} onChange={v=>{ncSf("scheduledFor")(v); ncSf("freezePeriod")(!!isInPeakPeriod(v));}} type="datetime-local"/>
+                <Inp label="Scheduled Start *" value={nc.scheduledFor} onChange={v=>{const pk=isInPeakPeriod(v,peaks);setNc(f=>({...f,scheduledFor:v,freezePeriod:!!pk,freezeSeverity:pk?.severity||null}));}} type="datetime-local"/>
                 <Inp label="Scheduled End *" value={nc.scheduledEnd||""} onChange={ncSf("scheduledEnd")} type="datetime-local"/>
               </div>
 
               {/* Peak period warning */}
-              {peakConflict && (
-                <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:8, padding:"12px 16px" }}>
-                  <div style={{ fontWeight:700, color:T.freeze, fontSize:13, marginBottom:4 }}>❄ Network Freeze: {peakConflict.name}</div>
-                  <div style={{ fontSize:12, color:"#b91c1c" }}>This change falls within a protected freeze period. <b>Director approval + business justification are mandatory.</b></div>
-                </div>
-              )}
+              {peakConflict && (()=>{
+                const isOrange=peakConflict.severity==="orange";
+                const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+                const approver=isOrange?"Head of / Manager":"Director";
+                return <div style={{ background:fb, border:`1px solid ${fb2}`, borderRadius:8, padding:"12px 16px" }}>
+                  <div style={{ fontWeight:700, color:fc, fontSize:13, marginBottom:4 }}>{isOrange?"🟠 Orange":"🔴 Red"} Freeze: {peakConflict.name}</div>
+                  <div style={{ fontSize:12, color:fc }}><b>{approver} approval + business justification are mandatory.</b></div>
+                </div>;
+              })()}
 
               {/* Auto-approver guidance */}
               {(() => {
                 const autoR = [];
                 if (["High","Critical"].includes(nc.risk)) autoR.push({label:"Director approval required", reason:`Risk level: ${nc.risk}`, col:"#b91c1c"});
                 if (["Medium","High","Critical"].includes(nc.risk)) autoR.push({label:"Manager approval required", reason:`Risk level: ${nc.risk}`, col:T.primary});
-                if (peakConflict || nc.freezePeriod) autoR.push({label:"Director approval required", reason:"Network freeze active", col:T.freeze});
+                if (peakConflict || nc.freezePeriod) autoR.push({label:`${(peakConflict||{severity:nc.freezeSeverity}).severity==="orange"?"Head of / Manager":"Director"} approval required`, reason:`${(peakConflict||{severity:nc.freezeSeverity}).severity==="orange"?"🟠 Orange":"🔴 Red"} freeze active`, col:T.freeze});
                 if (nc.risk === "Critical") autoR.push({label:"Bar Raiser required", reason:"Critical risk", col:"#7c2d12"});
                 const uniq = autoR.filter((a,i) => autoR.findIndex(x=>x.label===a.label)===i);
                 return uniq.length > 0 ? (

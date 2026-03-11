@@ -11,8 +11,10 @@ export function RiskPill({risk}){
   const c=RISK_C[risk]||"#64748b";
   return <span style={{background:c+"12",color:c,border:`1px solid ${c}30`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700}}>{risk}</span>;
 }
-export function FreezeTag(){
-  return <span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:4,padding:"2px 7px",fontSize:10,fontWeight:700}}>❄ FREEZE</span>;
+export function FreezeTag({severity="red"}){
+  const isOrange=severity==="orange";
+  const bg=isOrange?"#fff7ed":"#fef2f2", col=isOrange?"#c2410c":"#dc2626", border=isOrange?"#fed7aa":"#fca5a5";
+  return <span style={{background:bg,color:col,border:`1px solid ${border}`,borderRadius:4,padding:"2px 7px",fontSize:10,fontWeight:700}}>{isOrange?"⚠":"❄"} FREEZE</span>;
 }
 export function TypeTag({type}){
   const c=type==="Template"?"#6d28d9":type==="Automated"?"#0e7490":"#b45309";

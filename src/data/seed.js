@@ -1,12 +1,14 @@
 import { d } from "../utils/helpers.js";
 import { genId } from "../utils/helpers.js";
 
+// severity: "orange" → Head of / Manager approval required
+//           "red"    → Director approval required
 export const PEAK_PERIODS = [
-  {id:"p1", name:"Prime Day 2025",       start:"2025-07-08", end:"2025-07-09", color:"#dc2626"},
-  {id:"p2", name:"Black Friday 2025",    start:"2025-11-28", end:"2025-11-28", color:"#dc2626"},
-  {id:"p3", name:"Cyber Monday 2025",    start:"2025-12-01", end:"2025-12-01", color:"#dc2626"},
-  {id:"p4", name:"Holiday Peak Q4 2025", start:"2025-12-15", end:"2026-01-05", color:"#b91c1c"},
-  {id:"p5", name:"Super Promo MAR 2026", start:"2026-03-07", end:"2026-03-14", color:"#dc2626"},
+  {id:"p1", name:"Prime Day 2025",       start:"2025-07-08", end:"2025-07-09", severity:"red",    reason:"Major promotional event — Director approval required for all changes."},
+  {id:"p2", name:"Black Friday 2025",    start:"2025-11-28", end:"2025-11-28", severity:"red",    reason:"Peak traffic event — change freeze enforced. Director sign-off mandatory."},
+  {id:"p3", name:"Cyber Monday 2025",    start:"2025-12-01", end:"2025-12-01", severity:"orange", reason:"Extended peak period — Head of approval required for all changes."},
+  {id:"p4", name:"Holiday Peak Q4 2025", start:"2025-12-15", end:"2026-01-05", severity:"red",    reason:"Year-end freeze — no changes without Director sign-off."},
+  {id:"p5", name:"Super Promo MAR 2026", start:"2026-03-07", end:"2026-03-14", severity:"red",    reason:"All changes require Director approval + business justification."},
 ];
 
 export const SEED_CHANGES = [

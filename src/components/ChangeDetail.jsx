@@ -67,8 +67,9 @@ function CopyIdButton({id}) {
 }
 
 // ─── CHANGE DETAIL MODAL ──────────────────────────────────────────────────────
-export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
+export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDelete}){
   const [tab,setTab]=useState("overview");
+  const [confirmingDelete,setConfirmingDelete]=useState(false);
   const TABS=["overview","preflight","steps","approval","execution","comments","cab","log"];
   const avail=t=>{
     const s=change.status;
@@ -147,7 +148,11 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
   const levelColor={L1:"#15803d",L2:T.primary,L3:"#b91c1c"};
   const canApprove=()=>{
     const r=currentUser.role;
-    if(change.freezePeriod) return r==="Director";
+    if(change.freezePeriod){
+      // orange freeze → Head of / Manager or above; red (or unset) → Director only
+      if(change.freezeSeverity==="orange") return ["Manager","Director"].includes(r);
+      return r==="Director";
+    }
     if(change.approvalLevel==="L1"&&r==="Engineer") return true;
     if(change.approvalLevel==="L2"&&["Manager","Director"].includes(r)) return true;
     if(change.approvalLevel==="L3"&&r==="Director") return true;
@@ -376,19 +381,48 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
     </div>
   );
 
+  const PRE_APPROVAL_STATUSES = ["Draft","Preflight","Pending Approval"];
+  const canDelete = PRE_APPROVAL_STATUSES.includes(change.status) && !!onDelete;
+  const canAbortApproved = change.status==="Approved" && !!onUpdate;
+
   return <Modal title={change.name} onClose={onClose} width={940}>
     {/* chips */}
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
       <Badge status={change.status}/><RiskPill risk={change.risk}/>
       <TypeTag type={change.type}/><IntrusionTag v={change.intrusion}/>
-      {change.freezePeriod&&<FreezeTag/>}
+      {change.freezePeriod&&<FreezeTag severity={change.freezeSeverity||"red"}/>}
       {change.execResult&&<span style={{fontSize:11,background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",borderRadius:4,padding:"2px 8px",fontWeight:600}}>{change.execResult}</span>}
       <span style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
+        {canAbortApproved&&(
+          <button onClick={()=>{moveTo("Aborted");addLog("Change aborted before execution","warning");}}
+            style={{fontSize:11,fontWeight:700,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontFamily:"inherit",background:"#fff7ed",color:"#c2410c",border:"1px solid #fed7aa"}}>
+            ⊘ Abort
+          </button>
+        )}
+        {canDelete&&(
+          <button onClick={()=>setConfirmingDelete(true)}
+            style={{fontSize:11,fontWeight:700,cursor:"pointer",borderRadius:6,padding:"4px 10px",fontFamily:"inherit",background:"#fef2f2",color:"#b91c1c",border:"1px solid #fca5a5"}}>
+            🗑 Delete
+          </button>
+        )}
         <span style={{fontSize:11,color:T.light}}>ID:</span>
         <b style={{color:T.muted,fontFamily:"monospace",fontSize:11}}>{change.id}</b>
         <CopyIdButton id={change.id}/>
       </span>
     </div>
+
+    {/* Delete confirmation inline banner */}
+    {confirmingDelete&&(
+      <div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:8,padding:"14px 16px",marginBottom:14,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:13,color:"#b91c1c",fontWeight:600,flex:1}}>
+          🗑 Permanently delete this change? This cannot be undone.
+        </span>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small variant="ghost" onClick={()=>setConfirmingDelete(false)}>Cancel</Btn>
+          <Btn small variant="danger" onClick={()=>{onDelete();onClose();}}>Yes, Delete</Btn>
+        </div>
+      </div>
+    )}
     {/* tabs */}
     <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,marginBottom:20,overflowX:"auto",gap:2}}>
       {TABS.map(t=>{
@@ -400,10 +434,15 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
 
     {/* overview */}
     {tab==="overview"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-      {change.freezePeriod&&<div style={{gridColumn:"1/-1",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:8,padding:"12px 16px"}}>
-        <div style={{fontWeight:700,color:T.freeze,fontSize:13,marginBottom:4}}>❄ Freeze Period — Director Approval Required</div>
-        <div style={{fontSize:12,color:"#b91c1c",fontStyle:"italic"}}>"{change.freezeJustification}"</div>
-      </div>}
+      {change.freezePeriod&&(()=>{
+        const isOrange=change.freezeSeverity==="orange";
+        const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+        const approver=isOrange?"Head of / Manager":"Director";
+        return <div style={{gridColumn:"1/-1",background:fb,border:`1px solid ${fb2}`,borderRadius:8,padding:"12px 16px"}}>
+          <div style={{fontWeight:700,color:fc,fontSize:13,marginBottom:4}}>{isOrange?"⚠":"❄"} Freeze Period — {approver} Approval Required</div>
+          <div style={{fontSize:12,color:fc,fontStyle:"italic"}}>"{change.freezeJustification}"</div>
+        </div>;
+      })()}
       {change.purpose&&<div style={{gridColumn:"1/-1"}}>
         <div style={{fontSize:11,fontWeight:600,color:T.muted,textTransform:"uppercase",marginBottom:4}}>Purpose / Activity Details</div>
         <div style={{fontSize:13,color:T.text,lineHeight:1.6,background:T.bg,padding:"10px 13px",borderRadius:7,border:`1px solid ${T.border}`}}>{change.purpose}</div>
@@ -535,14 +574,19 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
 
     {/* approval */}
     {tab==="approval"&&<div>
-      {change.freezePeriod&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:8,padding:"12px 16px",marginBottom:16}}>
-        <div style={{fontWeight:700,color:T.freeze,fontSize:13}}>❄ Freeze Period — Only Director can approve</div>
-        <div style={{fontSize:12,color:"#b91c1c",marginTop:2,fontStyle:"italic"}}>"{change.freezeJustification}"</div>
-      </div>}
+      {change.freezePeriod&&(()=>{
+        const isOrange=change.freezeSeverity==="orange";
+        const fc=isOrange?"#c2410c":"#dc2626", fb=isOrange?"#fff7ed":"#fef2f2", fb2=isOrange?"#fed7aa":"#fca5a5";
+        const approver=isOrange?"Head of / Manager":"Director";
+        return <div style={{background:fb,border:`1px solid ${fb2}`,borderRadius:8,padding:"12px 16px",marginBottom:16}}>
+          <div style={{fontWeight:700,color:fc,fontSize:13}}>{isOrange?"⚠":"❄"} Freeze Period — Only {approver} can approve</div>
+          <div style={{fontSize:12,color:fc,marginTop:2,fontStyle:"italic"}}>"{change.freezeJustification}"</div>
+        </div>;
+      })()}
       <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:18,padding:13,background:(levelColor[change.approvalLevel]||T.muted)+"0d",borderRadius:8,border:`1px solid ${(levelColor[change.approvalLevel]||T.muted)}30`}}>
-        <div style={{fontSize:24,fontWeight:800,color:change.freezePeriod?T.freeze:levelColor[change.approvalLevel],fontFamily:"monospace"}}>{change.freezePeriod?"L3":change.approvalLevel}</div>
+        <div style={{fontSize:24,fontWeight:800,color:change.freezePeriod?(change.freezeSeverity==="orange"?"#c2410c":T.freeze):levelColor[change.approvalLevel],fontFamily:"monospace"}}>{change.freezePeriod?(change.freezeSeverity==="orange"?"L2":"L3"):change.approvalLevel}</div>
         <div>
-          <div style={{fontWeight:700,color:T.text,fontSize:14}}>{change.freezePeriod?"Director (Freeze Override)":({L1:"Peer / Auto",L2:"Manager Review",L3:"Director / Bar Raiser"})[change.approvalLevel]}</div>
+          <div style={{fontWeight:700,color:T.text,fontSize:14}}>{change.freezePeriod?(change.freezeSeverity==="orange"?"Head of / Manager (Freeze Override)":"Director (Freeze Override)"):({L1:"Peer / Auto",L2:"Manager Review",L3:"Director / Bar Raiser"})[change.approvalLevel]}</div>
           <div style={{fontSize:12,color:T.muted,marginTop:3,display:"flex",gap:8,alignItems:"center"}}><RiskPill risk={change.risk}/>{change.cab&&<span style={{fontSize:11,color:T.primary,fontWeight:600}}>CAB required</span>}</div>
         </div>
       </div>
@@ -559,7 +603,11 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
           <Btn variant="success" onClick={()=>{const e={by:currentUser.name,action:"approved",at:now(),comment:aprComment};onUpdate(c=>({...c,status:"Approved",approvals:[...(c.approvals||[]),e]}));addLog(`Approved by ${currentUser.name}`,"success");setAprComment("");setTab("execution");}}>✓ Approve</Btn>
           <Btn variant="danger"  onClick={()=>{const e={by:currentUser.name,action:"rejected",at:now(),comment:aprComment};onUpdate(c=>({...c,status:"Draft",approvals:[...(c.approvals||[]),e]}));addLog(`Rejected by ${currentUser.name}`,"error");setAprComment("");}}>✗ Reject</Btn>
         </div>
-        :<div style={{fontSize:13,color:T.muted,padding:"9px 13px",background:T.bg,borderRadius:7,border:`1px solid ${T.border}`}}>{change.freezePeriod?`Freeze: only Directors can approve (you are ${currentUser.role})`:`Your role (${currentUser.role}) cannot approve ${change.approvalLevel}`}</div>}
+        :<div style={{fontSize:13,color:T.muted,padding:"9px 13px",background:T.bg,borderRadius:7,border:`1px solid ${T.border}`}}>{
+          change.freezePeriod
+            ? `Freeze (${change.freezeSeverity==="orange"?"🟠 Orange — Head of":"🔴 Red — Director"} required): you are ${currentUser.role}`
+            : `Your role (${currentUser.role}) cannot approve ${change.approvalLevel}`
+        }</div>}
     </div>}
 
     {/* execution */}

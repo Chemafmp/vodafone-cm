@@ -12,6 +12,13 @@ export function fmt(iso,short=false){
   return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})+" "+
          d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
 }
+// date + time without year: "13 Mar 14:30"
+export function fmtDT(iso){
+  if(!iso) return "—";
+  const d=new Date(iso);
+  return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})+" "+
+         d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+}
 export function fmtSec(s){ const m=Math.floor(s/60), sec=s%60; return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`; }
 
 export function exportAuditCSV(changes){
@@ -27,16 +34,15 @@ export function exportAuditCSV(changes){
 }
 
 // ─── PEAK CALENDAR (auto-freeze) ─────────────────────────────────────────────
-import { PEAK_PERIODS } from "../data/seed.js";
-
-export function isInPeakPeriod(dateIso) {
+// peaks array passed as parameter so App state drives everything
+export function isInPeakPeriod(dateIso, peaks=[]) {
   if (!dateIso) return null;
   const d = new Date(dateIso).toISOString().slice(0,10);
-  return PEAK_PERIODS.find(p => d >= p.start && d <= p.end) || null;
+  return peaks.find(p => d >= p.start && d <= p.end) || null;
 }
-export function getActivePeak() {
+export function getActivePeak(peaks=[]) {
   const today = new Date().toISOString().slice(0,10);
-  return PEAK_PERIODS.find(p => today >= p.start && today <= p.end) || null;
+  return peaks.find(p => today >= p.start && today <= p.end) || null;
 }
 
 // ─── TEMPLATE VARIABLE SUBSTITUTION ──────────────────────────────────────────

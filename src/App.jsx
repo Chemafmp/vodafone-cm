@@ -2,11 +2,12 @@ import { useState, useMemo, useEffect } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
-import { fmt, genId, now, getActivePeak, isInPeakPeriod } from "./utils/helpers.js";
+import { fmt, fmtDT, genId, now, getActivePeak } from "./utils/helpers.js";
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
 import ChangeDetail from "./components/ChangeDetail.jsx";
+import FreezeManager from "./components/FreezeManager.jsx";
 import { CreateModePicker } from "./components/CreateChange.jsx";
 import CreateChangeMCM from "./components/CreateChange.jsx";
 
@@ -31,7 +32,8 @@ export default function App(){
   const [view,setView]=useState("changes");
   const [selected,setSelected]=useState(null);
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
-  const activePeak = useMemo(()=>getActivePeak(),[]);
+  const [peaks,setPeaks]=useState(PEAK_PERIODS);
+  const activePeak = useMemo(()=>getActivePeak(peaks),[peaks]);
   const [myWorkFilter,setMyWorkFilter]=useState(null);
 
   // Hash-based change linking
@@ -146,7 +148,7 @@ export default function App(){
     purpose:"",requirementsPermissions:"",expectedEndState:"",assumptions:"",
     serviceImpact:"",affectedServices:"",affectedDevices:"",customerImpact:"",
     rollbackPlan:"",rollbackTime:"",
-    freezePeriod:false,freezeJustification:"",
+    freezePeriod:false,freezeJustification:"",freezeSeverity:null,
     relatedTickets:"",lseId:"",incidentId:"",
     cabRequired:false,barRaiserRequired:false,
     blastRadius:"",dependencies:"",
@@ -222,14 +224,21 @@ export default function App(){
         </div>
       </div>
 
-      {activePeak&&<div style={{background:"linear-gradient(90deg,#7f1d1d,#991b1b)",color:"#fff",padding:"10px 28px",display:"flex",alignItems:"center",gap:14,flexShrink:0,boxShadow:"0 2px 8px rgba(127,29,29,0.3)"}}>
-        <span style={{fontSize:16,flexShrink:0}}>❄</span>
-        <div style={{flex:1}}>
-          <span style={{fontWeight:700,fontSize:13}}>Network Freeze Period Active — {activePeak.name}</span>
-          <span style={{fontSize:12,opacity:0.85,marginLeft:12}}>{activePeak.start} → {activePeak.end} · All changes require Director approval + business justification. No changes proceed without Director sign-off.</span>
-        </div>
-        <span style={{fontSize:11,background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,padding:"3px 10px",fontWeight:700,letterSpacing:"0.5px",whiteSpace:"nowrap"}}>ACTIVE FREEZE</span>
-      </div>}
+      {activePeak&&(()=>{
+        const isOrange=activePeak.severity==="orange";
+        const bg=isOrange?"linear-gradient(90deg,#78350f,#92400e)":"linear-gradient(90deg,#7f1d1d,#991b1b)";
+        const shadow=isOrange?"rgba(120,53,15,0.3)":"rgba(127,29,29,0.3)";
+        const approver=isOrange?"Head of / Manager":"Director";
+        const icon=isOrange?"⚠":"❄";
+        return <div style={{background:bg,color:"#fff",padding:"10px 28px",display:"flex",alignItems:"center",gap:14,flexShrink:0,boxShadow:`0 2px 8px ${shadow}`}}>
+          <span style={{fontSize:16,flexShrink:0}}>{icon}</span>
+          <div style={{flex:1}}>
+            <span style={{fontWeight:700,fontSize:13}}>{isOrange?"🟠":"🔴"} Network Freeze Period Active — {activePeak.name}</span>
+            <span style={{fontSize:12,opacity:0.85,marginLeft:12}}>{activePeak.start} → {activePeak.end} · All changes require {approver} approval + business justification.</span>
+          </div>
+          <span style={{fontSize:11,background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,padding:"3px 10px",fontWeight:700,letterSpacing:"0.5px",whiteSpace:"nowrap"}}>ACTIVE FREEZE</span>
+        </div>;
+      })()}
 
       <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
 
@@ -286,7 +295,7 @@ export default function App(){
                         <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:11,color:T.muted,alignItems:"center"}}>
                           {c.scheduledFor&&<span>📅 {fmt(c.scheduledFor,true)}</span>}
                           <span>· {c.domain}</span>{c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
-                          {c.freezePeriod&&<FreezeTag/>}
+                          {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                         </div>
                       </div>
                       <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
@@ -380,7 +389,7 @@ export default function App(){
                           <span>· {c.domain}</span>
                           {c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
                           <span>· {c.approvalLevel}</span>
-                          {c.freezePeriod&&<FreezeTag/>}
+                          {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                         </div>
                       </div>
                       <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
@@ -494,7 +503,7 @@ export default function App(){
             <div style={{flex:1}}>
               <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:3}}>
                 <span style={{fontWeight:700,fontSize:13,color:T.text}}>{c.name}</span>
-                {c.freezePeriod&&<FreezeTag/>}
+                {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                 {c.country&&<span style={{fontSize:10,fontWeight:700,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:4,padding:"1px 6px"}}>{c.country}</span>}
               </div>
               <div style={{fontSize:11,color:T.muted}}>{c.team} · {c.manager} · {fmt(c.scheduledFor,true)}</div>
@@ -581,13 +590,12 @@ export default function App(){
                 <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
                   {c.isTemplate&&<span style={{fontSize:10,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #c4b5fd",borderRadius:3,padding:"1px 6px",fontWeight:700}}>TEMPLATE</span>}
                   <span style={{fontWeight:700,fontSize:13,color:T.text}}>{c.name}</span>
-                  {c.freezePeriod&&<FreezeTag/>}
+                  {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                 </div>
                 <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
                   <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button><span>·</span><span>{c.team}</span><span>·</span><span>{c.manager}</span>
                   {c.country&&<><span>·</span><span style={{fontWeight:700}}>{c.country}</span></>}
-                  {c.scheduledFor&&<><span>·</span><span>📅 {fmt(c.scheduledFor,true)}</span></>}
-                  {c.scheduledEnd&&<><span>→</span><span>{fmt(c.scheduledEnd,true)}</span></>}
+                  {c.scheduledFor&&<><span>·</span><span>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</span></>}
                   {c.execResult&&<><span>·</span><span style={{color:{Successful:"#15803d",Failed:"#b91c1c",Aborted:"#7c3aed"}[c.execResult]||T.muted,fontWeight:600}}>{c.execResult}</span></>}
                 </div>
               </div>
@@ -608,9 +616,9 @@ export default function App(){
               <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{c.domain} · {c.team}</div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                 <TypeTag type={c.type}/><IntrusionTag v={c.intrusion}/>
-                {c.freezePeriod&&<FreezeTag/>}
+                {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
               </div>
-              <div style={{fontSize:11,color:T.light,marginTop:8}}>{fmt(c.scheduledFor,true)} · {c.manager}</div>
+              <div style={{fontSize:11,color:T.light,marginTop:8}}>{c.scheduledFor?<>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</>:"—"} · {c.manager}</div>
             </Card>)}
           </div>}
         </div>}
@@ -631,54 +639,18 @@ export default function App(){
           </Card>
         </div>}
 
-        {/* PEAK CALENDAR */}
-        {view==="peakcal"&&<div>
-          <Card style={{marginBottom:16,padding:"16px 20px"}}>
-            <div style={{fontSize:15,fontWeight:800,color:T.text,marginBottom:4}}>🔴 Change Freeze Calendar</div>
-            <div style={{fontSize:13,color:T.muted}}>Changes scheduled during freeze periods require Director approval and business justification. Non-critical changes may be blocked.</div>
-          </Card>
-          {PEAK_PERIODS.map(p=>{
-            const now2=new Date().toISOString().slice(0,10);
-            const active=now2>=p.start&&now2<=p.end;
-            const past=now2>p.end;
-            return <Card key={p.id} style={{marginBottom:10,borderLeft:`4px solid ${past?"#94a3b8":p.color}`}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <span style={{fontSize:20}}>{active?"🔴":past?"⚫":"🟡"}</span>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:14,color:past?T.muted:p.color}}>{p.name}</div>
-                  <div style={{fontSize:12,color:T.muted,marginTop:2}}>{p.start} → {p.end}</div>
-                </div>
-                <span style={{fontSize:11,padding:"3px 10px",borderRadius:10,fontWeight:700,
-                  background:active?"#fef2f2":past?"#f1f5f9":"#fffbeb",
-                  color:active?T.freeze:past?T.light:"#92400e",
-                  border:`1px solid ${active?"#fca5a5":past?T.border:"#fcd34d"}`}}>
-                  {active?"ACTIVE — CHANGES FROZEN":past?"PASSED":"UPCOMING"}
-                </span>
-              </div>
-              {active&&<div style={{marginTop:10,background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:7,padding:"9px 13px",fontSize:12,color:T.freeze}}>
-                ⚠ This change freeze is currently active. All changes require Director approval and business justification.
-              </div>}
-            </Card>;
-          })}
-          <Card style={{marginTop:16,background:"#fffbeb",border:"1px solid #fcd34d"}}>
-            <div style={{fontWeight:700,color:"#92400e",fontSize:13,marginBottom:6}}>ℹ How change freezes affect changes</div>
-            <div style={{fontSize:12,color:T.text,lineHeight:1.8}}>
-              • <b>Low / Medium risk</b>: Allowed with normal approval outside freeze<br/>
-              • <b>High / Critical risk</b>: Require Director approval at all times<br/>
-              • <b>During Change Freeze</b>: Director approval + business justification mandatory for all changes<br/>
-              • <b>Critical SLA breach</b>: Director may grant freeze override with Bar Raiser review
-            </div>
-          </Card>
-        </div>}
+        {/* PEAK CALENDAR — managed via FreezeManager */}
+        {view==="peakcal"&&<FreezeManager peaks={peaks} setPeaks={setPeaks}/>}
 
       </div>
     </div>
 
     {/* Modals */}
-    {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)}/>}
+    {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)} onDelete={()=>{setChanges(cs=>cs.filter(c=>c.id!==selected.id));closeChange();}}/>}
     {creatingMode==="picker"&&<CreateModePicker
       templates={templates}
       activePeak={activePeak}
+      peaks={peaks}
       currentUser={user}
       onClose={()=>setCreatingMode(null)}
       onPickAdHoc={()=>{setNc({...NC_DEFAULTS,isTemplate:false,type:"Ad-hoc"});setNcStep(0);setCreatingMode("wizard");}}
@@ -707,6 +679,7 @@ export default function App(){
     {creatingMode==="wizard"&&<CreateChangeMCM
       nc={nc} setNc={setNc} ncSf={ncSf} ncStep={ncStep} setNcStep={setNcStep}
       NC_DEFAULTS={NC_DEFAULTS}
+      peaks={peaks}
       currentUser={user}
       onClose={()=>{setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
       onCreate={newC=>{setChanges(cs=>[newC,...cs]);setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
