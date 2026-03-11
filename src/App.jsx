@@ -107,6 +107,20 @@ export default function App(){
 
   const notifCount=[...crs].filter(c=>["Pending Approval","Failed","Aborted"].includes(c.status)||c.freezePeriod&&["Draft","Preflight","Pending Approval"].includes(c.status)).length;
 
+  // Per-template usage metrics — derived from changes that have sourceTemplateId
+  const tmplStats = useMemo(()=>{
+    const m={};
+    crs.forEach(c=>{
+      if(!c.sourceTemplateId) return;
+      if(!m[c.sourceTemplateId]) m[c.sourceTemplateId]={total:0,ok:0,fail:0,running:0};
+      m[c.sourceTemplateId].total++;
+      if(["Completed"].includes(c.status)||c.execResult==="Successful") m[c.sourceTemplateId].ok++;
+      else if(["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status))  m[c.sourceTemplateId].fail++;
+      else if(c.status==="In Execution") m[c.sourceTemplateId].running++;
+    });
+    return m;
+  },[crs]);
+
   const [dashFilters,setDashFilters]=useState({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""});
   const sdf=k=>v=>setDashFilters(f=>({...f,[k]:v}));
   const dashCrs=useMemo(()=>{
@@ -599,10 +613,17 @@ export default function App(){
                   {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                 </div>
                 {c.isTemplate?(
-                  <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
                     <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button>
                     <span>·</span><span>{c.dept}</span><span>·</span><span>{c.domain}</span>
                     {c.variables?.length>0&&<><span>·</span><span>⚙ {c.variables.length} variable{c.variables.length!==1?"s":""}</span></>}
+                    {(()=>{const s=tmplStats[c.id];if(!s) return <><span>·</span><span style={{color:T.light}}>No uses yet</span></>;
+                      return <><span>·</span>
+                        <span style={{fontWeight:600,color:T.text}}>{s.total} use{s.total!==1?"s":""}</span>
+                        {s.ok>0&&<span style={{color:"#15803d",fontWeight:600}}>✓ {s.ok}</span>}
+                        {s.fail>0&&<span style={{color:"#b91c1c",fontWeight:600}}>✗ {s.fail}</span>}
+                        {s.running>0&&<span style={{color:"#0e7490",fontWeight:600}}>⟳ {s.running}</span>}
+                      </>;})()}
                   </div>
                 ):(
                   <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -634,10 +655,18 @@ export default function App(){
                   </div>
                   <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:4,lineHeight:1.3}}>{c.name}</div>
                   <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{c.dept} · {c.domain}</div>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
                     <IntrusionTag v={c.intrusion}/>
                     {c.variables?.length>0&&<span style={{fontSize:10,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 7px"}}>⚙ {c.variables.length} var{c.variables.length!==1?"s":""}</span>}
                   </div>
+                  {(()=>{const s=tmplStats[c.id];
+                    if(!s) return <div style={{fontSize:11,color:T.light,borderTop:`1px solid ${T.border}`,paddingTop:8}}>No uses yet</div>;
+                    return <div style={{fontSize:11,display:"flex",gap:8,alignItems:"center",borderTop:`1px solid ${T.border}`,paddingTop:8}}>
+                      <span style={{fontWeight:700,color:T.text}}>{s.total} use{s.total!==1?"s":""}</span>
+                      {s.ok>0&&<span style={{color:"#15803d",fontWeight:600}}>✓ {s.ok}</span>}
+                      {s.fail>0&&<span style={{color:"#b91c1c",fontWeight:600}}>✗ {s.fail}</span>}
+                      {s.running>0&&<span style={{color:"#0e7490",fontWeight:600}}>⟳ {s.running}</span>}
+                    </div>;})()}
                 </>
               ):(
                 <>
