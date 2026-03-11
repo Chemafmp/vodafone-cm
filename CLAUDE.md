@@ -27,11 +27,15 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 
 ---
 
-## Current State — v1.1-prototype
+## Current State — v1.2
 
-**Tag:** `v1.1-prototype` | **Live:** https://chemafmp.github.io/vodafone-cm/
+**Live:** https://chemafmp.github.io/vodafone-cm/
 
-React 19 + Vite SPA. **No backend, no auth, all data in-memory.** Next step is Phase 1: localStorage persistence.
+React 19 + Vite SPA. **Supabase DB backend (Phase 2 complete).** Data persists across devices/users. No auth yet (Phase 3 next).
+
+**Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
+Tables: `changes` (JSONB), `freeze_periods` (JSONB)
+Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
 
 ---
 
@@ -41,10 +45,15 @@ React 19 + Vite SPA. **No backend, no auth, all data in-memory.** Next step is P
 src/
   App.jsx                  # Main app — all state, navigation, layout (~1700 lines)
   data/
-    seed.js                # SEED_CHANGES (5 records) + PEAK_PERIODS (5 freeze periods)
+    seed.js                # SEED_CHANGES (7 records: 5 templates + 2 op changes)
+                           # DEMO_CHANGES (20 realistic network changes)
+                           # PEAK_PERIODS (6 freeze periods)
     constants.js           # T (theme), TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS,
                            # COUNTRIES, RISK_LEVELS, STATUS_META, RISK_C, EXEC_RESULTS
   utils/
+    db.js                  # Supabase CRUD: fetchChanges, upsertChange, deleteChange,
+                           # fetchPeaks, upsertPeak, syncPeaks, resetToSeedDB, loadDemoDB
+    storage.js             # localStorage helpers (legacy, kept for resetToSeed/loadDemoData)
     helpers.js             # fmt, fmtDT, genId, genChangeId, genTemplateId,
                            # initChangeCounter, initTemplateCounter, now,
                            # isInPeakPeriod, getActivePeak, applyVars,
@@ -71,7 +80,7 @@ src/
 | Template blueprints | `BNOC-TEM-00000001-A` | `BNOC-TEM-00000003-A` | `initTemplateCounter(3)` |
 | Freeze periods etc. | `BNOC-XXXXXXXX` (random) | `BNOC-87351209` | `genId()` |
 
-Counters are initialised in `App.jsx` at module level from the seed counts.
+Counters are initialised in `App.jsx` on mount from the max ID in the loaded data (Option B — self-healing).
 New changes: `genChangeId()` · New templates: `genTemplateId()` · Non-change: `genId()`
 
 ---
@@ -100,12 +109,12 @@ New changes: `genChangeId()` · New templates: `genTemplateId()` · Non-change: 
 ## App.jsx Top-level State
 
 ```js
-const [changes, setChanges]   // All records (templates + changes)
-const [peaks, setPeaks]        // Freeze periods (from PEAK_PERIODS seed, CRUD via FreezeManager)
+const [changes, setChanges]   // All records (templates + changes) — loaded from Supabase on mount
+const [peaks, setPeaks]        // Freeze periods — loaded from Supabase, synced on every change
+const [loading, setLoading]    // true while Supabase fetch is in flight
 const [selected, setSelected]  // Currently open change in detail panel
-const [view, setView]          // "dashboard" | "changes" | "timeline" | "peakcal" | "audit" | "mywork"
+const [view, setView]          // "changes" | "timeline" | "peakcal" | "audit" | "mywork"
 const [filters, setFilters]    // Changes view filters (kind, status, risk, team, etc.)
-const [currentUser, setCurrentUser]  // Active user (role-based UI)
 
 // Derived
 const templates = changes.filter(c => c.isTemplate)
@@ -115,7 +124,9 @@ const activePeak = useMemo(...)  // Current active freeze period if any
 const tmplStats = useMemo(...)   // Per-template usage metrics {total, ok, fail, running}
 ```
 
-`updateChange(id, updater)` — updates both `changes[]` and `selected` simultaneously.
+`updateChange(id, updater)` — updates `changes[]` + `selected` in React state AND calls `upsertChange()` to persist to Supabase.
+`addChange(newC)` — prepends to state AND calls `upsertChange()`.
+`syncPeaks(peaks)` — called via `useEffect` whenever `peaks` changes; wipes and re-inserts all freeze periods in Supabase.
 
 ---
 
@@ -143,32 +154,28 @@ The app is fully functional as a prototype. Migration plan (one phase at a time)
 ### ✅ Phase 0 — Prototype (DONE)
 In-memory, all data resets on page reload. Tagged `v1.1-prototype`.
 
-### 🔲 Phase 1 — localStorage (NEXT)
-**Goal:** Data survives page reload. No backend needed. Single-user only.
+### ✅ Phase 1 — localStorage (DONE)
+Data survives page reload. `src/utils/storage.js` — `useLocalStorage`, `resetToSeed`, `loadDemoData`.
+Dev toolbar: `⟳ Demo data` / `↺ Reset seed` buttons in sidebar.
 
-What to persist: `changes`, `peaks` (freeze periods), ID counters.
-What NOT to persist yet: user session, audit timestamps (keep `now()`).
+### ✅ Phase 2 — Supabase DB (DONE)
+Supabase Postgres replaces localStorage. Data shared across devices/users.
+- `src/utils/db.js` — all CRUD functions
+- `scripts/seed-supabase.mjs` — seeds freeze_periods; changes seeded via `⟳ Demo data` button
+- `updateChange` and `addChange` persist to Supabase automatically
+- `syncPeaks` keeps freeze_periods in sync via `useEffect`
+- Dev toolbar buttons now write to Supabase (not localStorage)
 
-Implementation plan:
-- Add `useLocalStorage(key, defaultValue)` custom hook in `src/utils/storage.js`
-- Replace `useState(SEED_CHANGES)` → `useLocalStorage("bnoc_changes", SEED_CHANGES)`
-- Replace `useState(PEAK_PERIODS)` → `useLocalStorage("bnoc_peaks", PEAK_PERIODS)`
-- Persist ID counters: save `_changeSeq` / `_templateSeq` to localStorage, init from stored value
-- Add a "Reset to seed data" dev button (hidden, e.g. shift+click on logo) for demos
-- No schema migrations needed yet (add a `_version` key for future use)
-
-### 🔲 Phase 2 — Supabase DB
-Replace localStorage with Supabase tables. Add real-time subscriptions.
-Tables: `changes`, `freeze_periods`, `users`.
-
-### 🔲 Phase 3 — Authentication
+### 🔲 Phase 3 — Authentication (NEXT)
 Supabase Auth (email magic link or SSO). `currentUser` from real session.
+`USERS` array in App.jsx replaced by `supabase.auth.getUser()`.
 
 ### 🔲 Phase 4 — RBAC with RLS
 Row-Level Security in Supabase. Each user sees only what their role allows.
+Add generated columns (`data->>'team'`, `data->>'status'`) for policy filtering.
 
 ### 🔲 Phase 5 — Real-time
-Supabase Realtime subscriptions. Multiple users see live updates.
+Supabase Realtime subscriptions. Multiple users see live updates without refresh.
 
 ---
 
