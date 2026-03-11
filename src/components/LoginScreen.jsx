@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TEAMS, DEPTS } from "../data/constants.js";
 import { genId } from "../utils/helpers.js";
 
@@ -42,6 +42,18 @@ export default function LoginScreen({ onLogin }) {
   }
 
   const canSubmit = name.trim().length > 0;
+
+  // index.css sets overflow:hidden on html/body/#root for the main app layout.
+  // Override it while the login screen is visible so the page can scroll on
+  // small screens / Windows browsers, then restore on unmount.
+  useEffect(() => {
+    const els = [document.documentElement, document.body, document.getElementById("root")];
+    const prev = els.map(el => el ? el.style.overflow : "");
+    els.forEach(el => { if (el) { el.style.overflow = "auto"; el.style.height = "auto"; } });
+    return () => {
+      els.forEach((el, i) => { if (el) { el.style.overflow = prev[i]; el.style.height = ""; } });
+    };
+  }, []);
 
   return (
     <div style={{
