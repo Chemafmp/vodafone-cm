@@ -554,10 +554,6 @@ export default function App(){
                 <span style={{fontSize:11,color:active?s.col:T.muted,fontWeight:active?700:400}}>{s.label}</span>
               </div>;
             })}
-            {stats.frozen>0&&<div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,padding:"6px 13px",borderRadius:8,background:"#fef2f2",border:"1px solid #fca5a5"}}>
-              <span style={{fontSize:12}}>❄</span>
-              <span style={{fontSize:11,fontWeight:700,color:T.freeze}}>{stats.frozen} change{stats.frozen>1?"s":""} in freeze — Director approval required</span>
-            </div>}
           </div>
 
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center"}}>
