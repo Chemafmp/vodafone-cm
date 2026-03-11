@@ -67,7 +67,7 @@ function CopyIdButton({id}) {
 }
 
 // ─── CHANGE DETAIL MODAL ──────────────────────────────────────────────────────
-export default function ChangeDetail({change,currentUser,onClose,onUpdate,windows}){
+export default function ChangeDetail({change,currentUser,onClose,onUpdate}){
   const [tab,setTab]=useState("overview");
   const TABS=["overview","preflight","steps","approval","execution","comments","cab","log"];
   const avail=t=>{
@@ -153,7 +153,7 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,window
     if(change.approvalLevel==="L3"&&r==="Director") return true;
     return false;
   };
-  const mw=windows.find(w=>w.id===change.maintenanceWindow);
+  const mw=null; // Maintenance windows removed
 
   // execution TAB UI
   const execTabUI = (
@@ -432,7 +432,7 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,window
       ].map(([l,v])=>(
         <div key={l}><div style={{fontSize:11,color:T.muted,fontWeight:600,textTransform:"uppercase",marginBottom:2}}>{l}</div><div style={{fontSize:13,color:T.text}}>{v||"—"}</div></div>
       ))}
-      {mw&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:T.muted,fontWeight:600,textTransform:"uppercase",marginBottom:2}}>Maintenance Window</div><div style={{fontSize:13,color:T.accent,fontWeight:600}}>{mw.name}</div><div style={{fontSize:11,color:T.muted}}>{fmt(mw.start)} → {fmt(mw.end)}</div></div>}
+
       {change.relatedTickets&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:T.muted,fontWeight:600,textTransform:"uppercase",marginBottom:2}}>Related Tickets</div><div style={{fontSize:13,color:T.text}}>{change.relatedTickets}</div></div>}
       <div style={{gridColumn:"1/-1"}}>
         <div style={{fontSize:11,fontWeight:600,color:T.muted,textTransform:"uppercase",marginBottom:4}}>Rollback Plan</div>
