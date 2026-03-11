@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
-import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
+import { SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
 import { useLocalStorage, KEYS, initStorageVersion, resetToSeed } from "./utils/storage.js";
 
@@ -30,7 +30,7 @@ const USERS=[
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
-  const [changes,setChanges]=useLocalStorage(KEYS.CHANGES, SEED_CHANGES);
+  const [changes,setChanges]=useLocalStorage(KEYS.CHANGES, [...SEED_CHANGES, ...DEMO_CHANGES]);
   const [peaks,setPeaks]=useLocalStorage(KEYS.PEAKS, PEAK_PERIODS);
 
   // Option B — derive counters from actual stored data (self-healing, collision-proof)
@@ -204,7 +204,7 @@ export default function App(){
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
       <div style={{padding:"18px 16px 16px",borderBottom:`1px solid ${T.sidebarBorder}`}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? This cannot be undone.")) resetToSeed();}} title="Shift+click to reset demo data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
+          <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? This cannot be undone.")) resetToSeed(SEED_CHANGES, PEAK_PERIODS);}} title="Shift+click to reset demo data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.25}}>Bodaphone</div>
             <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>BNOC Change Management Platform</div>
@@ -250,7 +250,6 @@ export default function App(){
         <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{view==="mywork"?"My Work":view==="peakcal"?"Change Freeze":NAV.find(n=>n.id===view)?.label ?? "Change Freeze"}</div>
         {view==="changes"&&<span style={{fontSize:11,color:T.muted,fontWeight:500,marginLeft:4}}>— manage, execute and track network changes</span>}
         <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
-          <Btn onClick={()=>setCreatingMode("picker")}>+ New Change</Btn>
         </div>
       </div>
 

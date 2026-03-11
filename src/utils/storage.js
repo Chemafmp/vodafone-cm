@@ -48,9 +48,13 @@ export function initStorageVersion() {
 }
 
 // ─── RESET ─────────────────────────────────────────────────────────────────────
-// Wipes all app data and reloads — returns to seed state.
+// Restores app data to seed-only state and reloads.
+// Pass SEED_CHANGES and PEAK_PERIODS to write them directly — this ensures
+// demo changes are dropped while seeds are preserved immediately on next load.
 // Triggered by Shift+click on the logo (dev/demo helper).
-export function resetToSeed() {
-  Object.values(KEYS).forEach(k => localStorage.removeItem(k));
+export function resetToSeed(seedChanges, seedPeaks) {
+  localStorage.setItem(KEYS.CHANGES, JSON.stringify(seedChanges));
+  localStorage.setItem(KEYS.PEAKS,   JSON.stringify(seedPeaks));
+  localStorage.setItem(KEYS.VERSION, STORAGE_VERSION);
   window.location.reload();
 }
