@@ -46,18 +46,15 @@ export default function LoginScreen({ onLogin }) {
   return (
     <div style={{
       minHeight:"100vh", overflowY:"auto",
-      display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center",
       background: BG,
       backgroundImage:`
         radial-gradient(ellipse at 20% 50%, rgba(14,165,233,0.07) 0%, transparent 55%),
         radial-gradient(ellipse at 80% 20%, rgba(99,102,241,0.06) 0%, transparent 50%)
       `,
       fontFamily:"'Inter',system-ui,sans-serif",
-      padding:"32px 24px",
-      boxSizing:"border-box",
     }}>
-      <div style={{width:"100%", maxWidth:456}}>
+      {/* inner wrapper — block layout avoids Windows flex+overflow scroll bug */}
+      <div style={{width:"100%", maxWidth:456, margin:"0 auto", padding:"40px 24px", boxSizing:"border-box"}}>
 
         {/* Header */}
         <div style={{textAlign:"center", marginBottom:36}}>
