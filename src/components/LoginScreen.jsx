@@ -45,7 +45,8 @@ export default function LoginScreen({ onLogin }) {
 
   return (
     <div style={{
-      minHeight:"100vh", display:"flex", flexDirection:"column",
+      minHeight:"100vh", overflowY:"auto",
+      display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",
       background: BG,
       backgroundImage:`
@@ -53,8 +54,10 @@ export default function LoginScreen({ onLogin }) {
         radial-gradient(ellipse at 80% 20%, rgba(99,102,241,0.06) 0%, transparent 50%)
       `,
       fontFamily:"'Inter',system-ui,sans-serif",
+      padding:"32px 24px",
+      boxSizing:"border-box",
     }}>
-      <div style={{width:"100%", maxWidth:456, padding:"0 24px"}}>
+      <div style={{width:"100%", maxWidth:456}}>
 
         {/* Header */}
         <div style={{textAlign:"center", marginBottom:36}}>
