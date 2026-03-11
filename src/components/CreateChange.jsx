@@ -612,33 +612,6 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
               <Inp label="Dependencies (teams, systems, vendors to coordinate with)" value={nc.dependencies} onChange={ncSf("dependencies")} type="textarea" rows={2}
                 placeholder={"e.g.\n• NOC/SAC on standby during execution\n• Transport team notified\n• Vendor TAC case pre-opened if needed"}/>
 
-              {/* ── Template Variables (only when creating a Template) ── */}
-              {nc.type === "Template" && (
-                <div style={{background:"#f5f3ff",border:"1px solid #c4b5fd",borderRadius:10,padding:"14px 16px"}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:4}}>⚙ Template Variables</div>
-                  <div style={{fontSize:11,color:"#7c3aed",marginBottom:12}}>
-                    Define variables that engineers fill in when using this template. Use <code style={{background:"#ede9fe",padding:"1px 5px",borderRadius:3}}>{"{{key}}"}</code> in any field to create a substitutable placeholder.
-                  </div>
-                  {(nc.variables||[]).map((v,i)=>(
-                    <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:8,marginBottom:8,alignItems:"center"}}>
-                      <input value={v.key} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],key:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"_")};ncSf("variables")(a);}}
-                        placeholder="key (e.g. hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"monospace",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
-                      <input value={v.label} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],label:e.target.value};ncSf("variables")(a);}}
-                        placeholder="Label (e.g. Hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"inherit",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
-                      <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:T.muted,whiteSpace:"nowrap",cursor:"pointer"}}>
-                        <input type="checkbox" checked={!!v.required} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],required:e.target.checked};ncSf("variables")(a);}}/>
-                        Required
-                      </label>
-                      <button onClick={()=>ncSf("variables")((nc.variables||[]).filter((_,j)=>j!==i))}
-                        style={{background:"none",border:"none",color:"#b91c1c",cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px"}}>×</button>
-                    </div>
-                  ))}
-                  <button onClick={()=>ncSf("variables")([...(nc.variables||[]),{key:"",label:"",type:"text",required:false,defaultValue:""}])}
-                    style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6d28d9",background:"none",border:"1px dashed #c4b5fd",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
-                    + Add Variable
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -735,6 +708,34 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
               <div style={{ background:T.primaryBg, border:`1px solid ${T.primaryBorder}`, borderRadius:8, padding:"10px 14px", fontSize:12, color:T.primary }}>
                 Define each execution step. Each step should have pre-checks (things to verify before running), commands, and post-checks (things to validate after). At least one step is required.
               </div>
+
+              {/* ── Template Variables (only when creating a Template) ── */}
+              {nc.type === "Template" && (
+                <div style={{background:"#f5f3ff",border:"1px solid #c4b5fd",borderRadius:10,padding:"14px 16px"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:4}}>⚙ Template Variables</div>
+                  <div style={{fontSize:11,color:"#7c3aed",marginBottom:12}}>
+                    Define variables that engineers fill in when using this template. Use <code style={{background:"#ede9fe",padding:"1px 5px",borderRadius:3}}>{"{{key}}"}</code> in any field — e.g. step names, commands, descriptions — as a substitutable placeholder.
+                  </div>
+                  {(nc.variables||[]).map((v,i)=>(
+                    <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:8,marginBottom:8,alignItems:"center"}}>
+                      <input value={v.key} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],key:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"_")};ncSf("variables")(a);}}
+                        placeholder="key (e.g. hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"monospace",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
+                      <input value={v.label} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],label:e.target.value};ncSf("variables")(a);}}
+                        placeholder="Label (e.g. Hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"inherit",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
+                      <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:T.muted,whiteSpace:"nowrap",cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!v.required} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],required:e.target.checked};ncSf("variables")(a);}}/>
+                        Required
+                      </label>
+                      <button onClick={()=>ncSf("variables")((nc.variables||[]).filter((_,j)=>j!==i))}
+                        style={{background:"none",border:"none",color:"#b91c1c",cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px"}}>×</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>ncSf("variables")([...(nc.variables||[]),{key:"",label:"",type:"text",required:false,defaultValue:""}])}
+                    style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6d28d9",background:"none",border:"1px dashed #c4b5fd",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                    + Add Variable
+                  </button>
+                </div>
+              )}
 
               {/* Step list */}
               {nc.steps.length===0&&<div style={{ textAlign:"center", padding:"28px 0", color:T.light, border:`2px dashed ${T.border}`, borderRadius:10 }}>
