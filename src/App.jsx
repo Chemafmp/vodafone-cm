@@ -3,9 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
-import { useLocalStorage, KEYS, initStorageVersion, resetToSeed, loadDemoData } from "./utils/storage.js";
-
-initStorageVersion();
+import { fetchChanges, upsertChange, fetchPeaks, syncPeaks, resetToSeedDB, loadDemoDB } from "./utils/db.js";
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
@@ -30,20 +28,37 @@ const USERS=[
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
-  const [changes,setChanges]=useLocalStorage(KEYS.CHANGES, [...SEED_CHANGES, ...DEMO_CHANGES]);
-  const [peaks,setPeaks]=useLocalStorage(KEYS.PEAKS, PEAK_PERIODS);
+  const [changes,setChanges]=useState([]);
+  const [peaks,setPeaks]=useState([]);
+  const [loading,setLoading]=useState(true);
 
-  // Option B — derive counters from actual stored data (self-healing, collision-proof)
+  // Load data from Supabase on mount + init ID counters from real data
   const _countersReady = useRef(false);
-  if (!_countersReady.current) {
-    const maxC = changes.filter(c=>!c.isTemplate)
-      .reduce((m,c)=>{ const n=parseInt(c.id?.match(/^BNOC-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
-    const maxT = changes.filter(c=>c.isTemplate)
-      .reduce((m,c)=>{ const n=parseInt(c.id?.match(/^BNOC-TEM-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
-    initChangeCounter(maxC);
-    initTemplateCounter(maxT);
-    _countersReady.current = true;
-  }
+  useEffect(()=>{
+    Promise.all([fetchChanges(), fetchPeaks()])
+      .then(([c, p])=>{
+        if (!_countersReady.current) {
+          const maxC = c.filter(x=>!x.isTemplate)
+            .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+          const maxT = c.filter(x=>x.isTemplate)
+            .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-TEM-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+          initChangeCounter(maxC);
+          initTemplateCounter(maxT);
+          _countersReady.current = true;
+        }
+        setChanges(c);
+        setPeaks(p);
+      })
+      .catch(e=>console.error("[bnoc] Supabase load failed:", e))
+      .finally(()=>setLoading(false));
+  }, []);
+
+  // Sync peaks to Supabase whenever FreezeManager adds/edits/deletes a period
+  const _peaksReady = useRef(false);
+  useEffect(()=>{
+    if (!_peaksReady.current) { _peaksReady.current = true; return; }
+    syncPeaks(peaks).catch(e=>console.error("[bnoc] peaks sync failed:", e));
+  }, [peaks]);
 
   const user=USERS[0];
   const [view,setView]=useState("changes");
@@ -82,8 +97,18 @@ export default function App(){
   const crs=changes.filter(c=>!c.isTemplate);
 
   function updateChange(id,updater){
-    setChanges(cs=>cs.map(c=>c.id===id?(typeof updater==="function"?updater(c):{...c,...updater}):c));
+    setChanges(cs=>{
+      const next=cs.map(c=>c.id===id?(typeof updater==="function"?updater(c):{...c,...updater}):c);
+      const changed=next.find(c=>c.id===id);
+      if (changed) upsertChange(changed).catch(e=>console.error("[bnoc] upsert failed:",e));
+      return next;
+    });
     setSelected(p=>p?.id===id?(typeof updater==="function"?updater(p):{...p,...updater}):p);
+  }
+
+  function addChange(newC){
+    setChanges(cs=>[newC,...cs]);
+    upsertChange(newC).catch(e=>console.error("[bnoc] upsert new change failed:",e));
   }
 
   const filtered=useMemo(()=>{
@@ -198,13 +223,15 @@ export default function App(){
   const [ncStep,setNcStep]=useState(0);
   const ncSf=k=>v=>setNc(f=>({...f,[k]:v}));
 
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
+
   return <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
 
     {/* Sidebar */}
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
       <div style={{padding:"18px 16px 16px",borderBottom:`1px solid ${T.sidebarBorder}`}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? This cannot be undone.")) resetToSeed(SEED_CHANGES, PEAK_PERIODS);}} title="Shift+click to reset demo data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
+          <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? Demo changes will be lost.")) resetToSeedDB(SEED_CHANGES,PEAK_PERIODS).then(()=>{setChanges(SEED_CHANGES);setPeaks(PEAK_PERIODS);}).catch(console.error);}} title="Shift+click to reset to seed data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.25}}>Bodaphone</div>
             <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>BNOC Change Management Platform</div>
@@ -234,8 +261,8 @@ export default function App(){
 
       {/* ── Dev tools ── */}
       <div style={{margin:"0 10px 8px",display:"flex",gap:6}}>
-        <button onClick={()=>{ if(window.confirm("Load demo data? This will replace current changes.")) loadDemoData(SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS); }} title="Populate app with 20 realistic demo changes" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>⟳ Demo data</button>
-        <button onClick={()=>{ if(window.confirm("Reset to seed data? Demo changes will be lost.")) resetToSeed(SEED_CHANGES, PEAK_PERIODS); }} title="Reset to hardcoded seed records only" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>↺ Reset seed</button>
+        <button onClick={()=>{ if(window.confirm("Load demo data? This will replace all current changes.")) loadDemoDB(SEED_CHANGES,DEMO_CHANGES,PEAK_PERIODS).then(()=>{setChanges([...SEED_CHANGES,...DEMO_CHANGES]);setPeaks(PEAK_PERIODS);}).catch(console.error); }} title="Populate with 20 realistic demo changes" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>⟳ Demo data</button>
+        <button onClick={()=>{ if(window.confirm("Reset to seed data? Demo changes will be lost.")) resetToSeedDB(SEED_CHANGES,PEAK_PERIODS).then(()=>{setChanges(SEED_CHANGES);setPeaks(PEAK_PERIODS);}).catch(console.error); }} title="Reset to hardcoded seed records only" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>↺ Reset seed</button>
       </div>
 
       <div style={{margin:"0 10px",background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
@@ -749,7 +776,7 @@ export default function App(){
         setNcStep(0);
         setCreatingMode("wizard");
       }}
-      onCreate={newC=>{setChanges(cs=>[newC,...cs]);setCreatingMode(null);}}
+      onCreate={newC=>{addChange(newC);setCreatingMode(null);}}
     />}
     {creatingMode==="wizard"&&<CreateChangeMCM
       nc={nc} setNc={setNc} ncSf={ncSf} ncStep={ncStep} setNcStep={setNcStep}
@@ -757,7 +784,7 @@ export default function App(){
       peaks={peaks}
       currentUser={user}
       onClose={()=>{setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
-      onCreate={newC=>{setChanges(cs=>[newC,...cs]);setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
+      onCreate={newC=>{addChange(newC);setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
     />}
 
     <style>{`
