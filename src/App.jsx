@@ -11,6 +11,7 @@ import ChangeDetail from "./components/ChangeDetail.jsx";
 import FreezeManager from "./components/FreezeManager.jsx";
 import { CreateModePicker } from "./components/CreateChange.jsx";
 import CreateChangeMCM from "./components/CreateChange.jsx";
+import LoginScreen from "./components/LoginScreen.jsx";
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -60,7 +61,7 @@ export default function App(){
     syncPeaks(peaks).catch(e=>console.error("[bnoc] peaks sync failed:", e));
   }, [peaks]);
 
-  const user=USERS[0];
+  const [user,setUser]=useState(null);
   const [view,setView]=useState("changes");
   const [selected,setSelected]=useState(null);
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
@@ -180,11 +181,11 @@ export default function App(){
     frozen:dashCrs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,
   };
 
-  const myChanges = crs.filter(c =>
+  const myChanges = user ? crs.filter(c =>
     c.team === user.team ||
     c.manager === user.name ||
     c.director === user.name
-  );
+  ) : [];
   const myUpcoming = myChanges
     .filter(c => !["Completed","Failed","Aborted","Rolled Back","Off-Script"].includes(c.status))
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
@@ -224,6 +225,8 @@ export default function App(){
   const ncSf=k=>v=>setNc(f=>({...f,[k]:v}));
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
+
+  if (!user) return <LoginScreen onLogin={setUser} />;
 
   return <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
 
@@ -269,10 +272,11 @@ export default function App(){
         <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#0e7490)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,color:"#fff",flexShrink:0}}>
           {user.name.split(" ").map(p=>p[0]).join("").slice(0,2)}
         </div>
-        <div style={{minWidth:0}}>
+        <div style={{minWidth:0,flex:1}}>
           <div style={{fontSize:12,fontWeight:700,color:T.sidebarText,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
           <div style={{fontSize:11,color:T.sidebarMuted}}>{user.role} · {user.team}</div>
         </div>
+        <button onClick={()=>setUser(null)} title="Sign out" style={{background:"none",border:"none",cursor:"pointer",color:T.sidebarMuted,fontSize:14,padding:"2px 4px",lineHeight:1,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#f1f5f9"} onMouseLeave={e=>e.currentTarget.style.color=T.sidebarMuted}>⏏</button>
       </div>
     </div>
 
@@ -313,7 +317,7 @@ export default function App(){
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
             {[
-              {fk:"all",       label:"Assigned to me / team", value:myChanges.length,                                           col:T.primary, icon:"📋"},
+              {fk:"all",       label:"Assigned to me / team", value:myUpcoming.length,                                          col:T.primary, icon:"📋"},
               {fk:"actionable",label:"Actionable now",         value:myActionable.length,                                        col:"#0e7490", icon:"⚡"},
               {fk:"pending",   label:"Pending approval",       value:myUpcoming.filter(c=>c.status==="Pending Approval").length, col:"#b45309", icon:"⏳"},
               {fk:"frozen",    label:"In freeze period",       value:myUpcoming.filter(c=>c.freezePeriod).length,                col:T.freeze,  icon:"❄"},
@@ -332,7 +336,7 @@ export default function App(){
 
           {myWorkFilter&&(()=>{
             const filterMap={
-              all:myChanges,
+              all:myUpcoming,
               actionable:myActionable,
               pending:myUpcoming.filter(c=>c.status==="Pending Approval"),
               frozen:myUpcoming.filter(c=>c.freezePeriod),
