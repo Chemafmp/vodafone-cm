@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
-import { fetchChanges, upsertChange, fetchPeaks, syncPeaks, resetToSeedDB, loadDemoDB } from "./utils/db.js";
+import { fetchChanges, upsertChange, fetchPeaks, syncPeaks, resetToSeedDB, loadDemoDB, getCachedChanges, getCachedPeaks } from "./utils/db.js";
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
@@ -32,25 +32,37 @@ export default function App(){
   const [changes,setChanges]=useState([]);
   const [peaks,setPeaks]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [offline,setOffline]=useState(false);
 
-  // Load data from Supabase on mount + init ID counters from real data
+  // Load data from Supabase on mount; fall back to local cache if connection fails
   const _countersReady = useRef(false);
+  function _initCounters(c) {
+    if (_countersReady.current) return;
+    const maxC = c.filter(x=>!x.isTemplate)
+      .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+    const maxT = c.filter(x=>x.isTemplate)
+      .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-TEM-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+    initChangeCounter(maxC);
+    initTemplateCounter(maxT);
+    _countersReady.current = true;
+  }
   useEffect(()=>{
     Promise.all([fetchChanges(), fetchPeaks()])
       .then(([c, p])=>{
-        if (!_countersReady.current) {
-          const maxC = c.filter(x=>!x.isTemplate)
-            .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
-          const maxT = c.filter(x=>x.isTemplate)
-            .reduce((m,x)=>{ const n=parseInt(x.id?.match(/^BNOC-TEM-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
-          initChangeCounter(maxC);
-          initTemplateCounter(maxT);
-          _countersReady.current = true;
-        }
+        _initCounters(c);
         setChanges(c);
         setPeaks(p);
+        setOffline(false);
       })
-      .catch(e=>console.error("[bnoc] Supabase load failed:", e))
+      .catch(e=>{
+        console.warn("[bnoc] Supabase unreachable, loading from local cache:", e);
+        const c = getCachedChanges();
+        const p = getCachedPeaks();
+        _initCounters(c);
+        setChanges(c);
+        setPeaks(p);
+        setOffline(true);
+      })
       .finally(()=>setLoading(false));
   }, []);
 
@@ -289,6 +301,15 @@ export default function App(){
         <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
         </div>
       </div>
+
+      {offline&&<div style={{background:"linear-gradient(90deg,#1e3a5f,#1e40af)",color:"#fff",padding:"9px 28px",display:"flex",alignItems:"center",gap:12,flexShrink:0,boxShadow:"0 2px 6px rgba(30,58,95,0.4)"}}>
+        <span style={{fontSize:15,flexShrink:0}}>⚡</span>
+        <div style={{flex:1}}>
+          <span style={{fontWeight:700,fontSize:12}}>Offline mode — </span>
+          <span style={{fontSize:12,opacity:0.85}}>Unable to reach the database. Showing locally cached data. Changes made now will not be saved until connectivity is restored.</span>
+        </div>
+        <span style={{fontSize:11,background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,padding:"3px 10px",fontWeight:700,letterSpacing:"0.5px",whiteSpace:"nowrap"}}>READ ONLY</span>
+      </div>}
 
       {activePeak&&(()=>{
         const isOrange=activePeak.severity==="orange";
