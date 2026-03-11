@@ -3,7 +3,7 @@ export function d(offset=0){
   const x=new Date(); x.setDate(x.getDate()+offset);
   return x.toISOString();
 }
-export function genId(){ return "VNOC-"+Math.floor(10000000+Math.random()*90000000); }
+export function genId(){ return "BNOC-"+Math.floor(10000000+Math.random()*90000000); }
 export function now(){ return new Date().toISOString(); }
 export function fmt(iso,short=false){
   if(!iso) return "—";
@@ -22,7 +22,7 @@ export function exportAuditCSV(changes){
   const csv=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  a.download=`vnoc-audit-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download=`bnoc-audit-${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
 

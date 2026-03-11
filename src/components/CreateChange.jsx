@@ -53,7 +53,7 @@ export function CreateModePicker({templates, activePeak, currentUser, onPickAdHo
         {step === "pick" && <>
           <div style={{padding:"20px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <div>
-              <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>New VNOC Change</div>
+              <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>New BNOC Change</div>
               <div style={{fontSize:12,color:T.muted,marginTop:2}}>How do you want to create this change?</div>
             </div>
             <button onClick={onClose} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,cursor:"pointer",fontSize:16,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
@@ -486,8 +486,8 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
         {/* Header */}
         <div style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 24px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:T.text }}>New VNOC Request</div>
-            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Vodafone Network Operations Change · {currentUser.name}</div>
+            <div style={{ fontSize:16, fontWeight:800, color:T.text }}>New BNOC Request</div>
+            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Bodaphone Network Operations Change · {currentUser.name}</div>
           </div>
           <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, cursor:"pointer", fontSize:22, lineHeight:1 }}>×</button>
         </div>
