@@ -1,5 +1,4 @@
 import { T, STATUS_META } from "../data/constants.js";
-import { MW } from "../data/seed.js";
 
 export default function TimelineView({changes,onSelect}){
   const days=[];
@@ -18,17 +17,6 @@ export default function TimelineView({changes,onSelect}){
       {/* header */}
       <div style={{background:T.bg,borderBottom:`1px solid ${T.border}`,padding:"8px 10px",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase"}}></div>
       {days.map(d=><div key={d.label} style={{background:d.isToday?"#eff6ff":d.isPast?T.bg:T.surface,borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,padding:"8px 6px",fontSize:11,fontWeight:d.isToday?700:500,color:d.isToday?T.primary:T.muted,textAlign:"center"}}>{d.label}{d.isToday&&<div style={{fontSize:9,color:T.primary,fontWeight:700}}>TODAY</div>}</div>)}
-
-      {/* MW rows */}
-      {MW.map(mw=><>
-        <div key={mw.id+"l"} style={{background:T.bg,borderBottom:`1px solid ${T.border}`,padding:"6px 10px",fontSize:11,fontWeight:600,color:mw.freeze?T.freeze:T.accent,display:"flex",alignItems:"center",gap:4}}>
-          {mw.freeze?"❄":"🔧"} {mw.name.split("—")[0]}
-        </div>
-        {days.map(day=>{
-          const inWindow=new Date(mw.start)<=new Date(day.date.toDateString()+" 23:59")&&new Date(mw.end)>=new Date(day.date.toDateString()+" 00:00");
-          return <div key={mw.id+day.label} style={{borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,background:inWindow?(mw.freeze?"#fef2f2":"#f0fdfa"):"transparent",minHeight:32}}/>;
-        })}
-      </>)}
 
       {/* change rows */}
       {changes.map(c=><>

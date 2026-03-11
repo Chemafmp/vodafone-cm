@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { T, SYSTEMS, EXEC_MODES, INTRUSION, COUNTRIES, RISK_LEVELS, RISK_C } from "../data/constants.js";
-import { genId, now, fmt } from "../utils/helpers.js";
+import { genId, now, fmt, applyVars } from "../utils/helpers.js";
 import { isInPeakPeriod, CAT_META, getCategoryRules } from "../utils/helpers.js";
 import { RiskPill, Btn, Inp, Sel } from "./ui/index.jsx";
 
 // ─── CREATE MODE PICKER ───────────────────────────────────────────────────────
-export function CreateModePicker({templates, activePeak, windows, currentUser, onPickAdHoc, onPickTemplate, onPickNewTemplate, onClose, onCreate}) {
+export function CreateModePicker({templates, activePeak, currentUser, onPickAdHoc, onPickTemplate, onPickNewTemplate, onClose, onCreate}) {
   const [step, setStep] = useState("pick"); // "pick" | "template-list" | "template-fill"
   const [selectedTemplate, setSelectedTemplate] = useState(null);
 
@@ -41,7 +41,6 @@ export function CreateModePicker({templates, activePeak, windows, currentUser, o
       template={selectedTemplate}
       activePeak={activePeak}
       currentUser={currentUser}
-      windows={windows}
       onCreate={c => { onCreate(c); onClose(); }}
       onClose={onClose}
     />;
@@ -106,7 +105,7 @@ export function CreateModePicker({templates, activePeak, windows, currentUser, o
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
                   <span style={{fontSize:12,fontWeight:700,color:"#6d28d9"}}>Quick Fill →</span>
-                  <span style={{fontSize:10,color:T.light}}>~2 fields</span>
+                  <span style={{fontSize:10,color:T.light}}>{(t.variables||[]).length} var{(t.variables||[]).length!==1?"s":""}</span>
                 </div>
               </button>
             ))}
@@ -151,31 +150,44 @@ export function StepEditorForm({draft, sdSf, onSave, onCancel}) {
 }
 
 // ─── TEMPLATE QUICK-FILL ─────────────────────────────────────────────────────
-export function TemplateQuickFill({template, activePeak, currentUser, windows, onCreate, onClose}) {
-  const [title, setTitle] = useState("[" + template.name + "] ");
+export function TemplateQuickFill({template, activePeak, currentUser, onCreate, onClose}) {
+  const tvars = template.variables || [];
+  const [vars, setVars] = useState(
+    Object.fromEntries(tvars.map(v => [v.key, v.defaultValue || ""]))
+  );
+  const setVar = k => v => setVars(prev => ({...prev, [k]: v}));
+
+  // Derive title live from template name with vars substituted
+  const autoTitle = applyVars(template.name, vars);
+  const [titleOverride, setTitleOverride] = useState(null); // null = auto
+  const title = titleOverride ?? autoTitle;
+
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduledEnd, setScheduledEnd] = useState("");
-  const [mw, setMw] = useState(template.maintenanceWindow||"");
   const [assignedTo, setAssignedTo] = useState(currentUser.name);
-  const [country, setCountry] = useState(template.country||"");
-  const [notes, setNotes] = useState("");
+  const [country, setCountry] = useState(template.country || "");
 
-  const valid = title.trim().length >= 3 && scheduledFor;
   const peakConflict = isInPeakPeriod(scheduledFor);
 
+  // Required vars validation
+  const missingRequired = tvars.filter(v => v.required && !vars[v.key]?.trim());
+  const valid = title.trim().length >= 3 && scheduledFor && missingRequired.length === 0;
+
   function createChange() {
+    // Apply variable substitution across the entire template object
+    const resolved = applyVars({...template}, vars);
     const newC = {
-      ...template,
+      ...resolved,
       id: genId(),
       name: title.trim(),
       scheduledFor,
       scheduledEnd,
-      maintenanceWindow: mw || template.maintenanceWindow || null,
       assignedTo,
       country,
       status: "Draft",
       isTemplate: false,
-      steps: (template.steps||[]).map(s => ({...s, id: Date.now()+Math.random()})),
+      variables: [],
+      steps: (resolved.steps||[]).map(s => ({...s, id: Date.now()+Math.random()})),
       preflightResults: {},
       stepLogs: {},
       approvals: [],
@@ -189,6 +201,7 @@ export function TemplateQuickFill({template, activePeak, currentUser, windows, o
       auditLog: [
         {at: now(), msg: `Change created from template: ${template.name}`, type:"info", by: currentUser.name},
         {at: now(), msg: `Assigned to: ${assignedTo}`, type:"info", by: currentUser.name},
+        ...(tvars.length ? [{at:now(), msg:`Variables: ${tvars.map(v=>`${v.label}=${vars[v.key]||"(empty)"}`).join(", ")}`, type:"info", by:currentUser.name}] : []),
         ...(peakConflict ? [{at:now(), msg:`❄ Network freeze — Director approval required`, type:"warning", by: currentUser.name}] : []),
       ],
       notifications: [],
@@ -222,11 +235,53 @@ export function TemplateQuickFill({template, activePeak, currentUser, windows, o
             </div>
           )}
 
-          <Inp label="Change Title *" value={title} onChange={setTitle}
-            placeholder="Give this instance a specific name…"/>
+          {/* ── Template Variables ── */}
+          {tvars.length > 0 && (
+            <div style={{background:"#f5f3ff",border:"1px solid #c4b5fd",borderRadius:10,padding:"14px 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#5b21b6",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:10}}>
+                ⚙ Template Variables
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+                {tvars.map(v => (
+                  <div key={v.key}>
+                    <div style={{fontSize:11,fontWeight:700,color:T.muted,marginBottom:4}}>
+                      {v.label}{v.required&&<span style={{color:"#b91c1c",marginLeft:2}}>*</span>}
+                    </div>
+                    <input
+                      value={vars[v.key]||""}
+                      onChange={e=>setVar(v.key)(e.target.value)}
+                      placeholder={v.defaultValue||`Enter ${v.label.toLowerCase()}…`}
+                      style={{width:"100%",padding:"7px 10px",border:`1.5px solid ${!vars[v.key]?.trim()&&v.required?"#fca5a5":T.border}`,borderRadius:7,fontFamily:"inherit",fontSize:13,color:T.text,background:T.surface,outline:"none"}}
+                    />
+                  </div>
+                ))}
+              </div>
+              {missingRequired.length > 0 && (
+                <div style={{marginTop:8,fontSize:11,color:"#b91c1c"}}>
+                  ⚠ Required: {missingRequired.map(v=>v.label).join(", ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Live-preview title */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:T.muted,marginBottom:4}}>
+              CHANGE TITLE *
+              {titleOverride!==null&&<span style={{fontWeight:400,marginLeft:8,color:T.light,cursor:"pointer"}} onClick={()=>setTitleOverride(null)}>(reset to auto)</span>}
+            </div>
+            <input
+              value={title}
+              onChange={e=>setTitleOverride(e.target.value)}
+              style={{width:"100%",padding:"8px 11px",border:`1.5px solid ${T.border}`,borderRadius:8,fontFamily:"inherit",fontSize:13,color:T.text,background:T.surface,outline:"none"}}
+            />
+            {titleOverride===null&&tvars.length>0&&(
+              <div style={{fontSize:10,color:T.light,marginTop:3}}>Auto-generated from template name · click to customise</div>
+            )}
+          </div>
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Inp label="Scheduled Start *" value={scheduledFor} onChange={v=>{setScheduledFor(v);}} type="datetime-local"/>
+            <Inp label="Scheduled Start *" value={scheduledFor} onChange={setScheduledFor} type="datetime-local"/>
             <Inp label="Scheduled End" value={scheduledEnd} onChange={setScheduledEnd} type="datetime-local"/>
           </div>
 
@@ -236,9 +291,6 @@ export function TemplateQuickFill({template, activePeak, currentUser, windows, o
             </div>
           )}
 
-          <Sel label="Maintenance Window" value={mw} onChange={setMw}
-            options={[{value:"",label:"— None —"},...windows.map(w=>({value:w.id,label:w.name}))]}/>
-
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Assigned Technician *" value={assignedTo} onChange={setAssignedTo}
               placeholder={currentUser.name}/>
@@ -246,18 +298,15 @@ export function TemplateQuickFill({template, activePeak, currentUser, windows, o
               options={[{value:"",label:"— Select Country —"},...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
           </div>
 
-          <Inp label="Instance Notes (device names, sites, variables)" value={notes} onChange={setNotes} type="textarea" rows={3}
-            placeholder={"Specific devices, site IDs, or any change to the template defaults…\ne.g. Target device: rmu1-acc-sw-14-7, Site: Madrid DC1"}/>
-
-          {/* Template steps preview */}
+          {/* Template steps preview (with vars applied) */}
           <div>
-            <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>Template steps ({template.steps?.length||0})</div>
+            <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>Template steps ({template.steps?.length||0}) — preview after substitution</div>
             <div style={{border:`1px solid ${T.border}`,borderRadius:9,overflow:"hidden"}}>
               {(template.steps||[]).map((s,i) => (
                 <div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 14px",borderBottom:i<(template.steps.length-1)?`1px solid ${T.border}`:"none",background:i%2===0?T.surface:T.bg}}>
                   <div style={{width:22,height:22,borderRadius:"50%",background:T.primaryBg,color:T.primary,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{i+1}</div>
                   <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:12,color:T.text}}>{s.name}</div>
+                    <div style={{fontWeight:600,fontSize:12,color:T.text}}>{applyVars(s.name, vars)}</div>
                     <div style={{fontSize:11,color:T.muted}}>{s.duration}min · {s.owner}</div>
                   </div>
                   <div style={{display:"flex",gap:4}}>
@@ -290,7 +339,6 @@ const DEFAULT_PF_STEPS = [
   {id:"reachability",label:"Device Reachability"},
   {id:"policy",      label:"Policy Compliance"},
   {id:"rollback",    label:"Rollback Plan Verified"},
-  {id:"window",      label:"Maintenance Window Confirmed"},
 ];
 const STEP_DEFAULTS = {name:"",duration:15,owner:"Engineer",instructions:"",commands:"",preChecks:"",postChecks:"",rollback:""};
 const APPROVER_ROLES = ["Engineer","Manager","Director","NOC/SAC","Bar Raiser"];
@@ -309,7 +357,7 @@ const USERS=[
   {id:"u10",name:"Sam Reyes",  role:"Manager",  team:"Data Core",     dept:"Operations"},
 ];
 
-export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, currentUser, windows, onClose, onCreate}) {
+export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, currentUser, onClose, onCreate}) {
   const peakConflict = isInPeakPeriod(nc.scheduledFor);
   const catRules = getCategoryRules(nc.category, nc.risk);
   const catM = CAT_META[nc.category] || CAT_META.Normal;
@@ -564,12 +612,33 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
               <Inp label="Dependencies (teams, systems, vendors to coordinate with)" value={nc.dependencies} onChange={ncSf("dependencies")} type="textarea" rows={2}
                 placeholder={"e.g.\n• NOC/SAC on standby during execution\n• Transport team notified\n• Vendor TAC case pre-opened if needed"}/>
 
-              <Sel label="Maintenance Window" value={nc.maintenanceWindow||""} onChange={ncSf("maintenanceWindow")}
-                options={[
-                  {value:"",label:"— None (Emergency or no window) —"},
-                  {value:"adhoc",label:"— Ad-hoc (use scheduled dates from Risk & Scope) —"},
-                  ...windows.map(w=>({value:w.id,label:w.name}))
-                ]}/>
+              {/* ── Template Variables (only when creating a Template) ── */}
+              {nc.type === "Template" && (
+                <div style={{background:"#f5f3ff",border:"1px solid #c4b5fd",borderRadius:10,padding:"14px 16px"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:4}}>⚙ Template Variables</div>
+                  <div style={{fontSize:11,color:"#7c3aed",marginBottom:12}}>
+                    Define variables that engineers fill in when using this template. Use <code style={{background:"#ede9fe",padding:"1px 5px",borderRadius:3}}>{"{{key}}"}</code> in any field to create a substitutable placeholder.
+                  </div>
+                  {(nc.variables||[]).map((v,i)=>(
+                    <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto auto",gap:8,marginBottom:8,alignItems:"center"}}>
+                      <input value={v.key} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],key:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"_")};ncSf("variables")(a);}}
+                        placeholder="key (e.g. hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"monospace",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
+                      <input value={v.label} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],label:e.target.value};ncSf("variables")(a);}}
+                        placeholder="Label (e.g. Hostname)" style={{padding:"6px 9px",border:`1px solid ${T.border}`,borderRadius:6,fontFamily:"inherit",fontSize:12,color:T.text,background:T.surface,outline:"none"}}/>
+                      <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:T.muted,whiteSpace:"nowrap",cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!v.required} onChange={e=>{const a=[...(nc.variables||[])];a[i]={...a[i],required:e.target.checked};ncSf("variables")(a);}}/>
+                        Required
+                      </label>
+                      <button onClick={()=>ncSf("variables")((nc.variables||[]).filter((_,j)=>j!==i))}
+                        style={{background:"none",border:"none",color:"#b91c1c",cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px"}}>×</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>ncSf("variables")([...(nc.variables||[]),{key:"",label:"",type:"text",required:false,defaultValue:""}])}
+                    style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6d28d9",background:"none",border:"1px dashed #c4b5fd",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                    + Add Variable
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

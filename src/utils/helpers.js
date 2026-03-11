@@ -39,6 +39,14 @@ export function getActivePeak() {
   return PEAK_PERIODS.find(p => today >= p.start && today <= p.end) || null;
 }
 
+// ─── TEMPLATE VARIABLE SUBSTITUTION ──────────────────────────────────────────
+export function applyVars(obj, vars) {
+  if (typeof obj === "string") return obj.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+  if (Array.isArray(obj)) return obj.map(i => applyVars(i, vars));
+  if (obj && typeof obj === "object") return Object.fromEntries(Object.entries(obj).map(([k,v])=>[k, applyVars(v, vars)]));
+  return obj;
+}
+
 // ─── CHANGE CATEGORY RULES ────────────────────────────────────────────────────
 export const CAT_META = {
   Standard:  { color:"#15803d", bg:"#f0fdf4", border:"#86efac", label:"Standard",  icon:"✓", desc:"Pre-approved routine operation. No CAB required. Max risk: Low." },

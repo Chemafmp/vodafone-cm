@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
-import { MW, SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
+import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, genId, now, getActivePeak, isInPeakPeriod } from "./utils/helpers.js";
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
@@ -141,7 +141,7 @@ export default function App(){
 
   const NC_DEFAULTS={
     name:"",domain:SYSTEMS[0],risk:"Low",type:"Ad-hoc",execMode:"Manual",
-    intrusion:"Non-Intrusive",approvalLevel:"L1",scheduledFor:"",scheduledEnd:"",maintenanceWindow:"",isTemplate:false,
+    intrusion:"Non-Intrusive",approvalLevel:"L1",scheduledFor:"",scheduledEnd:"",isTemplate:false,variables:[],
     assignedTo:"",country:"",
     purpose:"",requirementsPermissions:"",expectedEndState:"",assumptions:"",
     serviceImpact:"",affectedServices:"",affectedDevices:"",customerImpact:"",
@@ -160,7 +160,6 @@ export default function App(){
       {id:"reachability",label:"Device Reachability"},
       {id:"policy",      label:"Policy Compliance"},
       {id:"rollback",    label:"Rollback Plan Verified"},
-      {id:"window",      label:"Maintenance Window Confirmed"},
     ],
   };
   const [nc,setNc]=useState(NC_DEFAULTS);
@@ -713,11 +712,10 @@ export default function App(){
     </div>
 
     {/* Modals */}
-    {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)} windows={MW}/>}
+    {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)}/>}
     {creatingMode==="picker"&&<CreateModePicker
       templates={templates}
       activePeak={activePeak}
-      windows={MW}
       currentUser={user}
       onClose={()=>setCreatingMode(null)}
       onPickAdHoc={()=>{setNc({...NC_DEFAULTS,isTemplate:false,type:"Ad-hoc"});setNcStep(0);setCreatingMode("wizard");}}
@@ -746,7 +744,7 @@ export default function App(){
     {creatingMode==="wizard"&&<CreateChangeMCM
       nc={nc} setNc={setNc} ncSf={ncSf} ncStep={ncStep} setNcStep={setNcStep}
       NC_DEFAULTS={NC_DEFAULTS}
-      currentUser={user} windows={MW}
+      currentUser={user}
       onClose={()=>{setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
       onCreate={newC=>{setChanges(cs=>[newC,...cs]);setCreatingMode(null);setNcStep(0);setNc(NC_DEFAULTS);}}
     />}
