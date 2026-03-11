@@ -24,7 +24,7 @@ export const STATUS_META = {
   Draft:             {bg:"#f1f5f9",text:"#475569",dot:"#94a3b8"},
   Preflight:         {bg:"#fffbeb",text:"#92400e",dot:"#f59e0b"},
   "Pending Approval":{bg:"#eff6ff",text:"#1e40af",dot:"#3b82f6"},
-  Approved:          {bg:"#f5f3ff",text:"#5b21b6",dot:"#8b5cf6"},
+  Scheduled:         {bg:"#f5f3ff",text:"#5b21b6",dot:"#8b5cf6"},
   "In Execution":    {bg:"#ecfeff",text:"#164e63",dot:"#06b6d4"},
   Completed:         {bg:"#f0fdf4",text:"#14532d",dot:"#22c55e"},
   Failed:            {bg:"#fef2f2",text:"#7f1d1d",dot:"#ef4444"},

@@ -100,7 +100,7 @@ export const SEED_CHANGES = [
    notifications:[], comments:[], category:"Normal"},
 
   // ── Template 2: BGP Route Update ──────────────────────────────────────────
-  {id:"BNOC-TEM-00000002-A", name:"BGP Route Update — {{hostname}}", domain:"IP/MPLS", risk:"Medium", status:"Approved", approvalLevel:"L2",
+  {id:"BNOC-TEM-00000002-A", name:"BGP Route Update — {{hostname}}", domain:"IP/MPLS", risk:"Medium", status:"Scheduled", approvalLevel:"L2",
    type:"Template", execMode:"Manual", intrusion:"Non-Intrusive", execResult:null,
    country:"UK", team:"Core Transport", dept:"Operations", director:"Didier C.", manager:"Chema F.",
    isTemplate:true, templateId:"t2", freezePeriod:false, freezeJustification:"", freezeSeverity:null,
@@ -587,8 +587,8 @@ export const DEMO_CHANGES = [
    auditLog:[au(-2,"Change created","info","Sara König"),au(-1,"Preflight passed","success","Sara König"),au(-1,"Approved by Ivan M.","success","Ivan M."),au(0,"Execution started","info","Sara König"),au(0,"Step 1 completed","success","Sara König")],
    notifications:[], comments:[], category:"Normal"},
 
-  // ── 11: SMU Installation — LON-AGG01 (from TEM-005) — Approved ───────────
-  {id:"BNOC-0000000011-A", name:"Cisco SMU Installation — LON-AGG01", domain:"Core Network", risk:"Medium", status:"Approved", approvalLevel:"L2",
+  // ── 11: SMU Installation — LON-AGG01 (from TEM-005) — Scheduled ──────────
+  {id:"BNOC-0000000011-A", name:"Cisco SMU Installation — LON-AGG01", domain:"Core Network", risk:"Medium", status:"Scheduled", approvalLevel:"L2",
    type:"Ad-hoc", execMode:"Manual", intrusion:"Non-Intrusive", execResult:null,
    country:"UK", team:"Core Transport", dept:"Engineering", director:"Didier C.", manager:"Chema F.",
    isTemplate:false, variables:[], sourceTemplateId:"BNOC-TEM-00000005-A", templateId:null,
@@ -749,8 +749,8 @@ export const DEMO_CHANGES = [
    auditLog:[au(-2,"Change created (freeze override — KPI breach)","info","Morgan Silva"),au(-1,"Preflight passed","success","Morgan Silva"),au(-1,"Freeze override approved by Michael T.","success","Michael T."),au(0,"Execution started","info","Morgan Silva"),au(0,"Step 1 completed","success","Morgan Silva")],
    notifications:[], comments:[], category:"Normal"},
 
-  // ── 18: Firewall Policy Update — DC-LON02 — Approved — FREEZE ─────────────
-  {id:"BNOC-0000000018-A", name:"Firewall Policy Update — DC-LON02", domain:"Security GW", risk:"Medium", status:"Approved", approvalLevel:"L2",
+  // ── 18: Firewall Policy Update — DC-LON02 — Scheduled — FREEZE ────────────
+  {id:"BNOC-0000000018-A", name:"Firewall Policy Update — DC-LON02", domain:"Security GW", risk:"Medium", status:"Scheduled", approvalLevel:"L2",
    type:"Ad-hoc", execMode:"Manual", intrusion:"Non-Intrusive", execResult:null,
    country:"UK", team:"Access", dept:"Security Ops", director:"Didier C.", manager:"Sam Reyes",
    isTemplate:false, variables:[], sourceTemplateId:null, templateId:null,

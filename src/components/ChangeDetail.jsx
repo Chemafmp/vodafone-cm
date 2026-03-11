@@ -74,8 +74,8 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDele
   const avail=t=>{
     const s=change.status;
     if(t==="preflight") return ["Draft","Preflight"].includes(s);
-    if(t==="approval")  return ["Pending Approval","Approved"].includes(s);
-    if(t==="execution") return ["Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"].includes(s);
+    if(t==="approval")  return ["Pending Approval","Scheduled"].includes(s);
+    if(t==="execution") return ["Scheduled","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"].includes(s);
     if(t==="cab") return !!(change.cab);
     return true;
   };
@@ -383,7 +383,7 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDele
 
   const PRE_APPROVAL_STATUSES = ["Draft","Preflight","Pending Approval"];
   const canDelete = PRE_APPROVAL_STATUSES.includes(change.status) && !!onDelete;
-  const canAbortApproved = change.status==="Approved" && !!onUpdate;
+  const canAbortApproved = change.status==="Scheduled" && !!onUpdate;
 
   return <Modal title={change.name} onClose={onClose} width={940}>
     {/* chips */}
@@ -507,7 +507,7 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDele
       </div>}
       <div style={{gridColumn:"1/-1",display:"flex",gap:10,paddingTop:6,flexWrap:"wrap",alignItems:"center"}}>
         {change.status==="Draft"&&<Btn onClick={()=>{moveTo("Preflight");setTab("preflight");}}>→ Start Preflight</Btn>}
-        {change.status==="Approved"&&<Btn variant="success" onClick={()=>{const t=now();moveTo("In Execution");onUpdate(c=>({...c,actualStart:t}));if(change.steps?.[0]) setStepStartTimes({[change.steps[0].id]:t});setTab("execution");}}>▶ Begin Execution</Btn>}
+        {change.status==="Scheduled"&&<Btn variant="success" onClick={()=>{const t=now();moveTo("In Execution");onUpdate(c=>({...c,actualStart:t}));if(change.steps?.[0]) setStepStartTimes({[change.steps[0].id]:t});setTab("execution");}}>▶ Begin Execution</Btn>}
         <div style={{marginLeft:"auto"}}>
           {!change.isTemplate
             ? <Btn variant="ghost" small onClick={()=>{onUpdate(c=>({...c,isTemplate:true}));addLog("Saved as reusable template","info");}}>⊡ Save as Template</Btn>
@@ -600,7 +600,7 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDele
       <Inp label="Comment" value={aprComment} onChange={setAprComment} type="textarea" rows={2} placeholder="Add context…" style={{marginBottom:12}}/>
       {canApprove()
         ?<div style={{display:"flex",gap:10}}>
-          <Btn variant="success" onClick={()=>{const e={by:currentUser.name,action:"approved",at:now(),comment:aprComment};onUpdate(c=>({...c,status:"Approved",approvals:[...(c.approvals||[]),e]}));addLog(`Approved by ${currentUser.name}`,"success");setAprComment("");setTab("execution");}}>✓ Approve</Btn>
+          <Btn variant="success" onClick={()=>{const e={by:currentUser.name,action:"approved",at:now(),comment:aprComment};onUpdate(c=>({...c,status:"Scheduled",approvals:[...(c.approvals||[]),e]}));addLog(`Approved by ${currentUser.name}`,"success");setAprComment("");setTab("execution");}}>✓ Approve</Btn>
           <Btn variant="danger"  onClick={()=>{const e={by:currentUser.name,action:"rejected",at:now(),comment:aprComment};onUpdate(c=>({...c,status:"Draft",approvals:[...(c.approvals||[]),e]}));addLog(`Rejected by ${currentUser.name}`,"error");setAprComment("");}}>✗ Reject</Btn>
         </div>
         :<div style={{fontSize:13,color:T.muted,padding:"9px 13px",background:T.bg,borderRadius:7,border:`1px solid ${T.border}`}}>{

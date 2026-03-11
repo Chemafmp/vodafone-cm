@@ -188,7 +188,7 @@ export default function App(){
   const myUpcoming = myChanges
     .filter(c => !["Completed","Failed","Aborted","Rolled Back"].includes(c.status))
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
-  const myActionable = myUpcoming.filter(c => ["Approved","In Execution"].includes(c.status));
+  const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
   const NAV=[
     {id:"changes",  icon:"↻",label:"Changes",   badge:stats.pending||null},
@@ -362,7 +362,7 @@ export default function App(){
                       </div>
                       <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                         <RiskPill risk={c.risk}/><Badge status={c.status}/>
-                        {["Approved","In Execution"].includes(c.status)&&<Btn small variant={c.status==="Approved"?"success":"outline"} onClick={e=>{e.stopPropagation();selectChange(c);}}>{c.status==="Approved"?"▶ Execute":"⚙ Continue"}</Btn>}
+                        {["Scheduled","In Execution"].includes(c.status)&&<Btn small variant={c.status==="Scheduled"?"success":"outline"} onClick={e=>{e.stopPropagation();selectChange(c);}}>{c.status==="Scheduled"?"▶ Execute":"⚙ Continue"}</Btn>}
                       </div>
                     </div>
                   </Card>;
@@ -391,8 +391,8 @@ export default function App(){
                   <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                     <RiskPill risk={c.risk}/>
                     <Badge status={c.status}/>
-                    <Btn small variant={c.status==="Approved"?"success":"outline"} onClick={e=>{e.stopPropagation();selectChange(c);}}>
-                      {c.status==="Approved"?"▶ Execute":"⚙ Continue"}
+                    <Btn small variant={c.status==="Scheduled"?"success":"outline"} onClick={e=>{e.stopPropagation();selectChange(c);}}>
+                      {c.status==="Scheduled"?"▶ Execute":"⚙ Continue"}
                     </Btn>
                   </div>
                 </div>
@@ -492,7 +492,7 @@ export default function App(){
               <Sel label="Team"     value={dashFilters.team}     onChange={sdf("team")}     options={["All",...TEAMS]}/>
               <Sel label="Manager"  value={dashFilters.manager}  onChange={sdf("manager")}  options={["All",...MANAGERS]}/>
               <Sel label="Director" value={dashFilters.director} onChange={sdf("director")} options={["All",...DIRECTORS]}/>
-              <Sel label="Status"   value={dashFilters.status}   onChange={sdf("status")}   options={["All","Draft","Preflight","Pending Approval","Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]}/>
+              <Sel label="Status"   value={dashFilters.status}   onChange={sdf("status")}   options={["All","Draft","Preflight","Pending Approval","Scheduled","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]}/>
               <Sel label="Risk"     value={dashFilters.risk}     onChange={sdf("risk")}     options={["All",...RISK_LEVELS]}/>
               <Sel label="Country"  value={dashFilters.country}  onChange={sdf("country")}  options={["All",...COUNTRIES.map(c=>({value:c.code,label:`${c.code} — ${c.name}`}))]}/>
               <Inp label="From"     value={dashFilters.dateFrom} onChange={sdf("dateFrom")} type="date"/>
@@ -613,7 +613,7 @@ export default function App(){
               <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:T.muted,fontSize:13,pointerEvents:"none"}}>🔍</span>
               <input value={filters.search} onChange={e=>sf("search")(e.target.value)} placeholder="Search by name or ID…" style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px 8px 34px",fontSize:13,fontFamily:"inherit",outline:"none",boxShadow:T.shadow}}/>
             </div>
-            <Sel value={filters.status} onChange={sf("status")} options={["All","Draft","Preflight","Pending Approval","Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]} style={{minWidth:160}}/>
+            <Sel value={filters.status} onChange={sf("status")} options={["All","Draft","Preflight","Pending Approval","Scheduled","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]} style={{minWidth:160}}/>
             <Sel value={filters.risk} onChange={sf("risk")} options={["All",...RISK_LEVELS]} style={{minWidth:100}}/></>
           </div>
 

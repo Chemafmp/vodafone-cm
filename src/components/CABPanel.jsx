@@ -23,7 +23,7 @@ export default function CABPanel({change, currentUser, onUpdate, addLog}) {
     const newApprovedCount = newApprovers.filter(a => a.action === "approved").length;
     const newStatus = (newApprovedCount >= cab.quorum && (!cab.barRaiserRequired || newBarRaiser)) ? "approved" : "pending";
     onUpdate(c => ({ ...c, cab: { ...newCab, status: newStatus },
-      status: newStatus === "approved" ? "Approved" : c.status }));
+      status: newStatus === "approved" ? "Scheduled" : c.status }));
     addLog(`CAB: ${currentUser.name} (${currentUser.role}) ${action}`, action === "approved" ? "success" : "warning");
     setComment("");
   }
