@@ -1,14 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
+import { useLocalStorage, KEYS, initStorageVersion, resetToSeed } from "./utils/storage.js";
 
-// Init counters from seed so new records never collide with existing IDs
-const _seedTemplates = SEED_CHANGES.filter(c=>c.isTemplate).length;  // 3
-const _seedChanges   = SEED_CHANGES.filter(c=>!c.isTemplate).length; // 2
-initChangeCounter(_seedChanges);
-initTemplateCounter(_seedTemplates);
+initStorageVersion();
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
@@ -33,12 +30,25 @@ const USERS=[
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
-  const [changes,setChanges]=useState(SEED_CHANGES);
+  const [changes,setChanges]=useLocalStorage(KEYS.CHANGES, SEED_CHANGES);
+  const [peaks,setPeaks]=useLocalStorage(KEYS.PEAKS, PEAK_PERIODS);
+
+  // Option B — derive counters from actual stored data (self-healing, collision-proof)
+  const _countersReady = useRef(false);
+  if (!_countersReady.current) {
+    const maxC = changes.filter(c=>!c.isTemplate)
+      .reduce((m,c)=>{ const n=parseInt(c.id?.match(/^BNOC-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+    const maxT = changes.filter(c=>c.isTemplate)
+      .reduce((m,c)=>{ const n=parseInt(c.id?.match(/^BNOC-TEM-(\d+)-A$/)?.[1]||"0"); return Math.max(m,n); }, 0);
+    initChangeCounter(maxC);
+    initTemplateCounter(maxT);
+    _countersReady.current = true;
+  }
+
   const user=USERS[0];
   const [view,setView]=useState("changes");
   const [selected,setSelected]=useState(null);
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
-  const [peaks,setPeaks]=useState(PEAK_PERIODS);
   const activePeak = useMemo(()=>getActivePeak(peaks),[peaks]);
   const [myWorkFilter,setMyWorkFilter]=useState(null);
 
@@ -194,7 +204,7 @@ export default function App(){
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
       <div style={{padding:"18px 16px 16px",borderBottom:`1px solid ${T.sidebarBorder}`}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)"}}>B</div>
+          <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? This cannot be undone.")) resetToSeed();}} title="Shift+click to reset demo data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.25}}>Bodaphone</div>
             <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>BNOC Change Management Platform</div>
