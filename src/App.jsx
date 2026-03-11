@@ -598,15 +598,27 @@ export default function App(){
                   <span style={{fontWeight:700,fontSize:13,color:T.text}}>{c.name}</span>
                   {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
                 </div>
-                <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button><span>·</span><span>{c.team}</span><span>·</span><span>{c.manager}</span>
-                  {c.country&&<><span>·</span><span style={{fontWeight:700}}>{c.country}</span></>}
-                  {c.scheduledFor&&<><span>·</span><span>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</span></>}
-                  {c.execResult&&<><span>·</span><span style={{color:{Successful:"#15803d",Failed:"#b91c1c",Aborted:"#7c3aed"}[c.execResult]||T.muted,fontWeight:600}}>{c.execResult}</span></>}
-                </div>
+                {c.isTemplate?(
+                  <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button>
+                    <span>·</span><span>{c.dept}</span><span>·</span><span>{c.domain}</span>
+                    {c.variables?.length>0&&<><span>·</span><span>⚙ {c.variables.length} variable{c.variables.length!==1?"s":""}</span></>}
+                  </div>
+                ):(
+                  <div style={{fontSize:11,color:T.muted,display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <button onClick={e=>{e.stopPropagation();const url=window.location.origin+window.location.pathname+"#"+c.id;navigator.clipboard?.writeText(url).catch(()=>{});}} title="Copy shareable link" style={{fontFamily:"monospace",fontSize:11,color:T.primary,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",fontWeight:600}}>{c.id}</button><span>·</span><span>{c.team}</span><span>·</span><span>{c.manager}</span>
+                    {c.country&&<><span>·</span><span style={{fontWeight:700}}>{c.country}</span></>}
+                    {c.scheduledFor&&<><span>·</span><span>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</span></>}
+                    {c.execResult&&<><span>·</span><span style={{color:{Successful:"#15803d",Failed:"#b91c1c",Aborted:"#7c3aed"}[c.execResult]||T.muted,fontWeight:600}}>{c.execResult}</span></>}
+                  </div>
+                )}
               </div>
               <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-                <TypeTag type={c.type}/><IntrusionTag v={c.intrusion}/><RiskPill risk={c.risk}/><Badge status={c.status}/>
+                {c.isTemplate?(
+                  <><IntrusionTag v={c.intrusion}/><RiskPill risk={c.risk}/></>
+                ):(
+                  <><TypeTag type={c.type}/><IntrusionTag v={c.intrusion}/><RiskPill risk={c.risk}/><Badge status={c.status}/></>
+                )}
                 <span style={{color:T.light}}>›</span>
               </div>
             </div>
@@ -614,17 +626,34 @@ export default function App(){
 
           {filters.viewMode==="grid"&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
             {filtered.map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{cursor:"pointer"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                {c.isTemplate?<span style={{fontSize:10,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #c4b5fd",borderRadius:4,padding:"2px 7px",fontWeight:700}}>TEMPLATE</span>:<Badge status={c.status} small/>}
-                <RiskPill risk={c.risk}/>
-              </div>
-              <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:4,lineHeight:1.3}}>{c.name}</div>
-              <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{c.domain} · {c.team}</div>
-              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                <TypeTag type={c.type}/><IntrusionTag v={c.intrusion}/>
-                {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
-              </div>
-              <div style={{fontSize:11,color:T.light,marginTop:8}}>{c.scheduledFor?<>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</>:"—"} · {c.manager}</div>
+              {c.isTemplate?(
+                <>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                    <span style={{fontSize:10,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #c4b5fd",borderRadius:4,padding:"2px 7px",fontWeight:700}}>TEMPLATE</span>
+                    <RiskPill risk={c.risk}/>
+                  </div>
+                  <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:4,lineHeight:1.3}}>{c.name}</div>
+                  <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{c.dept} · {c.domain}</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                    <IntrusionTag v={c.intrusion}/>
+                    {c.variables?.length>0&&<span style={{fontSize:10,color:T.muted,background:T.bg,border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 7px"}}>⚙ {c.variables.length} var{c.variables.length!==1?"s":""}</span>}
+                  </div>
+                </>
+              ):(
+                <>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                    <Badge status={c.status} small/>
+                    <RiskPill risk={c.risk}/>
+                  </div>
+                  <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:4,lineHeight:1.3}}>{c.name}</div>
+                  <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{c.domain} · {c.team}</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    <TypeTag type={c.type}/><IntrusionTag v={c.intrusion}/>
+                    {c.freezePeriod&&<FreezeTag severity={c.freezeSeverity||"red"}/>}
+                  </div>
+                  <div style={{fontSize:11,color:T.light,marginTop:8}}>{c.scheduledFor?<>📅 {fmtDT(c.scheduledFor)}{c.scheduledEnd&&<> → {fmtDT(c.scheduledEnd)}</>}</>:"—"} · {c.manager}</div>
+                </>
+              )}
             </Card>)}
           </div>}
         </div>}
