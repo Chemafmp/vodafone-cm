@@ -277,7 +277,6 @@ export default function App(){
               {fc.length===0
                 ?<Card style={{textAlign:"center",padding:"28px 20px",color:T.muted}}><div style={{fontWeight:600}}>No changes in this category</div></Card>
                 :fc.map(c=>{
-                  const mw=MW.find(w=>w.id===c.maintenanceWindow);
                   const statusCol=(STATUS_META[c.status]||{}).dot||"#94a3b8";
                   return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:6,cursor:"pointer",padding:"12px 16px"}}>
                     <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -286,7 +285,6 @@ export default function App(){
                         <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.name}</div>
                         <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:11,color:T.muted,alignItems:"center"}}>
                           {c.scheduledFor&&<span>📅 {fmt(c.scheduledFor,true)}</span>}
-                          {mw?<span style={{color:mw.freeze?T.freeze:"#0e7490",fontWeight:600}}>{mw.freeze?"❄":"🔧"} {mw.name}</span>:<span style={{color:"#b45309",fontWeight:600}}>⚠ No window</span>}
                           <span>· {c.domain}</span>{c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
                           {c.freezePeriod&&<FreezeTag/>}
                         </div>
@@ -309,14 +307,12 @@ export default function App(){
               <span style={{fontSize:11,background:"#ecfeff",color:"#0e7490",border:"1px solid #a5f3fc",borderRadius:10,padding:"2px 9px",fontWeight:700}}>{myActionable.length} change{myActionable.length>1?"s":""}</span>
             </div>
             {myActionable.map(c=>{
-              const mw=MW.find(w=>w.id===c.maintenanceWindow);
               return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:8,cursor:"pointer",borderLeft:`4px solid ${c.status==="In Execution"?"#06b6d4":"#15803d"}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:4}}>{c.name}</div>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:T.muted}}>
                       <span style={{fontWeight:600,color:T.text}}>{fmt(c.scheduledFor)}</span>
-                      {mw&&<><span>·</span><span style={{color:"#0e7490",fontWeight:600}}>🔧 {mw.name}</span></>}
                       <span>·</span><span>{c.domain}</span>
                       {c.steps&&<><span>·</span><span>{c.steps.filter(s=>c.stepLogs?.[s.id]?.status==="done").length}/{c.steps.length} steps done</span></>}
                     </div>
@@ -373,7 +369,6 @@ export default function App(){
                   <span style={{fontSize:11,color:T.muted}}>{dc.length} change{dc.length>1?"s":""}</span>
                 </div>
                 {dc.map(c=>{
-                  const mw=MW.find(w=>w.id===c.maintenanceWindow);
                   const statusCol=(STATUS_META[c.status]||{}).dot||"#94a3b8";
                   return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:6,cursor:"pointer",padding:"12px 16px"}}>
                     <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -382,9 +377,6 @@ export default function App(){
                         <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.name}</div>
                         <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:11,color:T.muted,alignItems:"center"}}>
                           <span>🕐 {new Date(c.scheduledFor).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</span>
-                          {mw?<span style={{color:mw.freeze?T.freeze:"#0e7490",fontWeight:600}}>
-                            {mw.freeze?"❄":"🔧"} {mw.name}
-                          </span>:<span style={{color:"#b45309",fontWeight:600}}>⚠ No window</span>}
                           <span>· {c.domain}</span>
                           {c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
                           <span>· {c.approvalLevel}</span>
@@ -541,25 +533,24 @@ export default function App(){
 
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center"}}>
             <div style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:9,overflow:"hidden",boxShadow:T.shadow}}>
-              {["All","Unique","Templates","Windows"].map(k=>(
+              {["All","Unique","Templates"].map(k=>(
                 <button key={k} onClick={()=>sf("kind")(k)} style={{padding:"8px 18px",border:"none",background:filters.kind===k?T.primary:T.surface,color:filters.kind===k?"#fff":T.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:filters.kind===k?700:500,transition:"background 0.15s,color 0.15s"}}>
-                  {k==="Templates"?"⊡ Templates":k==="Unique"?"↻ Unique":k==="Windows"?"🔧 Windows":"All"}
-                  {k!=="Windows"&&<span style={{marginLeft:6,fontSize:11,opacity:0.75}}>
+                  {k==="Templates"?"⊡ Templates":k==="Unique"?"↻ Unique":"All"}
+                  <span style={{marginLeft:6,fontSize:11,opacity:0.75}}>
                     {k==="All"?changes.length:k==="Templates"?templates.length:crs.length}
-                  </span>}
-                  {k==="Windows"&&<span style={{marginLeft:6,fontSize:11,opacity:0.75}}>{MW.length}</span>}
+                  </span>
                 </button>
               ))}
             </div>
-            {filters.kind!=="Windows"&&<><div style={{position:"relative",flex:1}}>
+            <><div style={{position:"relative",flex:1}}>
               <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:T.muted,fontSize:13,pointerEvents:"none"}}>🔍</span>
               <input value={filters.search} onChange={e=>sf("search")(e.target.value)} placeholder="Search by name or ID…" style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px 8px 34px",fontSize:13,fontFamily:"inherit",outline:"none",boxShadow:T.shadow}}/>
             </div>
             <Sel value={filters.status} onChange={sf("status")} options={["All","Draft","Preflight","Pending Approval","Approved","In Execution","Completed","Failed","Rolled Back","Aborted","Off-Script"]} style={{minWidth:160}}/>
-            <Sel value={filters.risk} onChange={sf("risk")} options={["All",...RISK_LEVELS]} style={{minWidth:100}}/></>}
+            <Sel value={filters.risk} onChange={sf("risk")} options={["All",...RISK_LEVELS]} style={{minWidth:100}}/></>
           </div>
 
-          {filters.kind!=="Windows"&&<Card style={{marginBottom:12,padding:"10px 14px"}}>
+          <Card style={{marginBottom:12,padding:"10px 14px"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 1fr 1fr",gap:10,alignItems:"end"}}>
               <Sel label="Team"     value={filters.team}     onChange={sf("team")}     options={["All",...TEAMS]}/>
               <Sel label="Dept"     value={filters.dept}     onChange={sf("dept")}     options={["All",...DEPTS]}/>
@@ -580,39 +571,11 @@ export default function App(){
               <span style={{fontSize:12,color:T.muted,marginLeft:"auto"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
               <Btn small variant="ghost" onClick={()=>setFilters(f=>({...f,search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",dateFrom:"",dateTo:"",kind:"All"}))}>Clear</Btn>
             </div>
-          </Card>}
+          </Card>
 
-          {filters.kind==="Windows"&&<div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text}}>Maintenance Windows</div>
-              <span style={{fontSize:11,color:T.muted}}>Pre-loaded windows available for scheduling changes</span>
-            </div>
-            {MW.map(mw=><Card key={mw.id} style={{marginBottom:10,borderLeft:`4px solid ${mw.freeze?T.freeze:T.accent}`}}>
-              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                <span style={{fontSize:20,flexShrink:0}}>{mw.freeze?"❄":"🔧"}</span>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
-                    <div style={{fontWeight:700,fontSize:14,color:mw.freeze?T.freeze:T.text}}>{mw.name}</div>
-                    {mw.freeze&&<FreezeTag/>}
-                    <span style={{fontSize:11,background:mw.active?"#f0fdf4":"#f1f5f9",color:mw.active?"#15803d":T.muted,border:`1px solid ${mw.active?"#86efac":T.border}`,borderRadius:4,padding:"2px 7px",fontWeight:600,marginLeft:"auto"}}>{mw.active?"ACTIVE":"INACTIVE"}</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
-                    <div><div style={{fontSize:11,color:T.muted,marginBottom:2}}>START</div><div style={{fontSize:12,color:T.text,fontWeight:500}}>{fmt(mw.start)}</div></div>
-                    <div><div style={{fontSize:11,color:T.muted,marginBottom:2}}>END</div><div style={{fontSize:12,color:T.text,fontWeight:500}}>{fmt(mw.end)}</div></div>
-                    <div><div style={{fontSize:11,color:T.muted,marginBottom:2}}>RECURRENCE</div><div style={{fontSize:12,color:T.text,fontWeight:500}}>{mw.recurrence}</div></div>
-                  </div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                    {(mw.teams||[]).map(t=><span key={t} style={{background:T.primaryBg,color:T.primary,border:`1px solid ${T.primaryBorder}`,borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600}}>{t}</span>)}
-                    <span style={{marginLeft:"auto",fontSize:11,color:T.muted}}>{changes.filter(c=>c.maintenanceWindow===mw.id).length} change{changes.filter(c=>c.maintenanceWindow===mw.id).length!==1?"s":""} scheduled</span>
-                  </div>
-                </div>
-              </div>
-            </Card>)}
-          </div>}
+          {filtered.length===0&&<div style={{textAlign:"center",padding:60,color:T.light}}>No changes match these filters.</div>}
 
-          {filters.kind!=="Windows"&&filtered.length===0&&<div style={{textAlign:"center",padding:60,color:T.light}}>No changes match these filters.</div>}
-
-          {filters.kind!=="Windows"&&filters.viewMode==="list"&&filtered.map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:7,cursor:"pointer"}}>
+          {filters.viewMode==="list"&&filtered.map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:7,cursor:"pointer"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
@@ -635,7 +598,7 @@ export default function App(){
             </div>
           </Card>)}
 
-          {filters.kind!=="Windows"&&filters.viewMode==="grid"&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+          {filters.viewMode==="grid"&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
             {filtered.map(c=><Card key={c.id} onClick={()=>selectChange(c)} style={{cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 {c.isTemplate?<span style={{fontSize:10,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #c4b5fd",borderRadius:4,padding:"2px 7px",fontWeight:700}}>TEMPLATE</span>:<Badge status={c.status} small/>}
