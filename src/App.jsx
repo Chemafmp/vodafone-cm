@@ -2,7 +2,10 @@ import { useState, useMemo, useEffect } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
-import { fmt, fmtDT, genId, now, getActivePeak } from "./utils/helpers.js";
+import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId } from "./utils/helpers.js";
+
+// Seed data uses IDs 1–5; new changes start from 6
+initChangeCounter(SEED_CHANGES.length);
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
@@ -58,7 +61,7 @@ export default function App(){
   const [filters,setFilters]=useState({
     search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",
     team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",
-    dateFrom:"",dateTo:"",sortBy:"date",sortDir:"desc",viewMode:"list",kind:"All",
+    dateFrom:"",dateTo:"",sortBy:"date",sortDir:"desc",viewMode:"list",kind:"Changes",
   });
   const sf=k=>v=>setFilters(f=>({...f,[k]:v}));
 
@@ -73,7 +76,7 @@ export default function App(){
   const filtered=useMemo(()=>{
     let r=changes;
     if(filters.kind==="Templates") r=r.filter(c=>c.isTemplate);
-    else if(filters.kind==="Unique") r=r.filter(c=>!c.isTemplate);
+    else if(filters.kind==="Changes") r=r.filter(c=>!c.isTemplate);
     if(filters.search) r=r.filter(c=>c.name.toLowerCase().includes(filters.search.toLowerCase())||c.id.includes(filters.search));
     if(filters.status!=="All") r=r.filter(c=>c.status===filters.status);
     if(filters.risk!=="All") r=r.filter(c=>c.risk===filters.risk);
@@ -542,11 +545,11 @@ export default function App(){
 
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center"}}>
             <div style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:9,overflow:"hidden",boxShadow:T.shadow}}>
-              {["All","Unique","Templates"].map(k=>(
+              {["Changes","Templates"].map(k=>(
                 <button key={k} onClick={()=>sf("kind")(k)} style={{padding:"8px 18px",border:"none",background:filters.kind===k?T.primary:T.surface,color:filters.kind===k?"#fff":T.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:filters.kind===k?700:500,transition:"background 0.15s,color 0.15s"}}>
-                  {k==="Templates"?"⊡ Templates":k==="Unique"?"↻ Unique":"All"}
+                  {k==="Templates"?"⊡ Templates":"↻ Changes"}
                   <span style={{marginLeft:6,fontSize:11,opacity:0.75}}>
-                    {k==="All"?changes.length:k==="Templates"?templates.length:crs.length}
+                    {k==="Templates"?templates.length:crs.length}
                   </span>
                 </button>
               ))}
@@ -578,7 +581,7 @@ export default function App(){
                 {["list","grid"].map(m=><button key={m} onClick={()=>sf("viewMode")(m)} style={{padding:"7px 12px",border:"none",background:filters.viewMode===m?T.primaryBg:"transparent",color:filters.viewMode===m?T.primary:T.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:filters.viewMode===m?600:400}}>{m==="list"?"☰ List":"⊞ Grid"}</button>)}
               </div>
               <span style={{fontSize:12,color:T.muted,marginLeft:"auto"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
-              <Btn small variant="ghost" onClick={()=>setFilters(f=>({...f,search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",dateFrom:"",dateTo:"",kind:"All"}))}>Clear</Btn>
+              <Btn small variant="ghost" onClick={()=>setFilters(f=>({...f,search:"",status:"All",risk:"All",type:"All",intrusion:"All",execMode:"All",team:"All",dept:"All",director:"All",manager:"All",domain:"All",country:"All",dateFrom:"",dateTo:"",kind:"Changes"}))}>Clear</Btn>
             </div>
           </Card>
 

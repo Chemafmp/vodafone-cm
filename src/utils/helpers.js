@@ -3,7 +3,17 @@ export function d(offset=0){
   const x=new Date(); x.setDate(x.getDate()+offset);
   return x.toISOString();
 }
+// genId still used for non-change records (freeze periods, etc.)
 export function genId(){ return "BNOC-"+Math.floor(10000000+Math.random()*90000000); }
+
+// Sequential change IDs — format BNOC-0000000001-A
+// 10-digit counter × 26 letters = 260 billion unique IDs
+let _changeSeq = 0;
+export function initChangeCounter(n){ _changeSeq = n; }
+export function genChangeId(){
+  _changeSeq++;
+  return `BNOC-${String(_changeSeq).padStart(10,"0")}-A`;
+}
 export function now(){ return new Date().toISOString(); }
 export function fmt(iso,short=false){
   if(!iso) return "—";
