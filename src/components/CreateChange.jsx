@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { T, SYSTEMS, EXEC_MODES, INTRUSION, COUNTRIES, RISK_LEVELS, RISK_C } from "../data/constants.js";
-import { genChangeId, now, fmt, applyVars } from "../utils/helpers.js";
+import { genChangeId, genTemplateId, now, fmt, applyVars } from "../utils/helpers.js";
 import { isInPeakPeriod, CAT_META, getCategoryRules } from "../utils/helpers.js";
 import { RiskPill, Btn, Inp, Sel } from "./ui/index.jsx";
 
@@ -468,7 +468,7 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
     const directorApprover = nc.approvers.find(a=>a.role==="Director");
     const newC = {
       ...NC_DEFAULTS, ...nc,
-      id: genChangeId(), status: "Draft",
+      id: nc.isTemplate ? genTemplateId() : genChangeId(), status: "Draft",
       createdBy: currentUser.name, createdAt: now(),
       affectedServices: (nc.affectedServices||"").split(",").map(s=>s.trim()).filter(Boolean),
       team: currentUser.team || "Network Ops", dept: currentUser.dept || "Engineering",

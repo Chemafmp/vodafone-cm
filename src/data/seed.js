@@ -12,7 +12,7 @@ export const PEAK_PERIODS = [
 
 export const SEED_CHANGES = [
   // 1. SW Upgrade - Completed Template
-  {id:"BNOC-0000000001-A",name:"Core Router OS Upgrade — {{hostname}}",domain:"Core Network",risk:"High",status:"Completed",approvalLevel:"L3",
+  {id:"BNOC-TEM-00000001-A",name:"Core Router OS Upgrade — {{hostname}}",domain:"Core Network",risk:"High",status:"Completed",approvalLevel:"L3",
    type:"Template",execMode:"Manual",intrusion:"Intrusive",execResult:"Successful",
    country:"DE",team:"Core Transport",dept:"Engineering",director:"Matt I.",manager:"Chema F.",
    isTemplate:true,templateId:"t1",freezePeriod:false,freezeJustification:"",
@@ -83,7 +83,7 @@ export const SEED_CHANGES = [
    notifications:[],comments:[],category:"Normal"},
 
   // 2. BGP Config Change - Approved, ready to execute Template
-  {id:"BNOC-0000000002-A",name:"BGP Route Update — {{hostname}}",domain:"IP/MPLS",risk:"Medium",status:"Approved",approvalLevel:"L2",
+  {id:"BNOC-TEM-00000002-A",name:"BGP Route Update — {{hostname}}",domain:"IP/MPLS",risk:"Medium",status:"Approved",approvalLevel:"L2",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
    country:"UK",team:"Core Transport",dept:"Operations",director:"Didier C.",manager:"Chema F.",
    isTemplate:true,templateId:"t1",freezePeriod:false,freezeJustification:"",
@@ -141,7 +141,7 @@ export const SEED_CHANGES = [
    notifications:[],comments:[],category:"Normal"},
 
   // 3. Firewall ACL - Failed
-  {id:"BNOC-0000000003-A",name:"Firewall ACL Update — DC-MAD01",domain:"Security GW",risk:"High",status:"Failed",approvalLevel:"L3",
+  {id:"BNOC-0000000001-A",name:"Firewall ACL Update — DC-MAD01",domain:"Security GW",risk:"High",status:"Failed",approvalLevel:"L3",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Intrusive",execResult:"Aborted",
    country:"ES",team:"Access",dept:"Security Ops",director:"Michael T.",manager:"Sam Reyes",
    isTemplate:false,templateId:null,freezePeriod:false,freezeJustification:"",
@@ -184,7 +184,7 @@ export const SEED_CHANGES = [
    notifications:[],comments:[],category:"Normal"},
 
   // 4. DNS - Draft Template
-  {id:"BNOC-0000000004-A",name:"DNS Zone Update — {{zone_name}}",domain:"DNS/NTP",risk:"Low",status:"Draft",approvalLevel:"L1",
+  {id:"BNOC-TEM-00000003-A",name:"DNS Zone Update — {{zone_name}}",domain:"DNS/NTP",risk:"Low",status:"Draft",approvalLevel:"L1",
    type:"Template",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
    country:"DE",team:"Data Core",dept:"Operations",director:"Didier C.",manager:"Sam Reyes",
    isTemplate:true,templateId:"t3",freezePeriod:false,freezeJustification:"",
@@ -232,7 +232,7 @@ export const SEED_CHANGES = [
    notifications:[],comments:[],category:"Normal"},
 
   // 5. RAN Push - Executing (2 steps done)
-  {id:"BNOC-0000000005-A",name:"RAN Parameter Push — Madrid Cluster",domain:"RAN",risk:"Medium",status:"In Execution",approvalLevel:"L2",
+  {id:"BNOC-0000000002-A",name:"RAN Parameter Push — Madrid Cluster",domain:"RAN",risk:"Medium",status:"In Execution",approvalLevel:"L2",
    type:"Ad-hoc",execMode:"Manual",intrusion:"Non-Intrusive",execResult:null,
    country:"ES",team:"RAN",dept:"Engineering",director:"Matt I.",manager:"Ivan M.",
    isTemplate:false,templateId:null,freezePeriod:true,

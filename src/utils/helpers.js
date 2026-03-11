@@ -14,6 +14,15 @@ export function genChangeId(){
   _changeSeq++;
   return `BNOC-${String(_changeSeq).padStart(10,"0")}-A`;
 }
+
+// Template blueprint IDs — format BNOC-TEM-00000001-A
+// Visually distinct from operational change IDs
+let _templateSeq = 0;
+export function initTemplateCounter(n){ _templateSeq = n; }
+export function genTemplateId(){
+  _templateSeq++;
+  return `BNOC-TEM-${String(_templateSeq).padStart(8,"0")}-A`;
+}
 export function now(){ return new Date().toISOString(); }
 export function fmt(iso,short=false){
   if(!iso) return "—";

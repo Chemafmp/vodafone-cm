@@ -2,10 +2,13 @@ import { useState, useMemo, useEffect } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, PEAK_PERIODS } from "./data/seed.js";
-import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId } from "./utils/helpers.js";
+import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
 
-// Seed data uses IDs 1–5; new changes start from 6
-initChangeCounter(SEED_CHANGES.length);
+// Init counters from seed so new records never collide with existing IDs
+const _seedTemplates = SEED_CHANGES.filter(c=>c.isTemplate).length;  // 3
+const _seedChanges   = SEED_CHANGES.filter(c=>!c.isTemplate).length; // 2
+initChangeCounter(_seedChanges);
+initTemplateCounter(_seedTemplates);
 
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import TimelineView from "./components/TimelineView.jsx";
