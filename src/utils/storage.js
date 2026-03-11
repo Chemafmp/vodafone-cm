@@ -47,6 +47,16 @@ export function initStorageVersion() {
   }
 }
 
+// ─── LOAD DEMO DATA ────────────────────────────────────────────────────────────
+// Writes seeds + demo changes to localStorage and reloads.
+// Use this to repopulate the app with realistic demo content.
+export function loadDemoData(seedChanges, demoChanges, seedPeaks) {
+  localStorage.setItem(KEYS.CHANGES, JSON.stringify([...seedChanges, ...demoChanges]));
+  localStorage.setItem(KEYS.PEAKS,   JSON.stringify(seedPeaks));
+  localStorage.setItem(KEYS.VERSION, STORAGE_VERSION);
+  window.location.reload();
+}
+
 // ─── RESET ─────────────────────────────────────────────────────────────────────
 // Restores app data to seed-only state and reloads.
 // Pass SEED_CHANGES and PEAK_PERIODS to write them directly — this ensures

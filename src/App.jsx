@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS, STATUS_META } from "./data/constants.js";
 import { SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS } from "./data/seed.js";
 import { fmt, fmtDT, now, getActivePeak, initChangeCounter, genChangeId, initTemplateCounter } from "./utils/helpers.js";
-import { useLocalStorage, KEYS, initStorageVersion, resetToSeed } from "./utils/storage.js";
+import { useLocalStorage, KEYS, initStorageVersion, resetToSeed, loadDemoData } from "./utils/storage.js";
 
 initStorageVersion();
 
@@ -231,6 +231,12 @@ export default function App(){
           </button>
         </div>
       </nav>
+
+      {/* ── Dev tools ── */}
+      <div style={{margin:"0 10px 8px",display:"flex",gap:6}}>
+        <button onClick={()=>{ if(window.confirm("Load demo data? This will replace current changes.")) loadDemoData(SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS); }} title="Populate app with 20 realistic demo changes" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>⟳ Demo data</button>
+        <button onClick={()=>{ if(window.confirm("Reset to seed data? Demo changes will be lost.")) resetToSeed(SEED_CHANGES, PEAK_PERIODS); }} title="Reset to hardcoded seed records only" style={{flex:1,padding:"5px 0",fontSize:10,fontWeight:600,color:T.sidebarMuted,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:6,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.3px"}}>↺ Reset seed</button>
+      </div>
 
       <div style={{margin:"0 10px",background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
         <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#0e7490)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,color:"#fff",flexShrink:0}}>
