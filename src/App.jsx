@@ -177,7 +177,7 @@ export default function App(){
     executing:dashCrs.filter(c=>c.status==="In Execution").length,
     completed:dashCrs.filter(c=>c.status==="Completed").length,
     failed:dashCrs.filter(c=>["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,
-    frozen:dashCrs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back"].includes(c.status)).length,
+    frozen:dashCrs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,
   };
 
   const myChanges = crs.filter(c =>
@@ -186,7 +186,7 @@ export default function App(){
     c.director === user.name
   );
   const myUpcoming = myChanges
-    .filter(c => !["Completed","Failed","Aborted","Rolled Back"].includes(c.status))
+    .filter(c => !["Completed","Failed","Aborted","Rolled Back","Off-Script"].includes(c.status))
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
@@ -585,7 +585,7 @@ export default function App(){
               {label:"Executing",  value:crs.filter(c=>c.status==="In Execution").length,                                                          col:"#0e7490", filter:"In Execution"},
               {label:"Completed",  value:crs.filter(c=>c.status==="Completed").length,                                                             col:"#15803d", filter:"Completed"},
               {label:"Failed",     value:crs.filter(c=>["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,                 col:"#b91c1c", filter:"Failed"},
-              {label:"❄ Freeze",   value:crs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back"].includes(c.status)).length, col:T.freeze,  filter:null},
+              {label:"❄ Freeze",   value:crs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length, col:T.freeze,  filter:null},
             ].map(s=>{
               const active=s.filter&&filters.status===s.filter;
               return <div key={s.label} onClick={s.filter?()=>sf("status")(active?"All":s.filter):undefined}
