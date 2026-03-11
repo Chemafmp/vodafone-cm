@@ -32,6 +32,7 @@ export default function App(){
   const [selected,setSelected]=useState(null);
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
   const activePeak = useMemo(()=>getActivePeak(),[]);
+  const [myWorkFilter,setMyWorkFilter]=useState(null);
 
   // Hash-based change linking
   useEffect(() => {
@@ -135,7 +136,6 @@ export default function App(){
   const NAV=[
     {id:"changes",  icon:"↻",label:"Changes",   badge:stats.pending||null},
     {id:"mywork",   icon:"👤",label:"My Work",   badge:myActionable.length||null},
-    {id:"dashboard",icon:"⊞",label:"Overview"},
     {id:"timeline", icon:"⋮",label:"Timeline"},
   ];
 
@@ -241,21 +241,69 @@ export default function App(){
             <div style={{fontSize:13,color:T.muted,marginTop:3}}>{user.role} · {user.team} · {user.dept}</div>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
             {[
-              {label:"Assigned to me/team",value:myChanges.length,col:T.primary,icon:"📋"},
-              {label:"Actionable now",value:myActionable.length,col:"#0e7490",icon:"⚡"},
-              {label:"Pending approval",value:myUpcoming.filter(c=>c.status==="Pending Approval").length,col:"#b45309",icon:"⏳"},
-              {label:"In freeze period",value:myUpcoming.filter(c=>c.freezePeriod).length,col:T.freeze,icon:"❄"},
-            ].map(s=><Card key={s.label} style={{borderTop:`3px solid ${s.col}`,padding:"16px 18px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                <div style={{fontSize:34,fontWeight:800,color:s.col,fontFamily:"monospace",lineHeight:1}}>{s.value}</div>
-                <span style={{fontSize:20,opacity:0.35}}>{s.icon}</span>
-              </div>
-              <div style={{fontSize:11,color:T.muted,fontWeight:500}}>{s.label}</div>
-            </Card>)}
+              {fk:"all",       label:"Assigned to me / team", value:myChanges.length,                                           col:T.primary, icon:"📋"},
+              {fk:"actionable",label:"Actionable now",         value:myActionable.length,                                        col:"#0e7490", icon:"⚡"},
+              {fk:"pending",   label:"Pending approval",       value:myUpcoming.filter(c=>c.status==="Pending Approval").length, col:"#b45309", icon:"⏳"},
+              {fk:"frozen",    label:"In freeze period",       value:myUpcoming.filter(c=>c.freezePeriod).length,                col:T.freeze,  icon:"❄"},
+            ].map(s=>{
+              const active=myWorkFilter===s.fk;
+              return <Card key={s.fk} onClick={()=>setMyWorkFilter(f=>f===s.fk?null:s.fk)} style={{borderTop:`3px solid ${s.col}`,padding:"16px 18px",cursor:"pointer",background:active?`${s.col}18`:T.surface,outline:active?`2px solid ${s.col}`:"none",transition:"all 0.15s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div style={{fontSize:34,fontWeight:800,color:s.col,fontFamily:"monospace",lineHeight:1}}>{s.value}</div>
+                  <span style={{fontSize:20,opacity:active?0.9:0.35}}>{s.icon}</span>
+                </div>
+                <div style={{fontSize:11,color:active?s.col:T.muted,fontWeight:active?700:500}}>{s.label}</div>
+                {active&&<div style={{fontSize:10,color:s.col,marginTop:5,opacity:0.7}}>↑ pulsa para cerrar</div>}
+              </Card>;
+            })}
           </div>
 
+          {myWorkFilter&&(()=>{
+            const filterMap={
+              all:myChanges,
+              actionable:myActionable,
+              pending:myUpcoming.filter(c=>c.status==="Pending Approval"),
+              frozen:myUpcoming.filter(c=>c.freezePeriod),
+            };
+            const label={all:"Assigned to me / team",actionable:"⚡ Actionable Now",pending:"⏳ Pending Approval",frozen:"❄ In Freeze Period"}[myWorkFilter];
+            const fc=filterMap[myWorkFilter];
+            return <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <h2 style={{fontSize:14,fontWeight:700,color:T.text}}>{label}</h2>
+                <span style={{fontSize:11,background:"#eff6ff",color:T.primary,border:"1px solid #93c5fd",borderRadius:10,padding:"2px 9px",fontWeight:700}}>{fc.length} change{fc.length!==1?"s":""}</span>
+                <Btn small variant="ghost" style={{marginLeft:"auto"}} onClick={()=>setMyWorkFilter(null)}>Cerrar ×</Btn>
+              </div>
+              {fc.length===0
+                ?<Card style={{textAlign:"center",padding:"28px 20px",color:T.muted}}><div style={{fontWeight:600}}>No changes in this category</div></Card>
+                :fc.map(c=>{
+                  const mw=MW.find(w=>w.id===c.maintenanceWindow);
+                  const statusCol=(STATUS_META[c.status]||{}).dot||"#94a3b8";
+                  return <Card key={c.id} onClick={()=>selectChange(c)} style={{marginBottom:6,cursor:"pointer",padding:"12px 16px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{width:3,alignSelf:"stretch",borderRadius:4,background:statusCol,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.name}</div>
+                        <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:11,color:T.muted,alignItems:"center"}}>
+                          {c.scheduledFor&&<span>📅 {fmt(c.scheduledFor,true)}</span>}
+                          {mw?<span style={{color:mw.freeze?T.freeze:"#0e7490",fontWeight:600}}>{mw.freeze?"❄":"🔧"} {mw.name}</span>:<span style={{color:"#b45309",fontWeight:600}}>⚠ No window</span>}
+                          <span>· {c.domain}</span>{c.country&&<span style={{fontWeight:700}}>· {c.country}</span>}
+                          {c.freezePeriod&&<FreezeTag/>}
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                        <RiskPill risk={c.risk}/><Badge status={c.status}/>
+                        {["Approved","In Execution"].includes(c.status)&&<Btn small variant={c.status==="Approved"?"success":"outline"} onClick={e=>{e.stopPropagation();selectChange(c);}}>{c.status==="Approved"?"▶ Execute":"⚙ Continue"}</Btn>}
+                      </div>
+                    </div>
+                  </Card>;
+                })
+              }
+            </div>;
+          })()}
+
+          {!myWorkFilter&&<>
           {myActionable.length>0&&<>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <h2 style={{fontSize:14,fontWeight:700,color:T.text}}>⚡ Actionable Now</h2>
@@ -372,6 +420,7 @@ export default function App(){
               </div>
             </Card>)}
           </>}
+          </>}
         </div>}
 
         {/* DASHBOARD */}
@@ -466,6 +515,31 @@ export default function App(){
 
         {/* CHANGES */}
         {view==="changes"&&<div>
+          {/* ── Compact KPI row ── */}
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            {[
+              {label:"Total",      value:crs.length,                                                                                               col:T.primary, filter:null},
+              {label:"Pending",    value:crs.filter(c=>c.status==="Pending Approval").length,                                                      col:"#b45309", filter:"Pending Approval"},
+              {label:"Executing",  value:crs.filter(c=>c.status==="In Execution").length,                                                          col:"#0e7490", filter:"In Execution"},
+              {label:"Completed",  value:crs.filter(c=>c.status==="Completed").length,                                                             col:"#15803d", filter:"Completed"},
+              {label:"Failed",     value:crs.filter(c=>["Failed","Aborted","Rolled Back","Off-Script"].includes(c.status)).length,                 col:"#b91c1c", filter:"Failed"},
+              {label:"❄ Freeze",   value:crs.filter(c=>c.freezePeriod&&!["Completed","Failed","Aborted","Rolled Back"].includes(c.status)).length, col:T.freeze,  filter:null},
+            ].map(s=>{
+              const active=s.filter&&filters.status===s.filter;
+              return <div key={s.label} onClick={s.filter?()=>sf("status")(active?"All":s.filter):undefined}
+                style={{display:"flex",alignItems:"center",gap:6,padding:"6px 13px",borderRadius:8,
+                  background:active?`${s.col}18`:T.surface,border:`1px solid ${active?s.col:T.border}`,
+                  cursor:s.filter?"pointer":"default",transition:"all 0.15s",userSelect:"none"}}>
+                <span style={{fontWeight:800,fontSize:18,color:s.col,fontFamily:"monospace",lineHeight:1}}>{s.value}</span>
+                <span style={{fontSize:11,color:active?s.col:T.muted,fontWeight:active?700:400}}>{s.label}</span>
+              </div>;
+            })}
+            {stats.frozen>0&&<div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,padding:"6px 13px",borderRadius:8,background:"#fef2f2",border:"1px solid #fca5a5"}}>
+              <span style={{fontSize:12}}>❄</span>
+              <span style={{fontSize:11,fontWeight:700,color:T.freeze}}>{stats.frozen} change{stats.frozen>1?"s":""} in freeze — Director approval required</span>
+            </div>}
+          </div>
+
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center"}}>
             <div style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:9,overflow:"hidden",boxShadow:T.shadow}}>
               {["All","Unique","Templates","Windows"].map(k=>(

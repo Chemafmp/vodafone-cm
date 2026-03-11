@@ -16,7 +16,7 @@ export function CreateModePicker({templates, activePeak, windows, currentUser, o
       label:"Use a Template",
       desc:"Start from an existing approved template. Steps, checks and rollback are pre-filled.",
       color:"#6d28d9", bg:"#f5f3ff", border:"#c4b5fd",
-      action:() => templates.length ? setStep("template-list") : onPickAdHoc(),
+      action:() => setStep("template-list"),
     },
     {
       key:"new-template",
