@@ -12,6 +12,7 @@ import FreezeManager from "./components/FreezeManager.jsx";
 import { CreateModePicker } from "./components/CreateChange.jsx";
 import CreateChangeMCM from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
+import NetworkInventory from "./components/NetworkInventory.jsx";
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -203,10 +204,22 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const NAV=[
-    {id:"changes",  icon:"↻",label:"Changes",   badge:stats.pending||null},
-    {id:"mywork",   icon:"👤",label:"My Work",   badge:myActionable.length||null},
-    {id:"timeline", icon:"⋮",label:"Timeline"},
+  const NAV_GROUPS=[
+    { label:"OPERATIONS", items:[
+      {id:"changes",  icon:"↻", label:"Changes",        badge:stats.pending||null},
+      {id:"mywork",   icon:"👤",label:"My Work",         badge:myActionable.length||null},
+      {id:"timeline", icon:"⋮", label:"Timeline"},
+      {id:"peakcal",  icon:"❄", label:"Freeze Periods"},
+    ]},
+    { label:"NETWORK", items:[
+      {id:"network",  icon:"🗺", label:"Inventory"},
+      {id:"topology", icon:"🔗", label:"Topology",      disabled:true},
+    ]},
+    { label:"MONITORING", items:[
+      {id:"alarms",        icon:"🔔", label:"Alarms",        disabled:true},
+      {id:"events",        icon:"📋", label:"Events",        disabled:true},
+      {id:"observability", icon:"📈", label:"Observability", disabled:true},
+    ]},
   ];
 
   const NC_DEFAULTS={
@@ -261,17 +274,26 @@ export default function App(){
         </button>
       </div>
 
-      <nav style={{flex:1,padding:"10px 8px"}}>
-        {NAV.map(item=><button key={item.id} onClick={()=>setView(item.id)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"inherit",marginBottom:2,background:view===item.id?"rgba(255,255,255,0.1)":"transparent",color:view===item.id?"#fff":T.sidebarMuted,fontSize:13,fontWeight:view===item.id?600:400,transition:"background 0.15s,color 0.15s"}}>
-          <span style={{fontSize:15,opacity:view===item.id?1:0.7}}>{item.icon}</span>{item.label}
-          {item.badge&&<span style={{marginLeft:"auto",background:"#e40000",color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px"}}>{item.badge}</span>}
-        </button>)}
-
-        <div style={{borderTop:`1px solid ${T.sidebarBorder}`,marginTop:10,paddingTop:10}}>
-          <button onClick={()=>setView("peakcal")} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"inherit",marginBottom:2,background:view==="peakcal"?"rgba(255,255,255,0.1)":"transparent",color:view==="peakcal"?"#fff":T.sidebarMuted,fontSize:13,fontWeight:view==="peakcal"?600:400,transition:"background 0.15s,color 0.15s"}}>
-            🔴 Change Freeze
-          </button>
-        </div>
+      <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
+        {NAV_GROUPS.map((group,gi)=>(
+          <div key={group.label} style={{marginBottom:4}}>
+            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.25)",letterSpacing:"1px",textTransform:"uppercase",padding:"8px 12px 4px",marginTop:gi>0?6:0}}>{group.label}</div>
+            {group.items.map(item=>(
+              <button key={item.id} disabled={item.disabled} onClick={()=>!item.disabled&&setView(item.id)}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",
+                  cursor:item.disabled?"default":"pointer",fontFamily:"inherit",marginBottom:2,
+                  background:view===item.id?"rgba(255,255,255,0.1)":"transparent",
+                  color:item.disabled?"rgba(255,255,255,0.2)":view===item.id?"#fff":T.sidebarMuted,
+                  fontSize:13,fontWeight:view===item.id?600:400,transition:"background 0.15s,color 0.15s",
+                  opacity:item.disabled?0.5:1}}>
+                <span style={{fontSize:14,opacity:item.disabled?0.4:view===item.id?1:0.7}}>{item.icon}</span>
+                {item.label}
+                {item.badge&&<span style={{marginLeft:"auto",background:"#e40000",color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px"}}>{item.badge}</span>}
+                {item.disabled&&<span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,0.2)",fontWeight:600,letterSpacing:"0.5px"}}>SOON</span>}
+              </button>
+            ))}
+          </div>
+        ))}
       </nav>
 
       {/* ── Dev tools ── */}
@@ -296,7 +318,7 @@ export default function App(){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {/* Topbar */}
       <div style={{padding:"13px 28px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14,background:T.surface,flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{view==="mywork"?"My Work":view==="peakcal"?"Change Freeze":NAV.find(n=>n.id===view)?.label ?? "Change Freeze"}</div>
+        <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{view==="mywork"?"My Work":view==="peakcal"?"Change Freeze":view==="network"?"Network Inventory":NAV_GROUPS.flatMap(g=>g.items).find(n=>n.id===view)?.label ?? "Changes"}</div>
         {view==="changes"&&<span style={{fontSize:11,color:T.muted,fontWeight:500,marginLeft:4}}>— manage, execute and track network changes</span>}
         <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
         </div>
@@ -768,6 +790,9 @@ export default function App(){
 
         {/* PEAK CALENDAR — managed via FreezeManager */}
         {view==="peakcal"&&<FreezeManager peaks={peaks} setPeaks={setPeaks}/>}
+
+        {/* NETWORK INVENTORY */}
+        {view==="network"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkInventory changes={changes}/></div>}
 
       </div>
     </div>
