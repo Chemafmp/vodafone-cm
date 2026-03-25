@@ -90,7 +90,7 @@ export default function LoginScreen({ onLogin }) {
             Bodaphone
           </div>
           <div style={{fontSize:12, color:"rgba(148,163,184,0.8)", letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:500}}>
-            Network Operations · Change Management
+            Centro de Operaciones · Operations Centre
           </div>
         </div>
 

@@ -501,7 +501,7 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
         <div style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 24px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:16, fontWeight:800, color:T.text }}>New BNOC Request</div>
-            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Bodaphone Network Operations Change · {currentUser.name}</div>
+            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Bodaphone Centro de Operaciones · {currentUser.name}</div>
           </div>
           <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, cursor:"pointer", fontSize:22, lineHeight:1 }}>×</button>
         </div>

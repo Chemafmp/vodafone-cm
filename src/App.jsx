@@ -262,7 +262,7 @@ export default function App(){
           <div onClick={e=>{if(e.shiftKey&&window.confirm("Reset all data to seed? Demo changes will be lost.")) resetToSeedDB(SEED_CHANGES,PEAK_PERIODS).then(()=>{setChanges(SEED_CHANGES);setPeaks(PEAK_PERIODS);}).catch(console.error);}} title="Shift+click to reset to seed data" style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.25}}>Bodaphone</div>
-            <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>BNOC Change Management Platform</div>
+            <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>Centro de Operaciones · Operations Centre</div>
           </div>
         </div>
       </div>
