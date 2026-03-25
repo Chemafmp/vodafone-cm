@@ -267,11 +267,23 @@ export default function App(){
         </div>
       </div>
 
-      {/* ── New Change CTA ── */}
+      {/* ── Contextual Action Button ── */}
       <div style={{padding:"12px 10px 0"}}>
-        <button onClick={()=>setCreatingMode("picker")} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#e40000,#9b0000)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(228,0,0,0.45)",letterSpacing:"0.1px"}}>
-          <span style={{fontSize:18,lineHeight:1,fontWeight:300}}>+</span> New Change
-        </button>
+        {(view==="changes"||view==="mywork"||view==="timeline") && (
+          <button onClick={()=>setCreatingMode("picker")} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#e40000,#9b0000)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(228,0,0,0.45)",letterSpacing:"0.1px"}}>
+            <span style={{fontSize:18,lineHeight:1,fontWeight:300}}>+</span> New Change
+          </button>
+        )}
+        {view==="peakcal" && (
+          <button onClick={()=>{setPeaks(p=>[...p,{id:`BNOC-${Math.random().toString().slice(2,10)}`,name:"",start:"",end:"",severity:"orange",reason:""}]);}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#2563eb,#1d4ed8)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(37,99,235,0.4)",letterSpacing:"0.1px"}}>
+            <span style={{fontSize:18,lineHeight:1,fontWeight:300}}>+</span> New Freeze Period
+          </button>
+        )}
+        {view==="network" && (
+          <button onClick={()=>{}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#0f766e,#0d9488)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(13,148,136,0.4)",letterSpacing:"0.1px"}}>
+            <span style={{fontSize:15,lineHeight:1}}>📋</span> Export Inventory
+          </button>
+        )}
       </div>
 
       <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
