@@ -228,7 +228,7 @@ export default function App(){
     intrusion:"Non-Intrusive",approvalLevel:"L1",scheduledFor:"",scheduledEnd:"",isTemplate:false,variables:[],
     assignedTo:"",country:"",
     purpose:"",requirementsPermissions:"",expectedEndState:"",assumptions:"",
-    serviceImpact:"",affectedServices:"",affectedDevices:"",customerImpact:"",
+    serviceImpact:"",affectedServices:"",affectedDevices:"",affectedDeviceIds:[],customerImpact:"",
     rollbackPlan:"",rollbackTime:"",
     freezePeriod:false,freezeJustification:"",freezeSeverity:null,
     relatedTickets:"",lseId:"",incidentId:"",

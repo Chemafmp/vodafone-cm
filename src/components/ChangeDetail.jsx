@@ -2,6 +2,8 @@ import { useState } from "react";
 import { T, COUNTRIES } from "../data/constants.js";
 import { now, fmt, fmtSec, exportAuditCSV } from "../utils/helpers.js";
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Modal } from "./ui/index.jsx";
+import { NODES } from "../data/inventory/index.js";
+import { LAYER_COLORS } from "../data/inventory/sites.js";
 import CommentStream from "./CommentStream.jsx";
 import CABPanel from "./CABPanel.jsx";
 
@@ -462,6 +464,21 @@ export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDele
           {change.affectedServices.map(s=><span key={s} style={{background:"#fef9c3",color:"#713f12",border:"1px solid #fde68a",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{s}</span>)}
         </div>}
       </div>
+      {/* ── Affected Devices ── */}
+      {(change.affectedDeviceIds||[]).length>0&&<div style={{gridColumn:"1/-1",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,padding:"12px 16px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#0c4a6e",textTransform:"uppercase",marginBottom:6}}>Affected Devices ({change.affectedDeviceIds.length})</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {change.affectedDeviceIds.map(id=>{
+            const n=NODES.find(x=>x.id===id);
+            const lc=n?LAYER_COLORS[n.layer]||"#64748b":"#64748b";
+            return <span key={id} style={{display:"inline-flex",alignItems:"center",gap:4,background:lc+"12",border:`1px solid ${lc}35`,borderRadius:5,padding:"3px 8px 3px 6px",fontSize:10,fontWeight:600,color:lc}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:n?({UP:"#16a34a",DEGRADED:"#d97706",DOWN:"#dc2626"}[n.status]||"#94a3b8"):"#94a3b8"}}/>
+              <span style={{fontFamily:"monospace"}}>{id}</span>
+              {n&&<span style={{fontSize:8,color:T.muted,marginLeft:2}}>{n.vendor} {n.hwModel}</span>}
+            </span>;
+          })}
+        </div>
+      </div>}
       {[
         ["Domain",change.domain],["Risk",change.risk],["Country",change.country?(COUNTRIES.find(c=>c.code===change.country)?.name??change.country):"—"],
         ["Approval",change.approvalLevel],["Exec Mode",change.execMode],["Intrusion",change.intrusion],

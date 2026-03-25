@@ -3,9 +3,160 @@ import { T, SYSTEMS, EXEC_MODES, INTRUSION, COUNTRIES, RISK_LEVELS, RISK_C } fro
 import { genChangeId, genTemplateId, now, fmt, applyVars } from "../utils/helpers.js";
 import { isInPeakPeriod, CAT_META, getCategoryRules } from "../utils/helpers.js";
 import { RiskPill, Btn, Inp, Sel } from "./ui/index.jsx";
+import { NODES } from "../data/inventory/index.js";
+import { COUNTRY_META, LAYER_COLORS } from "../data/inventory/sites.js";
 
 // severity helpers (mirrors FreezeManager SEV)
 const SEV_LABEL = { orange:"🟠 Orange — Head of / Manager approval", red:"🔴 Red — Director approval" };
+
+const STATUS_DOT = { UP:"#16a34a", DEGRADED:"#d97706", DOWN:"#dc2626" };
+
+// ─── DEVICE PICKER ──────────────────────────────────────────────────────────
+function DevicePicker({ selected = [], onChange }) {
+  const [search, setSearch] = useState("");
+  const [countryFilter, setCountryFilter] = useState("ALL");
+  const [layerFilter, setLayerFilter] = useState("ALL");
+  const [open, setOpen] = useState(false);
+
+  const layers = [...new Set(NODES.map(n => n.layer))].sort();
+
+  const filtered = NODES.filter(n => {
+    if (countryFilter !== "ALL" && n.country !== countryFilter) return false;
+    if (layerFilter !== "ALL" && n.layer !== layerFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      return n.id.toLowerCase().includes(s) || n.hostname.toLowerCase().includes(s) ||
+        n.vendor.toLowerCase().includes(s) || n.hwModel.toLowerCase().includes(s) ||
+        (n.layer||"").toLowerCase().includes(s) || (n.mgmtIp||"").includes(s);
+    }
+    return true;
+  });
+
+  const toggle = (id) => {
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+  };
+
+  const selectedNodes = NODES.filter(n => selected.includes(n.id));
+
+  return (
+    <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+      <div onClick={() => setOpen(!open)} style={{
+        padding:"10px 14px", background:T.bg, borderBottom: open ? `1px solid ${T.border}` : "none",
+        display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer",
+      }}>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text }}>
+            Affected Devices
+          </div>
+          <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
+            {selected.length === 0 ? "No devices selected — click to browse inventory" : `${selected.length} device${selected.length > 1 ? "s" : ""} selected`}
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {selected.length > 0 && (
+            <span style={{ fontSize:11, background:T.primaryBg, color:T.primary, border:`1px solid ${T.primaryBorder}`, borderRadius:10, padding:"2px 9px", fontWeight:700 }}>
+              {selected.length}
+            </span>
+          )}
+          <span style={{ fontSize:12, color:T.muted }}>{open ? "▲" : "▼"}</span>
+        </div>
+      </div>
+
+      {/* Selected devices tags */}
+      {selected.length > 0 && (
+        <div style={{ padding:"8px 14px", display:"flex", flexWrap:"wrap", gap:5, borderBottom: open ? `1px solid ${T.border}` : "none" }}>
+          {selectedNodes.map(n => (
+            <span key={n.id} style={{
+              display:"inline-flex", alignItems:"center", gap:4,
+              background: (LAYER_COLORS[n.layer] || "#64748b") + "15",
+              border:`1px solid ${(LAYER_COLORS[n.layer] || "#64748b")}40`,
+              borderRadius:6, padding:"2px 8px 2px 6px", fontSize:10, fontWeight:600,
+              color: LAYER_COLORS[n.layer] || "#64748b",
+            }}>
+              <span style={{ width:6, height:6, borderRadius:"50%", background: STATUS_DOT[n.status] || "#94a3b8" }} />
+              <span style={{ fontFamily:"monospace" }}>{n.id}</span>
+              <button onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
+                style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:12, lineHeight:1, padding:0, marginLeft:2 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Dropdown browser */}
+      {open && (
+        <div style={{ maxHeight:300, display:"flex", flexDirection:"column" }}>
+          {/* Filters */}
+          <div style={{ padding:"8px 14px", display:"flex", gap:8, alignItems:"center", borderBottom:`1px solid ${T.border}`, background:T.bg, flexShrink:0 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search hostname, vendor, model, IP..."
+              style={{ flex:1, padding:"5px 10px", border:`1px solid ${T.border}`, borderRadius:6, fontSize:11, fontFamily:"inherit", outline:"none" }} />
+            <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+              style={{ padding:"5px 6px", border:`1px solid ${T.border}`, borderRadius:6, fontSize:10, fontFamily:"inherit" }}>
+              <option value="ALL">All Countries</option>
+              {Object.entries(COUNTRY_META).map(([code, m]) => (
+                <option key={code} value={code}>{m.flag} {m.name}</option>
+              ))}
+            </select>
+            <select value={layerFilter} onChange={e => setLayerFilter(e.target.value)}
+              style={{ padding:"5px 6px", border:`1px solid ${T.border}`, borderRadius:6, fontSize:10, fontFamily:"inherit" }}>
+              <option value="ALL">All Layers</option>
+              {layers.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+
+          {/* Node list */}
+          <div style={{ overflowY:"auto", maxHeight:240 }}>
+            {filtered.length === 0 && (
+              <div style={{ padding:16, textAlign:"center", color:T.muted, fontSize:12 }}>No devices match your filters</div>
+            )}
+            {filtered.map(n => {
+              const isSel = selected.includes(n.id);
+              const lc = LAYER_COLORS[n.layer] || "#64748b";
+              return (
+                <div key={n.id} onClick={() => toggle(n.id)} style={{
+                  display:"flex", alignItems:"center", gap:8, padding:"6px 14px",
+                  cursor:"pointer", borderBottom:`1px solid ${T.border}20`,
+                  background: isSel ? T.primaryBg : "transparent",
+                  transition:"background 0.1s",
+                }}>
+                  <input type="checkbox" checked={isSel} readOnly style={{ accentColor:T.primary, flexShrink:0 }} />
+                  <span style={{ width:7, height:7, borderRadius:"50%", background: STATUS_DOT[n.status] || "#94a3b8", flexShrink:0 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.text, fontFamily:"monospace" }}>{n.id}</div>
+                    <div style={{ fontSize:9, color:T.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {n.vendor} {n.hwModel} · {n.layer} · {n.mgmtIp}
+                    </div>
+                  </div>
+                  <span style={{ fontSize:8, fontWeight:700, color:lc, textTransform:"uppercase", letterSpacing:"0.3px", flexShrink:0 }}>{n.layer}</span>
+                  <span style={{ fontSize:9, color:T.muted, flexShrink:0 }}>{COUNTRY_META[n.country]?.flag || n.country}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div style={{ padding:"6px 14px", borderTop:`1px solid ${T.border}`, background:T.bg, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+            <span style={{ fontSize:10, color:T.muted }}>{filtered.length} devices shown</span>
+            <div style={{ display:"flex", gap:6 }}>
+              {filtered.length > 0 && filtered.length <= 20 && (
+                <button onClick={() => onChange([...new Set([...selected, ...filtered.map(n => n.id)])])}
+                  style={{ fontSize:10, padding:"3px 8px", border:`1px solid ${T.border}`, borderRadius:5, background:T.surface, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+                  Select all shown
+                </button>
+              )}
+              {selected.length > 0 && (
+                <button onClick={() => onChange([])}
+                  style={{ fontSize:10, padding:"3px 8px", border:`1px solid ${T.border}`, borderRadius:5, background:T.surface, color:"#dc2626", cursor:"pointer", fontFamily:"inherit" }}>
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── CREATE MODE PICKER ───────────────────────────────────────────────────────
 export function CreateModePicker({templates, activePeak, currentUser, peaks=[], onPickAdHoc, onPickTemplate, onPickNewTemplate, onClose, onCreate}) {
@@ -445,7 +596,7 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
   const canNext = () => {
     if (ncStep === 0) return nc.name.trim().length >= 3 && nc.risk;
     if (ncStep === 1) return nc.purpose.trim().length >= 10 && nc.expectedEndState.trim().length >= 5;
-    if (ncStep === 2) return (nc.affectedServices || nc.affectedDevices);
+    if (ncStep === 2) return (nc.affectedServices || nc.affectedDevices || (nc.affectedDeviceIds||[]).length > 0);
     if (ncStep === 3) return nc.steps.length > 0; // at least one step required
     if (ncStep === 4) return true; // approvers optional
     if (ncStep === 5) return nc.rollbackPlan.trim().length >= 10;
@@ -638,8 +789,11 @@ export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_
               <Inp label="Affected Services (comma separated) *" value={nc.affectedServices||""} onChange={ncSf("affectedServices")}
                 placeholder="e.g. MPLS-VPN, BGP-Peering, ISIS"/>
 
-              <Inp label="Affected Devices / Hostnames" value={nc.affectedDevices||""} onChange={ncSf("affectedDevices")} type="textarea" rows={3}
-                placeholder="e.g.&#10;rmu1-fc-acc-sw-13-8&#10;rmu1-fc-acc-sw-7-4&#10;rmu1-fc-acc-sw-7-6"/>
+              {/* ── Device Picker ── */}
+              <DevicePicker
+                selected={nc.affectedDeviceIds||[]}
+                onChange={ids => setNc(f => ({...f, affectedDeviceIds: ids}))}
+              />
 
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <Inp label="Affected Regions" value={nc.affectedRegions||""} onChange={ncSf("affectedRegions")}
