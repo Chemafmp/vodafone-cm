@@ -340,9 +340,15 @@ function TabServices({ node, services }) {
 }
 
 function TabChanges({ node, changes }) {
-  const nodeChanges = changes.filter(c =>
-    !c.isTemplate && (c.affectedServices || "").toLowerCase().includes(node.id.toLowerCase())
-  ).sort((a,b)=>new Date(b.scheduledFor||0)-new Date(a.scheduledFor||0)).slice(0,10);
+  const list = Array.isArray(changes) ? changes : [];
+  const nodeChanges = list.filter(c => {
+    try {
+      return !c.isTemplate && (
+        (c.affectedServices || "").toLowerCase().includes(node.id.toLowerCase()) ||
+        (c.name || "").toLowerCase().includes(node.id.toLowerCase())
+      );
+    } catch { return false; }
+  }).sort((a,b)=>(new Date(b.scheduledFor||0))-(new Date(a.scheduledFor||0))).slice(0,10);
 
   if (nodeChanges.length === 0) return (
     <EmptyState icon="✓" msg="No recent changes reference this node" />
