@@ -13,6 +13,7 @@ import { CreateModePicker } from "./components/CreateChange.jsx";
 import CreateChangeMCM from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import NetworkInventory from "./components/NetworkInventory.jsx";
+import TopologyView from "./components/TopologyView.jsx";
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -213,7 +214,7 @@ export default function App(){
     ]},
     { label:"NETWORK", items:[
       {id:"network",  icon:"🗺", label:"Inventory"},
-      {id:"topology", icon:"🔗", label:"Topology",      disabled:true},
+      {id:"topology", icon:"🔗", label:"Topology"},
     ]},
     { label:"MONITORING", items:[
       {id:"alarms",        icon:"🔔", label:"Alarms",        disabled:true},
@@ -282,6 +283,11 @@ export default function App(){
         {view==="network" && (
           <button onClick={()=>{}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#0f766e,#0d9488)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(13,148,136,0.4)",letterSpacing:"0.1px"}}>
             <span style={{fontSize:15,lineHeight:1}}>📋</span> Export Inventory
+          </button>
+        )}
+        {view==="topology" && (
+          <button onClick={()=>setView("network")} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(29,78,216,0.4)",letterSpacing:"0.1px"}}>
+            <span style={{fontSize:15,lineHeight:1}}>🗺</span> Open Inventory
           </button>
         )}
       </div>
@@ -361,7 +367,7 @@ export default function App(){
         </div>;
       })()}
 
-      <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+      <div style={{flex:1,overflowY:view==="topology"||view==="network"?"hidden":"auto",padding:view==="topology"?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<div>
@@ -805,6 +811,9 @@ export default function App(){
 
         {/* NETWORK INVENTORY */}
         {view==="network"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkInventory changes={changes}/></div>}
+
+        {/* TOPOLOGY WEATHERMAP */}
+        {view==="topology"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
       </div>
     </div>
