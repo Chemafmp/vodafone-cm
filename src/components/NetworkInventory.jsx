@@ -806,23 +806,26 @@ export default function NetworkInventory({ changes = [] }) {
           </button>
         ))}
 
-        {/* Layer filter — only on nodes view */}
-        {subView==="nodes" && (
-          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center",
-            gap:5, flexWrap:"wrap" }}>
-            <span style={{ fontSize:10, color:T.muted, fontWeight:600,
-              textTransform:"uppercase", letterSpacing:"0.5px" }}>Layer:</span>
-            {presentLayers.map(l=>(
-              <button key={l} onClick={()=>setLayerFilter(l)} style={{
-                padding:"2px 9px", fontSize:10, fontWeight:layerFilter===l?700:500,
-                borderRadius:10, border:`1px solid ${layerFilter===l?T.primary:T.border}`,
-                background: layerFilter===l?T.primary:"transparent",
-                color: layerFilter===l?"#fff":T.muted,
-                cursor:"pointer", fontFamily:"inherit", transition:"all 0.15s" }}>{l}</button>
-            ))}
-          </div>
-        )}
       </div>
+
+      {/* Layer filter — only on nodes view, separate row */}
+      {subView==="nodes" && (
+        <div style={{ display:"flex", alignItems:"center", gap:5,
+          padding:"5px 14px", borderBottom:`1px solid ${T.border}`,
+          background:T.surface, flexShrink:0, overflowX:"auto" }}>
+          <span style={{ fontSize:10, color:T.muted, fontWeight:600,
+            textTransform:"uppercase", letterSpacing:"0.5px", flexShrink:0 }}>Layer:</span>
+          {presentLayers.map(l=>(
+            <button key={l} onClick={()=>setLayerFilter(l)} style={{
+              padding:"2px 9px", fontSize:10, fontWeight:layerFilter===l?700:500,
+              borderRadius:10, border:`1px solid ${layerFilter===l?T.primary:T.border}`,
+              background: layerFilter===l?T.primary:"transparent",
+              color: layerFilter===l?"#fff":T.muted,
+              cursor:"pointer", fontFamily:"inherit", transition:"all 0.15s",
+              whiteSpace:"nowrap", flexShrink:0 }}>{l}</button>
+          ))}
+        </div>
+      )}
 
       {/* ── Content ── */}
       <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
