@@ -85,19 +85,26 @@ export const EVENTS = [
     message:"Po1 utilization 88% — approaching saturation",
     detail:"DC fabric uplink carrying rerouted traffic. Normal: 45%, current: 88%. QoS remarking active. Voice/video traffic prioritized." },
 
-  // 08:08 — Service degradation: Internet Transit
-  { id:"cas-009", ts:"2026-03-26T08:08:00", duration: 540000, // 9min
-    nodeId:"hw-hnl1-pe-01", country:"HW",
-    type:"ALARM", severity:"critical", source:"manual",
-    message:"SERVICE DEGRADED: Internet Transit Hawaii — latency +45ms, loss 2.3%",
-    detail:"SLA breach on Internet Transit service. Latency: 67ms (threshold 30ms). Packet loss: 2.3% (threshold 0.1%). Affected customers: Enterprise tier. Single-path forwarding via hw-hnl1-cr-02." },
+  // 08:08 — Service degradation: Internet Transit (SERVICE event on service row)
+  { id:"cas-009", ts:"2026-03-26T08:08:00", duration: 840000, // 14min until restored
+    serviceId:"hw-internet-transit", country:"HW",
+    type:"SERVICE", severity:"error", source:"manual",
+    message:"Internet Transit Hawaii — DEGRADED — latency +45ms, loss 2.3%",
+    detail:"SLA breach on Internet Transit service. Latency: 67ms (threshold 30ms). Packet loss: 2.3% (threshold 0.1%). Affected customers: Enterprise tier. Single-path forwarding via hw-hnl1-cr-02. Dependent nodes: hw-hnl-igw-01, hw-hnl1-cr-01, hw-hnl1-cr-02." },
 
   // 08:09 — Service degradation: MPLS VPN
-  { id:"cas-010", ts:"2026-03-26T08:09:00", duration: 480000, // 8min
-    nodeId:"hw-hnl1-pe-02", country:"HW",
-    type:"ALARM", severity:"critical", source:"manual",
-    message:"SERVICE DEGRADED: MPLS VPN Hawaii — VRF path failover active",
+  { id:"cas-010", ts:"2026-03-26T08:09:00", duration: 780000, // 13min
+    serviceId:"hw-mpls-vpn", country:"HW",
+    type:"SERVICE", severity:"error", source:"manual",
+    message:"MPLS VPN Hawaii — DEGRADED — VRF path failover active",
     detail:"MPLS VPN backup path active. VRF CUSTOMER-A: 3/5 CE sites rerouted. Latency increase +38ms. No total outage but SLA at risk. Monitoring convergence." },
+
+  // 08:09:30 — 5G SA service warning
+  { id:"cas-010b", ts:"2026-03-26T08:09:30", duration: 720000, // 12min
+    serviceId:"hw-5g-sa", country:"HW",
+    type:"SERVICE", severity:"warning", source:"manual",
+    message:"5G SA Hawaii — WARNING — control plane path degraded",
+    detail:"5GC AMF connectivity to hw-hnl1-cr-01 lost. Failover via hw-hnl1-cr-02 active. Session establishment latency +25ms. No dropped sessions." },
 
   // 08:10 — Security alert: unusual traffic pattern
   { id:"cas-011", ts:"2026-03-26T08:10:00", duration: 300000, // 5min
@@ -130,11 +137,21 @@ export const EVENTS = [
     detail:"hw-hnl1-cr-01 re-announcing prefixes. ECMP active again. hw-hnl1-cr-02 utilization dropping: 94% → 61% → target 47%. ETA full balance: 3min." },
 
   // 08:22 — Services recovered
-  { id:"cas-015", ts:"2026-03-26T08:22:00", duration: 120000, // 2min
-    nodeId:"hw-hnl1-pe-01", country:"HW",
-    type:"SYSTEM", severity:"info", source:"manual",
-    message:"SERVICE RESTORED: Internet Transit Hawaii — SLA within thresholds",
+  { id:"cas-015", ts:"2026-03-26T08:22:00", duration: 120000,
+    serviceId:"hw-internet-transit", country:"HW",
+    type:"SERVICE", severity:"info", source:"manual",
+    message:"Internet Transit Hawaii — OK — SLA within thresholds",
     detail:"Latency: 22ms (threshold 30ms). Loss: 0.0%. All BGP paths converged. Full ECMP restored. Total service impact: 14 minutes." },
+  { id:"cas-015b", ts:"2026-03-26T08:22:30", duration: 120000,
+    serviceId:"hw-mpls-vpn", country:"HW",
+    type:"SERVICE", severity:"info", source:"manual",
+    message:"MPLS VPN Hawaii — OK — all VRF paths primary",
+    detail:"All CE sites back on primary path. VRF CUSTOMER-A: 5/5 CE sites nominal. Latency normalized." },
+  { id:"cas-015c", ts:"2026-03-26T08:21:30", duration: 120000,
+    serviceId:"hw-5g-sa", country:"HW",
+    type:"SERVICE", severity:"info", source:"manual",
+    message:"5G SA Hawaii — OK — AMF connectivity restored",
+    detail:"5GC AMF primary path via hw-hnl1-cr-01 restored. Session latency normalized. No sessions lost during failover." },
 
   // 08:25 — Camunda workflow completes with success
   { id:"cas-016", ts:"2026-03-26T08:25:00", duration: 120000, // 2min post-check
@@ -250,6 +267,25 @@ export const EVENTS = [
     type:"TRAFFIC", severity:"info", source:"manual",
     message:"Traffic threshold crossed — et-0/0/0 utilization 72% (warn: 70%)",
     detail:"Inbound 7.2 Gbps on 10G link to HNL2. Peak morning traffic. Auto-cleared at 10:15." },
+  // Service events: Fiji — node unreachable impacts Fixed Broadband
+  { id:"svc-fj-001", ts:"2026-03-26T07:15:00", duration: 3300000, // ~55min
+    serviceId:"fj-fixed-bb", country:"FJ",
+    type:"SERVICE", severity:"error", source:"manual",
+    message:"Fixed Broadband Fiji — DEGRADED — Lautoka subscribers affected",
+    detail:"fj-lautoka-acc-sw01 unreachable since 07:12. ~2,400 subscribers without service. Failover not available for access layer. Field team dispatched." },
+  { id:"svc-fj-002", ts:"2026-03-26T08:10:00", duration: 120000,
+    serviceId:"fj-fixed-bb", country:"FJ",
+    type:"SERVICE", severity:"info", source:"manual",
+    message:"Fixed Broadband Fiji — OK — Lautoka access restored",
+    detail:"fj-lautoka-acc-sw01 power restored. All subscribers reconnected. Total outage: 58 minutes." },
+
+  // Service events: Ibiza — PSU failure impacts local services
+  { id:"svc-ib-001", ts:"2026-03-26T10:25:00", duration: 14000000, // until spare arrives
+    serviceId:"ib-fixed-bb", country:"IB",
+    type:"SERVICE", severity:"warning", source:"manual",
+    message:"Fixed Broadband Ibiza — WARNING — single PSU on ib-santantoni-distr-sw01",
+    detail:"Node running on single PSU after PSU-1 failure. No current impact but no redundancy. Risk: total outage if PSU-2 fails. Spare ETA 14:00." },
+
   { id:"evt-006", ts:"2026-03-26T07:12:00", duration: 3600000, // 1h unreachable
     nodeId:"fj-lautoka-acc-sw01", country:"FJ",
     type:"ALARM", severity:"critical", source:"manual",

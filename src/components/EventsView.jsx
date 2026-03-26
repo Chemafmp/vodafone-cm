@@ -27,10 +27,16 @@ const EV_TYPES = {
   "traffic":     { fill:"#ea580c", stroke:"#f97316", bg:"#ffedd5", tc:"#7c2d12", lbl:"Traffic",        shp:"diamond" },
   "security":    { fill:"#be185d", stroke:"#ec4899", bg:"#fce7f3", tc:"#831843", lbl:"Security",       shp:"diamond" },
   "system":      { fill:"#64748b", stroke:"#94a3b8", bg:"#f1f5f9", tc:"#1e293b", lbl:"System",         shp:"circle" },
+  "svc-down":    { fill:"#991b1b", stroke:"#dc2626", bg:"#fecaca", tc:"#7f1d1d", lbl:"Service Down",   shp:"bar" },
+  "svc-degraded":{ fill:"#c2410c", stroke:"#ea580c", bg:"#fed7aa", tc:"#7c2d12", lbl:"Service Degraded",shp:"bar" },
+  "svc-ok":      { fill:"#166534", stroke:"#22c55e", bg:"#bbf7d0", tc:"#14532d", lbl:"Service OK",     shp:"bar" },
 };
+
+const SVC_CRIT_COLORS = { Critical:"#dc2626", High:"#d97706", Medium:"#2563eb", Low:"#64748b" };
 
 /* ─── Map event to type key ──────────────────────────────────────────── */
 function evType(ev) {
+  if (ev.type === "SERVICE") return ev.severity === "critical" ? "svc-down" : ev.severity === "info" ? "svc-ok" : "svc-degraded";
   if (ev.type === "AUTOMATION") return "auto";
   if (ev.type === "ALARM" || (ev.severity === "critical" && ev.type !== "CONFIG")) return ev.severity === "critical" ? "alarm-crit" : "alarm-warn";
   if (ev.type === "BGP") return "bgp";
@@ -139,6 +145,7 @@ export default function EventsView({ changes = [] }) {
     if (fSite !== "ALL") {
       const siteCity = fSite.split("-").slice(0, 2).join("-");
       evs = evs.filter(e => {
+        if (e.serviceId) return true; // service events pass site filter (filtered by country already)
         if (!e.nodeId) return false;
         const nodeCity = e.nodeId.split("-").slice(0, 2).join("-");
         return nodeCity === siteCity;
@@ -146,33 +153,56 @@ export default function EventsView({ changes = [] }) {
     }
     if (fService !== "ALL") {
       const svc = SERVICES.find(s => s.id === fService);
-      if (svc) evs = evs.filter(e => svc.nodes.includes(e.nodeId));
+      if (svc) evs = evs.filter(e => e.serviceId === fService || svc.nodes.includes(e.nodeId));
     }
-    if (fDevice !== "ALL") evs = evs.filter(e => e.nodeId === fDevice);
+    if (fDevice !== "ALL") evs = evs.filter(e => e.nodeId === fDevice || e.serviceId);
     return evs;
   }, [fCountry, fSite, fService, fDevice, changes, nodeMap]);
 
-  /* ── Build device rows: only devices that have events, sorted by country > id ── */
-  const deviceRows = useMemo(() => {
-    const deviceSet = new Set();
+  const svcMap = useMemo(() => Object.fromEntries(SERVICES.map(s => [s.id, s])), []);
+
+  /* ── Build rows: services first, then devices ── */
+  const { serviceRows, deviceRows, allRows, rowIdx } = useMemo(() => {
+    const svcSet = new Set();
+    const devSet = new Set();
     for (const ev of mappedEvents) {
-      if (ev.nodeId && !hidden.has(ev._type)) deviceSet.add(ev.nodeId);
+      if (hidden.has(ev._type)) continue;
+      if (ev.serviceId) svcSet.add(ev.serviceId);
+      if (ev.nodeId) devSet.add(ev.nodeId);
     }
-    const rows = [...deviceSet].sort((a, b) => {
+    // Sort services by country > name
+    const sRows = [...svcSet].sort((a, b) => {
+      const sa = svcMap[a], sb = svcMap[b];
+      const ca = sa?.country || "ZZ", cb = sb?.country || "ZZ";
+      if (ca !== cb) return ca.localeCompare(cb);
+      return (sa?.name || a).localeCompare(sb?.name || b);
+    });
+    // Sort devices by country > id
+    const dRows = [...devSet].sort((a, b) => {
       const na = nodeMap[a], nb = nodeMap[b];
       const ca = na?.country || "ZZ", cb = nb?.country || "ZZ";
       if (ca !== cb) return ca.localeCompare(cb);
       return a.localeCompare(b);
     });
-    return rows;
-  }, [mappedEvents, hidden, nodeMap]);
-
-  /* ── Map device → row index ── */
-  const deviceRowIdx = useMemo(() => {
-    const m = {};
-    deviceRows.forEach((d, i) => { m[d] = i; });
-    return m;
-  }, [deviceRows]);
+    // Combined: services header row + service rows + devices header row + device rows
+    const all = [];
+    const idx = {};
+    if (sRows.length > 0) {
+      all.push({ type: "header", label: "SERVICES", count: sRows.length });
+      for (const s of sRows) {
+        idx["svc:" + s] = all.length;
+        all.push({ type: "service", id: s });
+      }
+    }
+    if (dRows.length > 0) {
+      all.push({ type: "header", label: "NETWORK ELEMENTS", count: dRows.length });
+      for (const d of dRows) {
+        idx["dev:" + d] = all.length;
+        all.push({ type: "device", id: d });
+      }
+    }
+    return { serviceRows: sRows, deviceRows: dRows, allRows: all, rowIdx: idx };
+  }, [mappedEvents, hidden, nodeMap, svcMap]);
 
   /* ── Stats ── */
   const stats = useMemo(() => ({
@@ -180,6 +210,7 @@ export default function EventsView({ changes = [] }) {
     changes: mappedEvents.filter(e => e._type === "change").length,
     alarms: mappedEvents.filter(e => e._type === "alarm-crit" || e._type === "alarm-warn").length,
     auto: mappedEvents.filter(e => e._type === "auto").length,
+    services: mappedEvents.filter(e => e._type === "svc-down" || e._type === "svc-degraded" || e._type === "svc-ok").length,
     network: mappedEvents.filter(e => ["bgp","interface","traffic","config","security","system"].includes(e._type)).length,
   }), [mappedEvents]);
 
@@ -187,7 +218,7 @@ export default function EventsView({ changes = [] }) {
   const pW = useCallback(() => (paneRef.current?.clientWidth || 800), []);
   const tX = useCallback((t) => ((t - winS) / (winH * 3600000)) * pW(), [winS, winH, pW]);
 
-  const canvasH = Math.max(deviceRows.length * ROW_H, 120);
+  const canvasH = Math.max(allRows.length * ROW_H, 120);
 
   /* ── Draw ──────────────────────────────────────────────────────────── */
   const drawAll = useCallback(() => {
@@ -206,13 +237,23 @@ export default function EventsView({ changes = [] }) {
     // Background
     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
 
-    // Row alternating stripes
-    for (let i = 0; i < deviceRows.length; i++) {
-      if (i % 2 === 1) {
-        ctx.fillStyle = "#f8f9fb";
+    // Row alternating stripes + section headers
+    for (let i = 0; i < allRows.length; i++) {
+      const row = allRows[i];
+      if (row.type === "header") {
+        ctx.fillStyle = "#e8ecf2";
         ctx.fillRect(0, i * ROW_H, W, ROW_H);
+        ctx.fillStyle = "#64748b"; ctx.font = "bold 9px system-ui"; ctx.textAlign = "left";
+        ctx.fillText(row.label + ` (${row.count})`, 8, i * ROW_H + ROW_H / 2 + 3);
+      } else if (row.type === "service") {
+        ctx.fillStyle = i % 2 === 0 ? "#fefce8" : "#fef9c3"; // yellow tint for services
+        ctx.fillRect(0, i * ROW_H, W, ROW_H);
+      } else {
+        if (i % 2 === 1) {
+          ctx.fillStyle = "#f8f9fb";
+          ctx.fillRect(0, i * ROW_H, W, ROW_H);
+        }
       }
-      // Row separator line
       ctx.strokeStyle = "rgba(0,0,0,0.04)"; ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.moveTo(0, (i + 1) * ROW_H); ctx.lineTo(W, (i + 1) * ROW_H); ctx.stroke();
     }
@@ -232,7 +273,11 @@ export default function EventsView({ changes = [] }) {
     // Draw events — duration-aware: all shapes stretch to real duration
     const visible = mappedEvents.filter(e => {
       const end = e._ts + (e.duration || 0);
-      return end >= winS - 600000 && e._ts <= winE + 600000 && !hidden.has(e._type) && deviceRowIdx[e.nodeId] !== undefined;
+      if (!(end >= winS - 600000 && e._ts <= winE + 600000 && !hidden.has(e._type))) return false;
+      // Must map to a row
+      if (e.serviceId && rowIdx["svc:" + e.serviceId] !== undefined) return true;
+      if (e.nodeId && rowIdx["dev:" + e.nodeId] !== undefined) return true;
+      return false;
     });
     const evBBox = [];
 
@@ -243,7 +288,7 @@ export default function EventsView({ changes = [] }) {
       const col = EV_TYPES[ev._type];
       if (!col) continue;
       const x = tX(ev._ts);
-      const rowI = deviceRowIdx[ev.nodeId];
+      const rowI = ev.serviceId ? rowIdx["svc:" + ev.serviceId] : rowIdx["dev:" + ev.nodeId];
       if (rowI === undefined) continue;
       const cy = rowI * ROW_H + ROW_H / 2;
       const isSelected = selectedEvt === ev.id;
@@ -353,7 +398,7 @@ export default function EventsView({ changes = [] }) {
         }
       }
     }
-  }, [winS, winH, winE, tX, pW, mappedEvents, hidden, selectedEvt, deviceRows, deviceRowIdx, canvasH]);
+  }, [winS, winH, winE, tX, pW, mappedEvents, hidden, selectedEvt, allRows, rowIdx, canvasH]);
 
   useEffect(() => { drawAll(); }, [drawAll]);
   useEffect(() => { const r = () => drawAll(); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, [drawAll]);
@@ -463,14 +508,15 @@ export default function EventsView({ changes = [] }) {
   const selectFeedEvent = useCallback((ev) => {
     setSelectedEvt(ev.id === selectedEvt ? null : ev.id);
     setWinS(ev._ts - 0.3 * winH * 3600000);
-    // Scroll to the device row
-    const rowI = deviceRowIdx[ev.nodeId];
-    if (rowI !== undefined && paneRef.current) {
-      const targetScroll = rowI * ROW_H - paneRef.current.clientHeight / 2 + ROW_H / 2;
+    // Scroll to the row
+    const key = ev.serviceId ? "svc:" + ev.serviceId : "dev:" + ev.nodeId;
+    const ri = rowIdx[key];
+    if (ri !== undefined && paneRef.current) {
+      const targetScroll = ri * ROW_H - paneRef.current.clientHeight / 2 + ROW_H / 2;
       paneRef.current.scrollTop = Math.max(0, targetScroll);
       if (labelsRef.current) labelsRef.current.scrollTop = Math.max(0, targetScroll);
     }
-  }, [selectedEvt, winH, deviceRowIdx]);
+  }, [selectedEvt, winH, rowIdx]);
 
   /* ── Reset dependent filters when parent changes ── */
   useEffect(() => { setFSite("ALL"); setFService("ALL"); setFDevice("ALL"); }, [fCountry]);
@@ -487,6 +533,7 @@ export default function EventsView({ changes = [] }) {
         { v:stats.total, l:"Total", c:"#1a2535" },
         { v:stats.changes, l:"Changes", c:"#1d4ed8" },
         { v:stats.alarms, l:"Alarms", c:"#dc2626" },
+        { v:stats.services, l:"Services", c:"#c2410c" },
         { v:stats.auto, l:"Auto", c:"#7c3aed" },
         { v:stats.network, l:"Network", c:"#2563eb" },
       ].map(k => <div key={k.l} style={{ display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", padding:"0 10px", borderRight:"1px solid #dde2ea", height:"100%", gap:0, minWidth:50 }}>
@@ -532,7 +579,7 @@ export default function EventsView({ changes = [] }) {
         </button>)}
       </div>
       <NB onClick={() => { setWinH(12); setWinS(Date.now() - 6*3600000); }}>⌂</NB>
-      <span style={{ fontSize:9, color:"#94a3b8", marginLeft:4 }}>{deviceRows.length} devices</span>
+      <span style={{ fontSize:9, color:"#94a3b8", marginLeft:4 }}>{serviceRows.length} svc · {deviceRows.length} dev</span>
     </div>
 
     {/* ══ MAIN: Swimlane (labels + canvas) + optional detail ══ */}
@@ -541,38 +588,76 @@ export default function EventsView({ changes = [] }) {
       {/* ── Swimlane area ── */}
       <div style={{ flex:1, display:"flex", overflow:"hidden", minHeight:0 }}>
 
-        {/* Left: Device labels */}
+        {/* Left: Row labels (services + devices) */}
         <div style={{ width:LABEL_W, flexShrink:0, display:"flex", flexDirection:"column", borderRight:"1px solid #dde2ea", background:"#fff" }}>
           {/* Header */}
           <div style={{ height:AXIS_H, flexShrink:0, borderBottom:"1px solid #dde2ea", display:"flex", alignItems:"center", padding:"0 8px",
             fontSize:9, fontWeight:700, color:"#7a8fa8", textTransform:"uppercase", letterSpacing:0.8, background:"#f8f9fb" }}>
-            Network Element
+            Services &amp; Elements
           </div>
           {/* Scrollable label list */}
           <div ref={labelsRef} style={{ flex:1, overflowY:"auto", overflowX:"hidden" }}
             onScroll={() => syncScroll("labels")}>
             <div style={{ height: canvasH }}>
-              {deviceRows.map((devId, i) => {
-                const node = nodeMap[devId];
-                const hasAlarm = mappedEvents.some(e => e.nodeId === devId && (e._type === "alarm-crit" || e._type === "alarm-warn"));
+              {allRows.map((row, i) => {
+                if (row.type === "header") {
+                  return <div key={"hdr-" + row.label} style={{
+                    height: ROW_H, display:"flex", alignItems:"center", padding:"0 8px",
+                    background:"#e8ecf2", borderBottom:"1px solid rgba(0,0,0,0.08)",
+                  }}>
+                    <span style={{ fontSize:9, fontWeight:800, color:"#475569", textTransform:"uppercase", letterSpacing:1 }}>
+                      {row.label}
+                    </span>
+                    <span style={{ fontSize:8, color:"#94a3b8", marginLeft:6 }}>({row.count})</span>
+                  </div>;
+                }
+
+                if (row.type === "service") {
+                  const svc = svcMap[row.id];
+                  const hasSvcEvent = mappedEvents.some(e => e.serviceId === row.id && (e._type === "svc-down" || e._type === "svc-degraded"));
+                  const critColor = svc ? (SVC_CRIT_COLORS[svc.criticality] || "#64748b") : "#64748b";
+                  return <div key={"svc-" + row.id} style={{
+                    height: ROW_H, display:"flex", alignItems:"center", gap:5, padding:"0 8px",
+                    borderBottom:"1px solid rgba(0,0,0,0.04)",
+                    background: i % 2 === 0 ? "#fefce8" : "#fef9c3",
+                    cursor:"pointer", transition:"background 0.1s",
+                  }} onMouseEnter={e => { e.currentTarget.style.background = "#fef3c7"; }}
+                     onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? "#fefce8" : "#fef9c3"; }}
+                     onClick={() => { setFService(row.id); }}>
+                    <span style={{ width:6, height:6, borderRadius:2, flexShrink:0,
+                      background: hasSvcEvent ? "#dc2626" : "#22c55e",
+                      boxShadow: hasSvcEvent ? "0 0 4px 1px #dc262660" : "none" }}/>
+                    <div style={{ flex:1, minWidth:0, overflow:"hidden" }}>
+                      <div style={{ fontSize:10, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", color:"#1a2535" }}>
+                        {svc?.name || row.id}
+                      </div>
+                      <div style={{ fontSize:8, color:"#94a3b8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", display:"flex", gap:4, alignItems:"center" }}>
+                        <span style={{ width:4, height:4, borderRadius:1, background:critColor, flexShrink:0 }}/>
+                        {svc ? `${svc.criticality} · SLA ${svc.sla}` : "Unknown"}
+                        <span style={{ marginLeft:"auto" }}>{COUNTRY_META[svc?.country]?.flag || "🌐"}</span>
+                      </div>
+                    </div>
+                  </div>;
+                }
+
+                // device row
+                const node = nodeMap[row.id];
+                const hasAlarm = mappedEvents.some(e => e.nodeId === row.id && (e._type === "alarm-crit" || e._type === "alarm-warn"));
                 const layerColor = node ? (LAYER_COLORS[node.layer] || "#64748b") : "#64748b";
-                return <div key={devId} style={{
+                return <div key={"dev-" + row.id} style={{
                   height: ROW_H, display:"flex", alignItems:"center", gap:5, padding:"0 8px",
                   borderBottom:"1px solid rgba(0,0,0,0.04)",
                   background: i % 2 === 1 ? "#f8f9fb" : "#fff",
                   cursor:"pointer", transition:"background 0.1s",
                 }} onMouseEnter={e => { e.currentTarget.style.background = "#eef2ff"; }}
                    onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 1 ? "#f8f9fb" : "#fff"; }}
-                   onClick={() => { setFDevice(devId); }}>
-                  {/* Status dot */}
+                   onClick={() => { setFDevice(row.id); }}>
                   <span style={{ width:6, height:6, borderRadius:"50%", flexShrink:0,
                     background: node?.status === "UP" ? "#22c55e" : node?.status === "DEGRADED" ? "#f59e0b" : "#ef4444",
                     boxShadow: hasAlarm ? "0 0 4px 1px #ef444480" : "none" }}/>
-                  {/* Device info */}
                   <div style={{ flex:1, minWidth:0, overflow:"hidden" }}>
-                    <div style={{ fontFamily:"monospace", fontSize:10, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      color: "#1a2535" }}>
-                      {devId}
+                    <div style={{ fontFamily:"monospace", fontSize:10, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", color:"#1a2535" }}>
+                      {row.id}
                     </div>
                     <div style={{ fontSize:8, color:"#94a3b8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", display:"flex", gap:4, alignItems:"center" }}>
                       <span style={{ width:4, height:4, borderRadius:1, background:layerColor, flexShrink:0 }}/>
