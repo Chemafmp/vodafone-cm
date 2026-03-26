@@ -18,6 +18,7 @@ const PERSONAS = [
   {id:"u5", name:"Ivan M.",     role:"Head of",   team:"Core Transport", dept:"Engineering"},
   {id:"u7", name:"Davide Z.",   role:"Engineer",  team:"Data Core",      dept:"Operations"},
   {id:"u10",name:"Sam Reyes",   role:"Manager",   team:"Data Core",      dept:"Operations"},
+  {id:"u13",name:"Ronnie H.",   role:"Director",  team:"Core Transport", dept:"Engineering"},
 ];
 
 const ROLE_COLORS = {
