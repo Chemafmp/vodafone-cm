@@ -95,6 +95,7 @@ export default function AlarmsView() {
   const [statusFilter, setStatusFilter] = useState("ACTIVE"); // ACTIVE | ALL | RESOLVED
   const [sevFilter, setSevFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false); // false = only devices with active alarms
 
   const nodeMap = useMemo(() => Object.fromEntries(NODES.map(n=>[n.id,n])), [NODES]);
   const svcMap = useMemo(() => Object.fromEntries(SERVICES.map(s=>[s.id,s])), []);
@@ -120,23 +121,44 @@ export default function AlarmsView() {
       const cSites = SITES.filter(s => s.country === c);
       const cNodes = NODES.filter(n => n.country === c);
 
-      // For each site, find nodes that belong to it (by matching site city prefix in node id)
+      // Group nodes by site using siteId field or city-based matching
+      // Build a map: siteId → nodes
+      const siteNodeMap = {};
+      for (const site of cSites) siteNodeMap[site.id] = [];
+      for (const node of cNodes) {
+        if (node.siteId && siteNodeMap[node.siteId]) {
+          siteNodeMap[node.siteId].push(node);
+        } else {
+          // Match by city: extract city portion from node id (e.g. "fj-suva-cr-01" → "fj-suva")
+          const nodeParts = node.id.split("-");
+          const nodeCity = nodeParts.slice(0,2).join("-"); // e.g. "fj-suva"
+          // Find best matching site: DC first, then Core PoP
+          const matchSite = cSites.find(s => {
+            const sCity = s.id.split("-").slice(0,2).join("-");
+            return sCity === nodeCity && s.type === "DC";
+          }) || cSites.find(s => {
+            const sCity = s.id.split("-").slice(0,2).join("-");
+            return sCity === nodeCity;
+          });
+          if (matchSite) siteNodeMap[matchSite.id].push(node);
+        }
+      }
+
       const sitesData = cSites.map(site => {
-        const sitePrefix = site.id.replace(/-dc\d+$|-core\d+$|-ixp\d+$/,"");
-        const siteNodes = cNodes.filter(n => n.id.startsWith(sitePrefix) || n.siteId === site.id);
+        const siteNodes = siteNodeMap[site.id] || [];
         const siteAlarms = cAlarms.filter(a => siteNodes.some(n => n.id === a.nodeId));
 
         const nodesData = siteNodes.map(node => {
           const nodeAlarms = cAlarms.filter(a => a.nodeId === node.id);
           return { node, alarms: nodeAlarms, counts: countSev(nodeAlarms) };
-        }).filter(nd => nd.alarms.length > 0 || !search); // show all nodes when no search, only alarmed when searching
+        }).filter(nd => showAll || nd.alarms.length > 0);
 
         return { site, nodes: nodesData, alarms: siteAlarms, counts: countSev(siteAlarms) };
-      }).filter(sd => sd.nodes.length > 0);
+      }).filter(sd => showAll ? sd.nodes.length > 0 : sd.alarms.length > 0);
 
       return { country: c, meta: COUNTRY_META[c], sites: sitesData, alarms: cAlarms, counts: countSev(cAlarms) };
     });
-  }, [NODES, filteredAlarms, search]);
+  }, [NODES, filteredAlarms, search, showAll]);
 
   /* ── summary counts ── */
   const totalCounts = useMemo(() => {
@@ -199,6 +221,12 @@ export default function AlarmsView() {
         <option value="Major">🟠 Major</option>
         <option value="Minor">🟡 Minor</option>
       </select>
+      <button onClick={() => setShowAll(p => !p)}
+        style={{ padding:"7px 12px", border:`1px solid ${showAll ? T.primary : T.border}`, borderRadius:8, fontSize:11, fontWeight:600,
+          fontFamily:"inherit", background:showAll ? T.primaryBg : T.surface, color:showAll ? T.primary : T.muted,
+          cursor:"pointer", transition:"all 0.15s", whiteSpace:"nowrap" }}>
+        {showAll ? "🔍 All Devices" : "⚠️ Alarmed Only"}
+      </button>
     </div>
 
     {/* ── Main: Tree + Detail panel ── */}
