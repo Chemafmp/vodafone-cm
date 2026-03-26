@@ -6,6 +6,7 @@ export { SERVICES } from "./services.js";
 export { ALARMS } from "./alarms.js";
 export { VLANS } from "./vlans.js";
 export { IPAM } from "./ipam.js";
+export { EVENTS } from "./events.js";
 
 import { NODES_FJ } from "./nodes-fiji.js";
 import { NODES_HW } from "./nodes-hawaii.js";

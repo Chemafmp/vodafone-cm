@@ -3,7 +3,7 @@ import { T, SYSTEMS, EXEC_MODES, INTRUSION, COUNTRIES, RISK_LEVELS, RISK_C } fro
 import { genChangeId, genTemplateId, now, fmt, applyVars } from "../utils/helpers.js";
 import { isInPeakPeriod, CAT_META, getCategoryRules } from "../utils/helpers.js";
 import { RiskPill, Btn, Inp, Sel } from "./ui/index.jsx";
-import { NODES } from "../data/inventory/index.js";
+import { useNodes } from "../context/NodesContext.jsx";
 import { COUNTRY_META, LAYER_COLORS } from "../data/inventory/sites.js";
 
 // severity helpers (mirrors FreezeManager SEV)
@@ -13,6 +13,7 @@ const STATUS_DOT = { UP:"#16a34a", DEGRADED:"#d97706", DOWN:"#dc2626" };
 
 // ─── DEVICE PICKER ──────────────────────────────────────────────────────────
 function DevicePicker({ selected = [], onChange }) {
+  const { nodes: NODES } = useNodes();
   const [search, setSearch] = useState("");
   const [countryFilter, setCountryFilter] = useState("ALL");
   const [layerFilter, setLayerFilter] = useState("ALL");

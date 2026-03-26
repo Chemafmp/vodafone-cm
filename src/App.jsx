@@ -14,6 +14,10 @@ import CreateChangeMCM from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import NetworkInventory from "./components/NetworkInventory.jsx";
 import TopologyView from "./components/TopologyView.jsx";
+import AlarmsView from "./components/AlarmsView.jsx";
+import EventsView from "./components/EventsView.jsx";
+import ObservabilityView from "./components/ObservabilityView.jsx";
+import { NodesProvider } from "./context/NodesContext.jsx";
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -217,9 +221,9 @@ export default function App(){
       {id:"topology", icon:"🔗", label:"Topology"},
     ]},
     { label:"MONITORING", items:[
-      {id:"alarms",        icon:"🔔", label:"Alarms",        disabled:true},
-      {id:"events",        icon:"📋", label:"Events",        disabled:true},
-      {id:"observability", icon:"📈", label:"Observability", disabled:true},
+      {id:"alarms",        icon:"🔔", label:"Alarms"},
+      {id:"events",        icon:"📋", label:"Events"},
+      {id:"observability", icon:"📈", label:"Observability"},
     ]},
   ];
 
@@ -254,7 +258,7 @@ export default function App(){
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
-  return <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
+  return <NodesProvider><div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
 
     {/* Sidebar */}
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
@@ -367,7 +371,7 @@ export default function App(){
         </div>;
       })()}
 
-      <div style={{flex:1,overflowY:view==="topology"||view==="network"?"hidden":"auto",padding:view==="topology"?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<div>
@@ -815,6 +819,11 @@ export default function App(){
         {/* TOPOLOGY WEATHERMAP */}
         {view==="topology"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
+        {/* MONITORING */}
+        {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView/></div>}
+        {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView/></div>}
+        {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
+
       </div>
     </div>
 
@@ -872,5 +881,5 @@ export default function App(){
       textarea:focus,input:focus,select:focus{border-color:#93c5fd!important;outline:none;box-shadow:0 0 0 3px rgba(147,197,253,0.25)!important;}
       [data-card]:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1)!important;}
     `}</style>
-  </div>;
+  </div></NodesProvider>;
 }

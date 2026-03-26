@@ -2,7 +2,7 @@ import { useState } from "react";
 import { T, COUNTRIES } from "../data/constants.js";
 import { now, fmt, fmtSec, exportAuditCSV } from "../utils/helpers.js";
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Modal } from "./ui/index.jsx";
-import { NODES } from "../data/inventory/index.js";
+import { useNodes } from "../context/NodesContext.jsx";
 import { LAYER_COLORS } from "../data/inventory/sites.js";
 import CommentStream from "./CommentStream.jsx";
 import CABPanel from "./CABPanel.jsx";
@@ -70,6 +70,7 @@ function CopyIdButton({id}) {
 
 // ─── CHANGE DETAIL MODAL ──────────────────────────────────────────────────────
 export default function ChangeDetail({change,currentUser,onClose,onUpdate,onDelete}){
+  const { nodes: NODES } = useNodes();
   const [tab,setTab]=useState("overview");
   const [confirmingDelete,setConfirmingDelete]=useState(false);
   const TABS=["overview","preflight","steps","approval","execution","comments","cab","log"];

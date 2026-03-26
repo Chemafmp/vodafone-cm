@@ -7,7 +7,9 @@ import { SERVICES } from "../data/inventory/services.js";
 import { ALARMS } from "../data/inventory/alarms.js";
 import { VLANS } from "../data/inventory/vlans.js";
 import { IPAM } from "../data/inventory/ipam.js";
-import { NODES } from "../data/inventory/index.js";
+import { useNodes } from "../context/NodesContext.jsx";
+import NodeFormModal, { NodeAddPicker, TemplatePicker, DiscoverDialog, ImportDialog } from "./NodeFormModal.jsx";
+import { genId } from "../utils/helpers.js";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const STATUS_COLOR = { UP:"#16a34a", DEGRADED:"#d97706", DOWN:"#dc2626" };
@@ -703,12 +705,15 @@ function IpamView({ country }) {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function NetworkInventory({ changes = [] }) {
+  const { nodes: NODES, nodeTemplates, addNode, addNodes, updateNode, deleteNode, addNodeTemplate, resetNodes } = useNodes();
   const [country,      setCountry]      = useState("FJ");
   const [subView,      setSubView]      = useState("nodes");  // nodes|services|vlans|ipam
   const [selectedNode, setSelectedNode] = useState(null);
   const [layerFilter,  setLayerFilter]  = useState("All");
   const [nodeTab,      setNodeTab]      = useState("hardware");
   const [showConfig,   setShowConfig]   = useState(false);
+  const [onboardMode,  setOnboardMode]  = useState(null); // null|"picker"|"form"|"template"|"import"|"discover"
+  const [editNode,     setEditNode]     = useState(null);  // node being edited
 
   const meta    = COUNTRY_META[country];
   const sites   = SITES.filter(s => s.country === country);
@@ -811,7 +816,13 @@ export default function NetworkInventory({ changes = [] }) {
             <span style={{ fontSize:13 }}>{sv.icon}</span>{sv.label}
           </button>
         ))}
-
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button onClick={()=>setOnboardMode("picker")}
+            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:6,border:"none",
+              cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,background:T.primary,color:"#fff"}}>
+            <span style={{fontSize:14,fontWeight:300}}>+</span> Add Device
+          </button>
+        </div>
       </div>
 
       {/* Layer filter — only on nodes view, separate row */}
@@ -894,15 +905,42 @@ export default function NetworkInventory({ changes = [] }) {
 
           {/* Node detail */}
           {selectedNode && (
-            <div style={{ flex:1, overflow:"hidden" }}>
-              <NodeDetail
-                node={selectedNode}
-                services={services}
-                changes={changes}
-                nodeTab={nodeTab}
-                setNodeTab={setNodeTab}
-                onViewConfig={()=>setShowConfig(true)}
-              />
+            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              {/* Action bar for selected node */}
+              <div style={{display:"flex",gap:6,padding:"8px 14px",borderBottom:`1px solid ${T.border}`,background:"#f8fafc",flexShrink:0}}>
+                <button onClick={()=>{setEditNode(selectedNode);setOnboardMode("form");}}
+                  style={{fontSize:11,fontWeight:600,color:T.primary,background:`${T.primary}10`,border:`1px solid ${T.primary}30`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit"}}>
+                  ✏ Edit
+                </button>
+                <button onClick={()=>{
+                  const tmpl = {...selectedNode};
+                  delete tmpl.mgmtIp; delete tmpl.serialNumber; delete tmpl.status;
+                  tmpl.interfaces = (tmpl.interfaces||[]).map(i=>({...i, peer:null}));
+                  tmpl.bgpNeighbors = (tmpl.bgpNeighbors||[]).map(b=>({...b, state:"Established", uptime:""}));
+                  tmpl.templateId = genId();
+                  tmpl.templateName = `${tmpl.vendor} ${tmpl.hwModel} — ${tmpl.layer}`;
+                  tmpl.isDeviceTemplate = true;
+                  tmpl.createdAt = new Date().toISOString();
+                  addNodeTemplate(tmpl);
+                }}
+                  style={{fontSize:11,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",border:"1px solid #c4b5fd",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit"}}>
+                  💾 Save as Template
+                </button>
+                <button onClick={()=>{if(confirm(`Delete node ${selectedNode.id}?`)){deleteNode(selectedNode.id);setSelectedNode(null);}}}
+                  style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
+                  🗑 Delete
+                </button>
+              </div>
+              <div style={{flex:1, overflow:"hidden"}}>
+                <NodeDetail
+                  node={selectedNode}
+                  services={services}
+                  changes={changes}
+                  nodeTab={nodeTab}
+                  setNodeTab={setNodeTab}
+                  onViewConfig={()=>setShowConfig(true)}
+                />
+              </div>
             </div>
           )}
         </>}
@@ -911,6 +949,58 @@ export default function NetworkInventory({ changes = [] }) {
       {showConfig && selectedNode && (
         <ConfigModal node={selectedNode} onClose={()=>setShowConfig(false)} />
       )}
+
+      {/* ── Onboarding Modals ── */}
+      {onboardMode==="picker" && <NodeAddPicker
+        templates={nodeTemplates}
+        onBlank={()=>{setEditNode(null);setOnboardMode("form");}}
+        onTemplate={()=>setOnboardMode("template")}
+        onImport={()=>setOnboardMode("import")}
+        onDiscover={()=>setOnboardMode("discover")}
+        onClose={()=>setOnboardMode(null)}
+      />}
+
+      {onboardMode==="template" && <TemplatePicker
+        templates={nodeTemplates}
+        onSelect={tmpl=>{
+          const base = {...tmpl};
+          delete base.templateId; delete base.templateName; delete base.isDeviceTemplate; delete base.createdAt;
+          base.id = ""; base.hostname = ""; base.mgmtIp = ""; base.serialNumber = ""; base.status = "UP";
+          setEditNode(base);
+          setOnboardMode("form");
+        }}
+        onClose={()=>setOnboardMode("picker")}
+      />}
+
+      {onboardMode==="discover" && <DiscoverDialog
+        onResult={node=>{setEditNode(node);setOnboardMode("form");}}
+        onClose={()=>setOnboardMode("picker")}
+      />}
+
+      {onboardMode==="import" && <ImportDialog
+        onResult={imported=>{
+          addNodes(imported);
+          setOnboardMode(null);
+        }}
+        onClose={()=>setOnboardMode("picker")}
+      />}
+
+      {onboardMode==="form" && <NodeFormModal
+        mode={editNode?.id && NODES.some(n=>n.id===editNode.id) ? "edit" : "add"}
+        initialData={editNode}
+        onSave={node=>{
+          if (NODES.some(n=>n.id===node.id)) {
+            updateNode(node.id, node);
+            setSelectedNode(node);
+          } else {
+            addNode(node);
+            setSelectedNode(node);
+          }
+          setOnboardMode(null);
+          setEditNode(null);
+        }}
+        onClose={()=>{setOnboardMode(null);setEditNode(null);}}
+      />}
     </div>
   );
 }

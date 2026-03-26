@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { T } from "../data/constants.js";
 import { SITES, COUNTRY_META, LAYERS, LAYER_COLORS } from "../data/inventory/sites.js";
-import { NODES } from "../data/inventory/index.js";
+import { useNodes } from "../context/NodesContext.jsx";
 
 // ─── TRAFFIC LOAD COLOR GRADIENT (weathermap style) ─────────────────────────
 const LOAD_STEPS = [
@@ -347,6 +347,7 @@ function WmLegend() {
 
 // ─── MAIN TOPOLOGY VIEW ─────────────────────────────────────────────────────
 export default function TopologyView() {
+  const { nodes: NODES } = useNodes();
   const [country, setCountry] = useState("FJ");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -355,7 +356,7 @@ export default function TopologyView() {
   const containerRef = useRef(null);
 
   const meta = COUNTRY_META[country];
-  const countryNodes = useMemo(() => NODES.filter(n => n.country === country), [country]);
+  const countryNodes = useMemo(() => NODES.filter(n => n.country === country), [country, NODES]);
   const links = useMemo(() => extractLinks(countryNodes), [countryNodes]);
   const layout = useMemo(() => computeLayout(countryNodes, links), [countryNodes, links]);
 
