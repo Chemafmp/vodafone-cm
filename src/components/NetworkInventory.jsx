@@ -491,6 +491,7 @@ function NodeDetail({ node, services, changes, nodeTab, setNodeTab, onViewConfig
 
 // ─── SERVICES SUB-VIEW ────────────────────────────────────────────────────────
 function ServicesView({ country }) {
+  const { nodes: NODES } = useNodes();
   const services = SERVICES.filter(s => s.country === country);
   const [selected, setSelected] = useState(null);
   return (

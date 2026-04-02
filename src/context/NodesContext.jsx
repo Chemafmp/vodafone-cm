@@ -31,9 +31,24 @@ function parseHostname(h) {
   return { country:m[1].toUpperCase(), city:m[2], role:m[3], num:m[4] };
 }
 
+// Merge seed-only fields (like patches) into localStorage-cached nodes
+function mergeWithSeed(cached) {
+  const seedMap = Object.fromEntries(SEED_NODES.map(n => [n.id, n]));
+  return cached.map(n => {
+    const seed = seedMap[n.id];
+    if (!seed) return n;
+    const merged = { ...n };
+    if (seed.patches && !n.patches) merged.patches = seed.patches;
+    return merged;
+  });
+}
+
 export function NodesProvider({ children }) {
   const [nodes, setNodes] = useState(() => {
-    try { const s = localStorage.getItem(LS_NODES); return s ? JSON.parse(s) : [...SEED_NODES]; }
+    try {
+      const s = localStorage.getItem(LS_NODES);
+      return s ? mergeWithSeed(JSON.parse(s)) : [...SEED_NODES];
+    }
     catch { return [...SEED_NODES]; }
   });
   const [nodeTemplates, setNodeTemplates] = useState(() => {
