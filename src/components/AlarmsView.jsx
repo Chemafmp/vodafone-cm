@@ -96,9 +96,17 @@ export default function AlarmsView() {
   const [sevFilter, setSevFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false); // false = only devices with active alarms
+  const [fCountry, setFCountry] = useState("ALL");
+  const [fSite, setFSite] = useState("ALL");
+  const [fService, setFService] = useState("ALL");
+  const [fType, setFType] = useState("ALL");
+
+  const handleCountryChange = useCallback((v) => { setFCountry(v); setFSite("ALL"); setFService("ALL"); }, []);
 
   const nodeMap = useMemo(() => Object.fromEntries(NODES.map(n=>[n.id,n])), [NODES]);
   const svcMap = useMemo(() => Object.fromEntries(SERVICES.map(s=>[s.id,s])), []);
+  const filteredSites = useMemo(() => fCountry === "ALL" ? SITES : SITES.filter(s => s.country === fCountry), [fCountry]);
+  const filteredServices = useMemo(() => fCountry === "ALL" ? SERVICES : SERVICES.filter(s => s.country === fCountry), [fCountry]);
 
   /* ── filtered alarms ── */
   const filteredAlarms = useMemo(() => {
@@ -106,12 +114,26 @@ export default function AlarmsView() {
     if (statusFilter === "ACTIVE") a = a.filter(x => x.status !== "RESOLVED");
     else if (statusFilter === "RESOLVED") a = a.filter(x => x.status === "RESOLVED");
     if (sevFilter !== "ALL") a = a.filter(x => x.severity === sevFilter);
+    if (fCountry !== "ALL") a = a.filter(x => x.country === fCountry);
+    if (fSite !== "ALL") {
+      const siteCity = fSite.split("-").slice(0, 2).join("-");
+      const siteNodeIds = new Set(NODES.filter(n => {
+        if (n.siteId) return n.siteId === fSite;
+        return n.id.split("-").slice(0,2).join("-") === siteCity;
+      }).map(n => n.id));
+      a = a.filter(x => siteNodeIds.has(x.nodeId));
+    }
+    if (fService !== "ALL") {
+      const svc = SERVICES.find(s => s.id === fService);
+      if (svc) a = a.filter(x => svc.nodes.includes(x.nodeId));
+    }
+    if (fType !== "ALL") a = a.filter(x => x.type === fType);
     if (search) {
       const q = search.toLowerCase();
       a = a.filter(x => x.message.toLowerCase().includes(q) || x.nodeId.toLowerCase().includes(q) || x.detail.toLowerCase().includes(q));
     }
     return a;
-  }, [statusFilter, sevFilter, search]);
+  }, [NODES, statusFilter, sevFilter, search, fCountry, fSite, fService, fType]);
 
   /* ── build tree data ── */
   const tree = useMemo(() => {
@@ -220,6 +242,31 @@ export default function AlarmsView() {
         <option value="Critical">🔴 Critical</option>
         <option value="Major">🟠 Major</option>
         <option value="Minor">🟡 Minor</option>
+      </select>
+      <select value={fCountry} onChange={e=>handleCountryChange(e.target.value)}
+        style={{ padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:8, fontSize:11, fontWeight:600,
+          fontFamily:"inherit", background:T.surface, color:T.text }}>
+        <option value="ALL">🌐 All Countries</option>
+        {["FJ","HW","IB"].map(c => <option key={c} value={c}>{COUNTRY_META[c]?.flag} {COUNTRY_META[c]?.name}</option>)}
+      </select>
+      <select value={fSite} onChange={e=>setFSite(e.target.value)}
+        style={{ padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:8, fontSize:11, fontWeight:600,
+          fontFamily:"inherit", background:T.surface, color:T.text }}>
+        <option value="ALL">All DCs / Sites</option>
+        {filteredSites.map(s => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}
+      </select>
+      <select value={fService} onChange={e=>setFService(e.target.value)}
+        style={{ padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:8, fontSize:11, fontWeight:600,
+          fontFamily:"inherit", background:T.surface, color:T.text }}>
+        <option value="ALL">All Services</option>
+        {filteredServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+      <select value={fType} onChange={e=>setFType(e.target.value)}
+        style={{ padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:8, fontSize:11, fontWeight:600,
+          fontFamily:"inherit", background:T.surface, color:T.text }}>
+        <option value="ALL">All Types</option>
+        {["REACHABILITY","PERFORMANCE","INTERFACE","PROTOCOL","HARDWARE","ROUTING","SECURITY"].map(t =>
+          <option key={t} value={t}>{t}</option>)}
       </select>
       <button onClick={() => setShowAll(p => !p)}
         style={{ padding:"7px 12px", border:`1px solid ${showAll ? T.primary : T.border}`, borderRadius:8, fontSize:11, fontWeight:600,

@@ -20,6 +20,11 @@ export const NODES_FJ = [
     mgmtIp: "10.10.1.1",
     status: "UP",
     osVersion: "IOS-XR 7.5.2",
+    patches: [
+      { id: "asr9k-sysadmin-7.5.2.CSCwi33901", type: "SMU", desc: "LPTS policer rate fix for BFD scale", installedDate: "2026-01-20", installedBy: "netops" },
+      { id: "asr9k-os-7.5.2.CSCwi44502", type: "SMU", desc: "ISIS adjacency flap under ECMP", installedDate: "2026-02-12", installedBy: "netops" },
+      { id: "asr9k-security-7.5.2.CSCwi55123", type: "Security", desc: "CVE-2025-39821 SSH key exchange vuln", installedDate: "2026-03-05", installedBy: "secops" },
+    ],
     serialNumber: "FXS2411Q1A7",
     procurementDate: "2021-03-15",
     eolDate: "2031-03-15",

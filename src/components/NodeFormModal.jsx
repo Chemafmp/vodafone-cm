@@ -24,7 +24,7 @@ export function NodeAddPicker({ onBlank, onTemplate, onImport, onDiscover, onClo
       {[
         { icon:"📝", label:"Blank Form", desc:"Fill in all fields manually", onClick:onBlank, color:"#1d4ed8" },
         { icon:"📋", label:`From Template (${templates.length})`, desc:"Pre-fill from a saved device template", onClick:templates.length?onTemplate:null, color:"#7c3aed", disabled:!templates.length },
-        { icon:"📁", label:"Import JSON File", desc:"Upload a .json file with one or more nodes", onClick:onImport, color:"#0d9488" },
+        { icon:"📁", label:"Import Devices (JSON / CSV)", desc:"Upload a .json or .csv file with one or more devices", onClick:onImport, color:"#0d9488" },
         { icon:"🔍", label:"Auto-Discover (Simulated)", desc:"Enter hostname + IP, auto-detect vendor/model/role", onClick:onDiscover, color:"#ea580c" },
       ].map(opt => <button key={opt.label} disabled={opt.disabled} onClick={opt.onClick}
         style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",border:`1px solid ${T.border}`,borderRadius:10,
@@ -87,58 +87,332 @@ export function DiscoverDialog({ onResult, onClose }) {
   </Modal>;
 }
 
-// ── JSON Import Dialog ───────────────────────────────────────────────────────
+// ── Device Import Dialog (JSON + CSV) ────────────────────────────────────────
+
+const VALID_COUNTRIES = ["FJ","HW","IB"];
+const VALID_STATUSES  = ["UP","DEGRADED","DOWN"];
+const REQUIRED_IMPORT = ["id","siteId","country","vendor","hwModel","layer","mgmtIp"];
+const IP_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+const JSON_TEMPLATE = [
+  {
+    _comment: "Required fields are marked with (REQUIRED). Remove _comment fields before uploading.",
+    id: "(REQUIRED) Unique device ID, e.g. ib-town-cr-03",
+    siteId: "(REQUIRED) Site ID from: fj-suva-dc1, fj-lautoka-dc1, hw-hnl1-dc1, hw-hnl2-dc2, hw-maui-dc1, ib-town-dc1, ib-santantoni-dc1, ib-santaeulalia-dc1, ib-escanar-dc1, ib-portinatx-dc1, etc.",
+    country: "(REQUIRED) FJ | HW | IB",
+    hostname: "ib-town-cr-03.vodafone.ib",
+    vendor: "(REQUIRED) Nokia | Cisco | Juniper | Palo Alto | F5 | Infoblox | Microsemi | Arista",
+    hwModel: "(REQUIRED) e.g. 7750 SR-12e, ASR 9901, NCS-5501",
+    serialNumber: "NOK-SR12E-IB03",
+    layer: "(REQUIRED) IP Core | Internet GW | 5G Core | Voice Core | DC Fabric | IP LAN | BPoP | APoP | Transport | Security | Load Balancer | IT Infrastructure | NMS Platform | BSS Platform",
+    role: "cr | pe | igw | fw | lb | dns | ntp | aaa | dc-fabric | bpop | apop | acc-sw | distr-sw | 5gc | amf | smf | upf | voip-gw | nms | bss | oss | waf | asr",
+    mgmtIp: "(REQUIRED) e.g. 10.30.1.50",
+    status: "UP | DEGRADED | DOWN (default: UP)",
+    osVersion: "SR-OS 23.10.R2",
+    interfaces: [
+      { name: "1/1/c1/1", ip: "10.3.0.100/30", description: "To ib-town-cr-01", peer: "ib-town-cr-01", operStatus: "UP", speed: "100G", mtu: 9212 }
+    ],
+    bgpNeighbors: [
+      { peer: "172.16.3.1", asn: 65003, state: "Established", prefixesRx: 0, prefixesTx: 0, description: "To ib-town-cr-01" }
+    ],
+    services: ["ib-mpls-vpn"],
+    features: ["MPLS", "BGP", "ISIS"],
+  }
+];
+
+const CSV_TEMPLATE_HEADER = "id,siteId,country,hostname,vendor,hwModel,serialNumber,layer,role,mgmtIp,status,osVersion";
+const CSV_TEMPLATE_ROW    = "ib-town-cr-03,ib-town-dc1,IB,ib-town-cr-03.vodafone.ib,Nokia,7750 SR-12e,NOK-SR12E-IB03,IP Core,cr,10.30.1.50,UP,SR-OS 23.10.R2";
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const vals = line.split(",").map(v => v.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
+    return obj;
+  });
+}
+
+function validateDevice(d, existingIds, siteIds, layerSet) {
+  const errors = [];
+  REQUIRED_IMPORT.forEach(f => { if (!d[f] || !String(d[f]).trim()) errors.push(`Missing required field: ${f}`); });
+  if (d.siteId && !siteIds.has(d.siteId)) errors.push(`Unknown siteId: ${d.siteId}`);
+  if (d.country && !VALID_COUNTRIES.includes(d.country)) errors.push(`Invalid country: ${d.country} (must be FJ, HW, or IB)`);
+  if (d.layer && !layerSet.has(d.layer)) errors.push(`Invalid layer: ${d.layer}`);
+  if (d.id && existingIds.has(d.id)) errors.push(`Device ID already exists: ${d.id}`);
+  if (d.mgmtIp && !IP_RE.test(d.mgmtIp)) errors.push(`Invalid mgmtIp format: ${d.mgmtIp}`);
+  if (d.status && !VALID_STATUSES.includes(d.status)) errors.push(`Invalid status: ${d.status} (must be UP, DEGRADED, or DOWN)`);
+  return errors.length ? { valid: false, errors } : { valid: true };
+}
+
+function normalizeDevice(d) {
+  return {
+    ...d,
+    status: VALID_STATUSES.includes(d.status) ? d.status : "UP",
+    interfaces: Array.isArray(d.interfaces) ? d.interfaces : [],
+    bgpNeighbors: Array.isArray(d.bgpNeighbors) ? d.bgpNeighbors : [],
+    services: Array.isArray(d.services) ? d.services : [],
+    features: Array.isArray(d.features) ? d.features : [],
+    rackUnit: d.rackUnit || "",
+    procurementDate: d.procurementDate || "",
+    eolDate: d.eolDate || "",
+    supportExpiry: d.supportExpiry || "",
+    serialNumber: d.serialNumber || "",
+    osVersion: d.osVersion || "",
+    hostname: d.hostname || "",
+    role: d.role || "",
+    lineCards: Array.isArray(d.lineCards) ? d.lineCards : [],
+    powerSupplies: Array.isArray(d.powerSupplies) ? d.powerSupplies : [],
+    powerConsumptionW: d.powerConsumptionW ?? null,
+    lastCommit: d.lastCommit || null,
+    goldenConfig: d.goldenConfig || "",
+  };
+}
+
 export function ImportDialog({ onResult, onClose }) {
-  const [error, setError] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [tab, setTab] = useState("json");
+  const [parseError, setParseError] = useState(null);
+  const [devices, setDevices] = useState(null);       // array of { device, validation }
+  const [fileName, setFileName] = useState(null);
+  const [fileSize, setFileSize] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [importDone, setImportDone] = useState(null);  // success message
   const fileRef = useRef();
   const { nodes } = useNodes();
 
-  const handleFile = e => {
-    const file = e.target.files?.[0];
+  const siteIds  = useMemo(() => new Set(SITES.map(s => s.id)), []);
+  const layerSet = useMemo(() => new Set(LAYERS), []);
+  const existingIds = useMemo(() => new Set(nodes.map(n => n.id)), [nodes]);
+
+  const reset = () => { setDevices(null); setParseError(null); setFileName(null); setFileSize(null); setImportDone(null); };
+
+  const processData = (rawDevices, fname, fsize) => {
+    setFileName(fname);
+    setFileSize(fsize);
+    setParseError(null);
+    setImportDone(null);
+    const results = rawDevices.map(d => {
+      const norm = normalizeDevice(d);
+      const validation = validateDevice(norm, existingIds, siteIds, layerSet);
+      return { device: norm, validation };
+    });
+    setDevices(results);
+  };
+
+  const handleFile = file => {
     if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (ext !== "json" && ext !== "csv") {
+      setParseError("Unsupported file type. Please upload a .json or .csv file.");
+      return;
+    }
+    // Auto-switch tab to match file type
+    if (ext === "csv") setTab("csv");
+    else setTab("json");
+
     const reader = new FileReader();
     reader.onload = ev => {
       try {
-        let data = JSON.parse(ev.target.result);
-        if (!Array.isArray(data)) data = [data];
-        // Validate required fields
-        const required = ["id","hostname","country","layer","role"];
-        const invalid = data.filter(n => required.some(f => !n[f]));
-        if (invalid.length) { setError(`Missing required fields (${required.join(", ")}) in ${invalid.length} node(s)`); return; }
-        // Check duplicates
-        const existingIds = new Set(nodes.map(n => n.id));
-        const dupes = data.filter(n => existingIds.has(n.id));
-        setPreview({ nodes: data, dupes });
-        setError(null);
-      } catch (err) { setError("Invalid JSON: " + err.message); }
+        let data;
+        if (ext === "json") {
+          data = JSON.parse(ev.target.result);
+          if (!Array.isArray(data)) data = [data];
+          // Strip _comment fields
+          data = data.map(d => { const c = { ...d }; delete c._comment; return c; });
+        } else {
+          data = parseCSV(ev.target.result);
+        }
+        if (!data.length) { setParseError("No devices found in file."); return; }
+        processData(data, file.name, file.size);
+      } catch (err) {
+        setParseError(ext === "json" ? "Invalid JSON: " + err.message : "CSV parse error: " + err.message);
+      }
     };
     reader.readAsText(file);
   };
 
-  return <Modal title="Import JSON" onClose={onClose} width={560}>
-    <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{fontSize:12,color:T.muted}}>Upload a <code>.json</code> file containing a single node object or an array of nodes.</div>
-      <input ref={fileRef} type="file" accept=".json" onChange={handleFile}
-        style={{padding:8,border:`1px dashed ${T.border}`,borderRadius:8,fontSize:12}} />
-      {error && <div style={{color:"#dc2626",fontSize:12,background:"#fef2f2",padding:"8px 12px",borderRadius:6}}>{error}</div>}
-      {preview && <div style={{fontSize:12}}>
-        <div style={{fontWeight:700,color:T.text,marginBottom:4}}>{preview.nodes.length} node(s) found</div>
-        {preview.dupes.length > 0 && <div style={{color:"#b45309",fontSize:11,marginBottom:4}}>⚠ {preview.dupes.length} duplicate ID(s) will be skipped: {preview.dupes.map(d=>d.id).join(", ")}</div>}
-        <div style={{maxHeight:150,overflowY:"auto",border:`1px solid ${T.border}`,borderRadius:6,padding:8}}>
-          {preview.nodes.map(n => <div key={n.id} style={{fontSize:11,padding:"2px 0",display:"flex",gap:8}}>
-            <span style={{fontFamily:"monospace",fontWeight:600,color:T.primary}}>{n.id}</span>
-            <span style={{color:T.muted}}>{n.vendor} {n.hwModel}</span>
-            <span style={{color:T.light}}>{n.layer}</span>
-          </div>)}
+  const onFileInput = e => { handleFile(e.target.files?.[0]); if (fileRef.current) fileRef.current.value = ""; };
+  const onDrop = e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files?.[0]); };
+  const onDragOver = e => { e.preventDefault(); setDragOver(true); };
+  const onDragLeave = () => setDragOver(false);
+
+  const validCount   = devices ? devices.filter(d => d.validation.valid).length : 0;
+  const invalidCount = devices ? devices.filter(d => !d.validation.valid).length : 0;
+  const totalCount   = devices ? devices.length : 0;
+
+  const handleImport = () => {
+    const toImport = devices.filter(d => d.validation.valid).map(d => d.device);
+    if (!toImport.length) return;
+    onResult(toImport);
+    setImportDone(`Successfully imported ${toImport.length} device(s).`);
+  };
+
+  const tabBtn = (id, label) => (
+    <button key={id} onClick={() => { setTab(id); reset(); }}
+      style={{ padding:"8px 20px", border:"none", cursor:"pointer", background:"transparent",
+        fontFamily:"inherit", fontSize:12, fontWeight:600,
+        color: tab === id ? T.primary : T.muted,
+        borderBottom: tab === id ? `2px solid ${T.primary}` : "2px solid transparent" }}>
+      {label}
+    </button>
+  );
+
+  const fmtSize = bytes => bytes < 1024 ? bytes + " B" : (bytes / 1024).toFixed(1) + " KB";
+
+  return <Modal title="Import Devices" onClose={onClose} width={880}>
+    {/* Tabs */}
+    <div style={{ display:"flex", borderBottom:`1px solid ${T.border}`, background:"#f8fafc", padding:"0 24px", marginTop:-24 }}>
+      {tabBtn("json", "JSON")}
+      {tabBtn("csv", "CSV")}
+    </div>
+
+    <div style={{ padding:"20px 0 0", display:"flex", flexDirection:"column", gap:14 }}>
+
+      {/* Download template */}
+      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:12, color:T.muted }}>Download template:</span>
+        {tab === "json" ? (
+          <button onClick={() => downloadFile("device-template.json", JSON.stringify(JSON_TEMPLATE, null, 2), "application/json")}
+            style={{ fontSize:11, fontWeight:600, color:T.primary, background:"#eff6ff", border:`1px solid ${T.primary}30`,
+              borderRadius:6, padding:"4px 12px", cursor:"pointer", fontFamily:"inherit" }}>
+            device-template.json
+          </button>
+        ) : (
+          <button onClick={() => downloadFile("device-template.csv", CSV_TEMPLATE_HEADER + "\n" + CSV_TEMPLATE_ROW + "\n", "text/csv")}
+            style={{ fontSize:11, fontWeight:600, color:"#0d9488", background:"#f0fdfa", border:"1px solid #0d948830",
+              borderRadius:6, padding:"4px 12px", cursor:"pointer", fontFamily:"inherit" }}>
+            device-template.csv
+          </button>
+        )}
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDrop={onDrop} onDragOver={onDragOver} onDragLeave={onDragLeave}
+        onClick={() => fileRef.current?.click()}
+        style={{
+          border: `2px dashed ${dragOver ? T.primary : T.border}`,
+          borderRadius: 10,
+          background: dragOver ? "#eff6ff" : "#f8fafc",
+          padding: "28px 20px",
+          textAlign: "center",
+          cursor: "pointer",
+          transition: "all 0.15s",
+        }}>
+        <input ref={fileRef} type="file" accept=".json,.csv" onChange={onFileInput} style={{ display:"none" }} />
+        {fileName ? (
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{fileName}</div>
+            <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{fmtSize(fileSize)}</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize:20, marginBottom:4 }}>{tab === "json" ? "{}" : ","}</div>
+            <div style={{ fontSize:12, color:T.muted }}>
+              Drag & drop a <strong>.{tab}</strong> file here, or <span style={{ color:T.primary, fontWeight:600 }}>click to browse</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Parse error */}
+      {parseError && (
+        <div style={{ color:"#dc2626", fontSize:12, background:"#fef2f2", padding:"8px 12px", borderRadius:6 }}>
+          {parseError}
         </div>
-        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
-          <Btn variant="ghost" onClick={onClose} small>Cancel</Btn>
-          <Btn onClick={() => onResult(preview.nodes.filter(n => !preview.dupes.some(d=>d.id===n.id)))} small>
-            Import {preview.nodes.length - preview.dupes.length} node(s)
-          </Btn>
+      )}
+
+      {/* Success message */}
+      {importDone && (
+        <div style={{ color:"#16a34a", fontSize:12, fontWeight:600, background:"#f0fdf4", padding:"10px 14px", borderRadius:6,
+          border:"1px solid #bbf7d0", textAlign:"center" }}>
+          {importDone}
         </div>
-      </div>}
+      )}
+
+      {/* Preview table */}
+      {devices && !importDone && (
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8, display:"flex", alignItems:"center", gap:10 }}>
+            <span>{validCount} of {totalCount} devices valid</span>
+            {invalidCount > 0 && <span style={{ fontSize:11, color:"#dc2626", fontWeight:600 }}>{invalidCount} invalid</span>}
+          </div>
+
+          <div style={{ maxHeight:260, overflowY:"auto", border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
+            <table style={{ width:"100%", fontSize:11, borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:"#f1f5f9", position:"sticky", top:0, zIndex:1 }}>
+                  {["","ID","Site","Country","Vendor","Model","Layer","Mgmt IP","Errors"].map(h => (
+                    <th key={h} style={{ padding:"6px 8px", textAlign:"left", fontWeight:700, color:T.muted,
+                      fontSize:10, borderBottom:`1px solid ${T.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((d, i) => (
+                  <tr key={d.device.id || i} style={{
+                    background: d.validation.valid ? "#fff" : "#fef2f2",
+                    borderBottom: `1px solid ${T.border}30`,
+                  }}>
+                    <td style={{ padding:"5px 8px", textAlign:"center" }}>
+                      {d.validation.valid
+                        ? <span style={{ color:"#16a34a", fontWeight:700 }}>&#10003;</span>
+                        : <span style={{ color:"#dc2626", fontWeight:700 }}>&#10007;</span>}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontFamily:"monospace", fontWeight:600, color:T.primary, whiteSpace:"nowrap" }}>
+                      {d.device.id || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontSize:10, color:T.muted, whiteSpace:"nowrap" }}>
+                      {d.device.siteId || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontSize:10, whiteSpace:"nowrap" }}>
+                      {d.device.country || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontSize:10, whiteSpace:"nowrap" }}>
+                      {d.device.vendor || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontSize:10, fontFamily:"monospace", whiteSpace:"nowrap" }}>
+                      {d.device.hwModel || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px" }}>
+                      {d.device.layer
+                        ? <span style={{ fontSize:9, fontWeight:600, color:"#fff",
+                            background: LAYER_COLORS[d.device.layer] || "#334155",
+                            borderRadius:3, padding:"1px 5px", whiteSpace:"nowrap" }}>{d.device.layer}</span>
+                        : "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontFamily:"monospace", fontSize:10, whiteSpace:"nowrap" }}>
+                      {d.device.mgmtIp || "—"}
+                    </td>
+                    <td style={{ padding:"5px 8px", fontSize:10, color:"#dc2626", maxWidth:220, wordBreak:"break-word" }}>
+                      {d.validation.valid ? "" : d.validation.errors.join("; ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Import button */}
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:12 }}>
+            <Btn variant="ghost" onClick={() => { reset(); }} small>Clear</Btn>
+            <Btn variant="ghost" onClick={onClose} small>Cancel</Btn>
+            <Btn onClick={handleImport} disabled={validCount === 0} small>
+              Import {validCount} valid device{validCount !== 1 ? "s" : ""}
+            </Btn>
+          </div>
+        </div>
+      )}
     </div>
   </Modal>;
 }

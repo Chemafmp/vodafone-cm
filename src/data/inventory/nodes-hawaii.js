@@ -18,6 +18,10 @@ export const NODES_HW = [
     layer: "IP Core",
     status: "UP",
     osVersion: "JunOS 22.4R2.9",
+    patches: [
+      { id: "junos-22.4R2-S1.9", type: "Service Release", desc: "RPD crash fix on BGP flowspec", installedDate: "2026-02-01", installedBy: "netops-hw" },
+      { id: "junos-22.4R2-J1", type: "JTAC Patch", desc: "PFE wedge on 100G LAG member failover", installedDate: "2026-03-10", installedBy: "netops-hw" },
+    ],
     serialNumber: "JN1248BF3A12",
     procurementDate: "2022-01-10",
     eolDate: "2032-01-10",

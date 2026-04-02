@@ -219,6 +219,40 @@ function TabSoftware({ node }) {
           ))}
         </div>
       </>}
+      {(node.patches||[]).length > 0 && <>
+        <SectionHead label="Installed Patches / SMUs" />
+        <div style={{ border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden" }}>
+          <table style={{ width:"100%", fontSize:10, borderCollapse:"collapse" }}>
+            <thead>
+              <tr style={{ background:"#f8fafc" }}>
+                {["Patch ID","Type","Description","Installed","By"].map(h=>(
+                  <th key={h} style={{ padding:"5px 8px", textAlign:"left", fontWeight:700, color:T.muted,
+                    fontSize:9, textTransform:"uppercase", letterSpacing:"0.5px",
+                    borderBottom:`1px solid ${T.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {node.patches.map((p,i)=>{
+                const typeCol = p.type==="Security"?"#dc2626":p.type==="SMU"?"#2563eb":
+                  p.type==="Hotfix"?"#d97706":p.type==="Content Update"?"#7c3aed":"#64748b";
+                return (
+                  <tr key={i} style={{ borderBottom: i<node.patches.length-1?`1px solid ${T.border}`:"none" }}>
+                    <td style={{ padding:"5px 8px", fontFamily:"monospace", fontWeight:600, color:T.text }}>{p.id}</td>
+                    <td style={{ padding:"5px 8px" }}>
+                      <span style={{ fontSize:9, fontWeight:700, color:typeCol, background:`${typeCol}15`,
+                        border:`1px solid ${typeCol}40`, borderRadius:3, padding:"1px 6px" }}>{p.type}</span>
+                    </td>
+                    <td style={{ padding:"5px 8px", color:T.text }}>{p.desc}</td>
+                    <td style={{ padding:"5px 8px", fontFamily:"monospace", color:T.muted, whiteSpace:"nowrap" }}>{p.installedDate}</td>
+                    <td style={{ padding:"5px 8px", color:T.muted }}>{p.installedBy}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>}
     </div>
   );
 }

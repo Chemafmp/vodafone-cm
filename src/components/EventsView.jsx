@@ -67,7 +67,11 @@ export default function EventsView({ changes = [] }) {
   const [tooltip, setTooltip] = useState(null);
   const [selectedEvt, setSelectedEvt] = useState(null);
   const [feedOpen, setFeedOpen] = useState(true);
-  const dragRef = useRef(null);
+  const [feedH, setFeedH] = useState(160); // resizable event feed height
+  const [cursorMode, setCursorMode] = useState("zoom"); // "zoom" | "pan"
+  const dragRef = useRef(null);       // { mode:"zoom"|"pan", startX, startWinS, curX? }
+  const [rubberBand, setRubberBand] = useState(null); // { x1, x2 } in px relative to pane
+  const dividerDragRef = useRef(null);
   const evBBoxRef = useRef([]);
 
   /* ── Filters ── */
@@ -445,45 +449,86 @@ export default function EventsView({ changes = [] }) {
     setSelectedEvt(ev ? (ev.id === selectedEvt ? null : ev.id) : null);
   }, [hitTest, selectedEvt]);
 
-  // Drag to pan
+  // Drag: normal = rubber-band zoom, shift = pan
   const handleMouseDown = useCallback((e) => {
-    dragRef.current = { startX: e.clientX, startWinS: winS };
-  }, [winS]);
+    if (e.button !== 0) return; // left button only
+    const rect = paneRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const localX = e.clientX - rect.left;
+    // Shift always forces the opposite mode; otherwise use cursorMode
+    const usePan = e.shiftKey ? cursorMode !== "pan" : cursorMode === "pan";
+    if (usePan) {
+      dragRef.current = { mode: "pan", startX: e.clientX, startWinS: winS };
+    } else {
+      dragRef.current = { mode: "zoom", startX: e.clientX, localStartX: localX, startWinS: winS };
+      setRubberBand({ x1: localX, x2: localX });
+    }
+  }, [winS, cursorMode]);
 
   useEffect(() => {
     const handleMove = (e) => {
       if (!dragRef.current) return;
-      const mspp = (winH * 3600000) / pW();
-      setWinS(dragRef.current.startWinS - (e.clientX - dragRef.current.startX) * mspp);
+      const rect = paneRef.current?.getBoundingClientRect();
+      if (dragRef.current.mode === "pan") {
+        const mspp = (winH * 3600000) / pW();
+        setWinS(dragRef.current.startWinS - (e.clientX - dragRef.current.startX) * mspp);
+      } else if (dragRef.current.mode === "zoom" && rect) {
+        const localX = e.clientX - rect.left;
+        setRubberBand({ x1: dragRef.current.localStartX, x2: localX });
+      }
     };
-    const handleUp = () => { dragRef.current = null; };
+    const handleUp = (e) => {
+      if (!dragRef.current) return;
+      if (dragRef.current.mode === "zoom") {
+        const rect = paneRef.current?.getBoundingClientRect();
+        if (rect) {
+          const localX = e.clientX - rect.left;
+          const x1 = Math.min(dragRef.current.localStartX, localX);
+          const x2 = Math.max(dragRef.current.localStartX, localX);
+          const pxDist = x2 - x1;
+          if (pxDist > 8) {
+            // Convert pixel range to time range
+            const W = pW();
+            const msPerPx = (winH * 3600000) / W;
+            const tStart = winS + x1 * msPerPx;
+            const tEnd = winS + x2 * msPerPx;
+            const newH = Math.max(0.05, (tEnd - tStart) / 3600000); // min ~3 minutes
+            setWinS(tStart);
+            setWinH(newH);
+          }
+        }
+        setRubberBand(null);
+      }
+      dragRef.current = null;
+    };
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
     return () => { window.removeEventListener("mousemove", handleMove); window.removeEventListener("mouseup", handleUp); };
-  }, [winH, pW]);
+  }, [winH, winS, pW]);
 
+  // Wheel zoom: continuous, centered on cursor
   const handleWheel = useCallback((e) => {
-    if (e.shiftKey) return; // allow native vertical scroll with shift
     e.preventDefault();
-    const ZOOMS = [1, 2, 4, 6, 12, 24, 48];
-    const idx = ZOOMS.indexOf(winH);
-    const ni = Math.max(0, Math.min(ZOOMS.length - 1, (idx === -1 ? 3 : idx) + (e.deltaY > 0 ? 1 : -1)));
-    setWinH(ZOOMS[ni]);
-  }, [winH]);
+    const rect = paneRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cursorX = e.clientX - rect.left;
+    const W = pW();
+    const factor = e.deltaY > 0 ? 1.4 : 1 / 1.4; // zoom out / zoom in
+    const newH = Math.max(0.05, Math.min(96, winH * factor));
+    // Keep the time under cursor fixed
+    const cursorT = winS + (cursorX / W) * winH * 3600000;
+    const newWinS = cursorT - (cursorX / W) * newH * 3600000;
+    setWinH(newH);
+    setWinS(newWinS);
+  }, [winH, winS, pW]);
 
+  // Attach wheel handler with passive:false for preventDefault
   useEffect(() => {
     const el = paneRef.current;
     if (!el) return;
-    const handler = (e) => {
-      // Only prevent default for horizontal zoom (not vertical scroll)
-      if (!e.shiftKey && e.deltaX === 0) {
-        // Let vertical scroll work natively
-        return;
-      }
-      handleWheel(e);
-    };
-    // We handle wheel on the wrapper div that contains canvas, not the scrollable pane
-    return () => {};
+    const handler = (e) => { if (!e.shiftKey) handleWheel(e); };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
   }, [handleWheel]);
 
   const ZOOMS = [1, 2, 4, 6, 12, 24, 48];
@@ -492,7 +537,8 @@ export default function EventsView({ changes = [] }) {
 
   const navLabel = useMemo(() => {
     const s = new Date(winS);
-    return `${s.toLocaleDateString("en-US",{month:"short",day:"numeric"})} ${fmtHM(winS)} → ${fmtHM(winE)} (${winH}h)`;
+    const hLabel = winH < 1 ? `${Math.round(winH * 60)}m` : winH % 1 === 0 ? `${winH}h` : `${winH.toFixed(1)}h`;
+    return `${s.toLocaleDateString("en-US",{month:"short",day:"numeric"})} ${fmtHM(winS)} → ${fmtHM(winE)} (${hLabel})`;
   }, [winS, winE, winH]);
 
   /* ── Selected event detail ── */
@@ -579,6 +625,16 @@ export default function EventsView({ changes = [] }) {
         </button>)}
       </div>
       <NB onClick={() => { setWinH(12); setWinS(Date.now() - 6*3600000); }}>⌂</NB>
+      <div style={{ width:1, height:16, background:"#dde2ea", margin:"0 2px" }}/>
+      {/* Cursor mode toggle */}
+      {[["zoom","✛","Zoom (drag to select)"],["pan","✋","Pan (drag to move)"]].map(([m,icon,title]) =>
+        <button key={m} onClick={() => setCursorMode(m)} title={title}
+          style={{ fontSize:11, padding:"2px 6px", borderRadius:4, border:`1px solid ${cursorMode===m?"#0077cc":"#dde2ea"}`,
+            background:cursorMode===m?"#0077cc":"#f0f2f5", color:cursorMode===m?"#fff":"#7a8fa8",
+            cursor:"pointer", fontFamily:"inherit", lineHeight:1 }}>
+          {icon}
+        </button>
+      )}
       <span style={{ fontSize:9, color:"#94a3b8", marginLeft:4 }}>{serviceRows.length} svc · {deviceRows.length} dev</span>
     </div>
 
@@ -678,12 +734,40 @@ export default function EventsView({ changes = [] }) {
             <canvas ref={axisRef} style={{ display:"block" }}/>
           </div>
           {/* Scrollable canvas */}
-          <div ref={paneRef} style={{ flex:1, overflowY:"auto", overflowX:"hidden", cursor: dragRef.current ? "grabbing" : "grab" }}
+          <div ref={paneRef} style={{ flex:1, overflowY:"auto", overflowX:"hidden", cursor: rubberBand ? "col-resize" : cursorMode === "pan" ? "grab" : "crosshair", position:"relative" }}
             onScroll={() => syncScroll("canvas")}
             onMouseDown={handleMouseDown}>
             <canvas ref={canvasRef} style={{ display:"block" }}
               onMouseMove={handleCanvasMove} onMouseLeave={() => setTooltip(null)}
               onClick={handleCanvasClick}/>
+            {/* Rubber-band zoom overlay */}
+            {rubberBand && (() => {
+              const x1 = Math.min(rubberBand.x1, rubberBand.x2);
+              const x2 = Math.max(rubberBand.x1, rubberBand.x2);
+              const w = x2 - x1;
+              return w > 2 ? <div style={{
+                position:"absolute", top:0, left:x1, width:w, height:"100%",
+                background:"rgba(14,165,233,0.12)", border:"1px solid rgba(14,165,233,0.5)",
+                borderTop:"none", borderBottom:"none",
+                pointerEvents:"none", zIndex:10,
+              }}>
+                <div style={{ position:"sticky", top:4, display:"flex", justifyContent:"center", pointerEvents:"none" }}>
+                  <span style={{ fontSize:9, fontWeight:700, color:"#0369a1", background:"rgba(255,255,255,0.9)",
+                    padding:"1px 6px", borderRadius:4, fontFamily:"monospace", whiteSpace:"nowrap" }}>
+                    {(() => {
+                      const W = pW();
+                      const msPerPx = (winH * 3600000) / W;
+                      const tS = winS + x1 * msPerPx;
+                      const tE = winS + x2 * msPerPx;
+                      const spanMs = tE - tS;
+                      return spanMs < 60000 ? `${Math.round(spanMs/1000)}s`
+                        : spanMs < 3600000 ? `${Math.round(spanMs/60000)}m`
+                        : `${(spanMs/3600000).toFixed(1)}h`;
+                    })()}
+                  </span>
+                </div>
+              </div> : null;
+            })()}
           </div>
         </div>
 
@@ -747,8 +831,27 @@ export default function EventsView({ changes = [] }) {
         </div>}
       </div>
 
+      {/* ── Resizable divider ── */}
+      {feedOpen && <div
+        style={{ height:5, flexShrink:0, cursor:"row-resize", background:"#eaecf0", borderTop:"1px solid #dde2ea",
+          display:"flex", alignItems:"center", justifyContent:"center", userSelect:"none" }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const startY = e.clientY;
+          const startH = feedH;
+          const onMove = (me) => {
+            const delta = startY - me.clientY;
+            setFeedH(Math.max(60, Math.min(500, startH + delta)));
+          };
+          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        }}>
+        <div style={{ width:30, height:2, borderRadius:1, background:"#c1c8d4" }}/>
+      </div>}
+
       {/* ── Compact Event Feed (collapsible) ── */}
-      <div style={{ flexShrink:0, borderTop:"1px solid #dde2ea", background:"#fff" }}>
+      <div style={{ flexShrink:0, borderTop: feedOpen ? "none" : "1px solid #dde2ea", background:"#fff" }}>
         <div onClick={() => setFeedOpen(!feedOpen)}
           style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 14px",
             cursor:"pointer", background:"#f8f9fb", borderBottom: feedOpen ? "1px solid #dde2ea" : "none",
@@ -756,7 +859,7 @@ export default function EventsView({ changes = [] }) {
           <span>{feedOpen ? "▾" : "▸"} Event Feed</span>
           <span style={{ fontFamily:"monospace" }}>{sortedEvents.length} events</span>
         </div>
-        {feedOpen && <div style={{ maxHeight:160, overflowY:"auto" }}>
+        {feedOpen && <div style={{ height:feedH, overflowY:"auto" }}>
           {sortedEvents.slice(0, 30).map(ev => {
             const col = EV_TYPES[ev._type];
             const isSel = ev.id === selectedEvt;
