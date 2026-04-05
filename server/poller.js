@@ -84,12 +84,15 @@ app.use((req, res, next) => {
 
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {
+  const fleetRunning = [...fleetMap.values()].filter(n => n.status === "running").length;
   res.json({
     status: "ok",
     uptime: process.uptime(),
     nodesRegistered: getNodeCount(),
     activeAlarms: getActiveAlarmCount(),
     autoFleet: AUTO_FLEET,
+    fleetRunning,
+    fleetKilled: fleetMap.size - fleetRunning,
   });
 });
 
@@ -262,7 +265,42 @@ async function runPollCycle() {
 // This makes the poller fully self-contained for production deployments
 // (Fly.io, Droplet) where there is no interactive launcher.
 
-const fleetProcs = [];
+// Map of nodeId → { proc, def, index, port, status: "running" | "killed" }.
+// Using a Map (not array) so the control API can look up nodes by id in O(1).
+const fleetMap = new Map();
+
+function spawnFleetNode(def, index, port) {
+  const nodeArgs = [
+    "--id", def.id,
+    "--port", String(port),
+    "--address", "127.0.0.1",
+    "--poller", `http://localhost:${PORT}`,
+  ];
+  if (AUTO_FLEET_CHAOS) nodeArgs.push("--chaos");
+
+  // Inherit stderr so crashes surface in the poller log; stdout is piped
+  // silently — the poller's own log lines tell us when each node registers.
+  const proc = fork("server/node-sim.js", nodeArgs, {
+    stdio: ["ignore", "ignore", "inherit", "ipc"],
+    cwd: process.cwd(),
+  });
+
+  const entry = { proc, def, index, port, status: "running" };
+  fleetMap.set(def.id, entry);
+
+  proc.on("exit", (code) => {
+    if (shuttingDown) return;
+    // If the status is still "running" it means the exit wasn't requested
+    // via the control API → crash. Mark as killed so the UI reflects it.
+    if (entry.status === "running") {
+      entry.status = "killed";
+      entry.proc = null;
+      if (code !== 0) log(chalk.red(`✗ Auto-fleet node ${def.id} exited with code ${code}`));
+    }
+  });
+
+  return entry;
+}
 
 function startAutoFleet() {
   if (AUTO_FLEET <= 0) return;
@@ -272,32 +310,78 @@ function startAutoFleet() {
 
   fleet.forEach((node, i) => {
     const port = BASE_SNMP_PORT + i;
-    const nodeArgs = [
-      "--id", node.id,
-      "--port", String(port),
-      "--address", "127.0.0.1",
-      "--poller", `http://localhost:${PORT}`,
-    ];
-    if (AUTO_FLEET_CHAOS) nodeArgs.push("--chaos");
-
-    // Inherit stderr so crashes surface in the poller log; stdout is piped
-    // silently — the poller's own log lines tell us when each node registers.
-    const proc = fork("server/node-sim.js", nodeArgs, {
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
-      cwd: process.cwd(),
-    });
-
-    fleetProcs.push({ proc, id: node.id, port });
-
-    proc.on("exit", (code) => {
-      if (!shuttingDown && code !== 0) {
-        log(chalk.red(`✗ Auto-fleet node ${node.id} exited with code ${code}`));
-      }
-    });
-
+    spawnFleetNode(node, i, port);
     log(chalk.cyan(`  [${i}] ${node.id} → 127.0.0.1:${port}`));
   });
 }
+
+// ─── Control API — chaos engineering endpoints ───────────────────────────────
+//
+// These let the frontend (or curl) kill/revive simulated nodes and trigger
+// named scenarios on them. Only available when AUTO_FLEET > 0, since they
+// operate on child processes owned by the poller.
+
+const VALID_SCENARIOS = ["cascade", "maintenance", "linkflap", "bgpleak", "thermal"];
+
+// GET /api/control/nodes — list fleet state for the chaos panel
+app.get("/api/control/nodes", (req, res) => {
+  const nodes = [...fleetMap.values()].map(n => ({
+    id: n.def.id,
+    label: n.def.label,
+    country: n.def.country,
+    index: n.index,
+    port: n.port,
+    status: n.status,
+  }));
+  res.json({ autoFleet: AUTO_FLEET, nodes });
+});
+
+// POST /api/control/kill/:nodeId — SIGTERM the child process
+app.post("/api/control/kill/:nodeId", (req, res) => {
+  const entry = fleetMap.get(req.params.nodeId);
+  if (!entry) return res.status(404).json({ error: "node not found" });
+  if (entry.status === "killed") return res.json({ ok: true, already: true, status: "killed" });
+  if (entry.proc) {
+    try { entry.proc.kill("SIGTERM"); } catch { /* ignore */ }
+  }
+  entry.status = "killed";
+  entry.proc = null;
+  log(chalk.red(`💀 KILL via API: ${chalk.bold(entry.def.id)}`));
+  res.json({ ok: true, id: entry.def.id, status: "killed" });
+});
+
+// POST /api/control/revive/:nodeId — re-fork the child process
+app.post("/api/control/revive/:nodeId", (req, res) => {
+  const entry = fleetMap.get(req.params.nodeId);
+  if (!entry) return res.status(404).json({ error: "node not found" });
+  if (entry.status === "running" && entry.proc) {
+    return res.json({ ok: true, already: true, status: "running" });
+  }
+  spawnFleetNode(entry.def, entry.index, entry.port);
+  log(chalk.green(`🔄 REVIVE via API: ${chalk.bold(entry.def.id)}`));
+  res.json({ ok: true, id: entry.def.id, status: "running" });
+});
+
+// POST /api/control/scenario/:nodeId — send IPC scenario message to child
+//   body: { "scenario": "cascade" | "maintenance" | "linkflap" | "bgpleak" | "thermal" }
+app.post("/api/control/scenario/:nodeId", (req, res) => {
+  const entry = fleetMap.get(req.params.nodeId);
+  if (!entry) return res.status(404).json({ error: "node not found" });
+  if (!entry.proc || entry.status !== "running") {
+    return res.status(409).json({ error: "node not running — revive it first" });
+  }
+  const { scenario } = req.body || {};
+  if (!VALID_SCENARIOS.includes(scenario)) {
+    return res.status(400).json({ error: "invalid scenario", valid: VALID_SCENARIOS });
+  }
+  try {
+    entry.proc.send({ type: "scenario", scenario });
+  } catch (e) {
+    return res.status(500).json({ error: "IPC send failed", detail: String(e) });
+  }
+  log(chalk.magenta(`🎬 SCENARIO via API: ${chalk.bold(entry.def.id)} → ${scenario}`));
+  res.json({ ok: true, id: entry.def.id, scenario });
+});
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
@@ -318,6 +402,9 @@ server.listen(PORT, BIND_HOST, () => {
   console.log(`  Origins:     ${chalk.gray([...ALLOWED_ORIGINS].join(", "))}`);
   console.log(`  Auto-fleet:  ${AUTO_FLEET > 0 ? chalk.bold.green(`${AUTO_FLEET} nodes${AUTO_FLEET_CHAOS ? " (CHAOS)" : ""}`) : chalk.gray("off (manual mode)")}`);
   console.log(`  Endpoints:   POST /register · GET /api/status · GET /api/alarms · GET /api/events`);
+  if (AUTO_FLEET > 0) {
+    console.log(`  Control:     GET /api/control/nodes · POST /api/control/{kill,revive,scenario}/:id`);
+  }
   console.log("");
   log(chalk.green("Poller started. Waiting for nodes to register..."));
   if (AUTO_FLEET === 0) {
@@ -344,9 +431,9 @@ function shutdown(signal) {
   console.log("");
   log(chalk.yellow(`Shutting down poller (${signal})...`));
 
-  for (const { proc } of fleetProcs) {
-    if (proc && !proc.killed) {
-      try { proc.kill("SIGTERM"); } catch { /* ignore */ }
+  for (const entry of fleetMap.values()) {
+    if (entry.proc && !entry.proc.killed) {
+      try { entry.proc.kill("SIGTERM"); } catch { /* ignore */ }
     }
   }
 
