@@ -523,6 +523,82 @@ const USERS=[
   {id:"u10",name:"Sam Reyes",  role:"Manager",  team:"Data Core",     dept:"Operations"},
 ];
 
+// ─── NC_DEFAULTS (new change skeleton) ───────────────────────────────────────
+const NC_DEFAULTS={
+  name:"",domain:SYSTEMS[0],risk:"Low",type:"Ad-hoc",execMode:"Manual",
+  intrusion:"Non-Intrusive",approvalLevel:"L1",scheduledFor:"",scheduledEnd:"",isTemplate:false,variables:[],
+  assignedTo:"",country:"",
+  purpose:"",requirementsPermissions:"",expectedEndState:"",assumptions:"",
+  serviceImpact:"",affectedServices:"",affectedDevices:"",affectedDeviceIds:[],customerImpact:"",
+  rollbackPlan:"",rollbackTime:"",
+  freezePeriod:false,freezeJustification:"",freezeSeverity:null,
+  relatedTickets:"",lseId:"",incidentId:"",
+  cabRequired:false,barRaiserRequired:false,
+  blastRadius:"",dependencies:"",
+  affectedRegions:"",affectedInterfaces:"",validationPlan:"",
+  escalationPath:"",rollbackTrigger:"",pirRequired:false,
+  steps:[],
+  approvers:[],
+  preflightSteps:[
+    {id:"syntax",      label:"Syntax Validation"},
+    {id:"conflict",    label:"Conflict Detection"},
+    {id:"reachability",label:"Device Reachability"},
+    {id:"policy",      label:"Policy Compliance"},
+    {id:"rollback",    label:"Rollback Plan Verified"},
+  ],
+};
+
+// ─── ChangeWizardModal — self-contained wrapper for picker + wizard ──────────
+export function ChangeWizardModal({ templates, activePeak, peaks, currentUser, onClose, onCreated }) {
+  const [mode, setMode] = useState("picker"); // "picker" | "wizard"
+  const [nc, setNc] = useState(NC_DEFAULTS);
+  const [ncStep, setNcStep] = useState(0);
+  const ncSf = k => v => setNc(f => ({ ...f, [k]: v }));
+
+  const reset = () => { setNcStep(0); setNc(NC_DEFAULTS); };
+
+  if (mode === "picker") {
+    return <CreateModePicker
+      templates={templates}
+      activePeak={activePeak}
+      peaks={peaks}
+      currentUser={currentUser}
+      onClose={onClose}
+      onPickAdHoc={() => { setNc({ ...NC_DEFAULTS, isTemplate: false, type: "Ad-hoc" }); setNcStep(0); setMode("wizard"); }}
+      onPickNewTemplate={() => { setNc({ ...NC_DEFAULTS, isTemplate: true, type: "Template" }); setNcStep(0); setMode("wizard"); }}
+      onPickTemplate={t => {
+        setNc({
+          ...NC_DEFAULTS,
+          name: "[" + t.name + "] ",
+          domain: t.domain || NC_DEFAULTS.domain,
+          risk: t.risk || "Low",
+          approvalLevel: t.approvalLevel || "L1",
+          execMode: t.execMode || "Manual",
+          intrusion: t.intrusion || "Non-Intrusive",
+          type: "Template",
+          rollbackPlan: t.rollbackPlan || "",
+          serviceImpact: t.serviceImpact || "",
+          affectedServices: Array.isArray(t.affectedServices) ? t.affectedServices.join(", ") : (t.affectedServices || ""),
+          steps: (t.steps || []).map(s => ({ ...s, id: Date.now() + Math.random() })),
+          isTemplate: false,
+        });
+        setNcStep(0);
+        setMode("wizard");
+      }}
+      onCreate={newC => { onCreated(newC); onClose(); }}
+    />;
+  }
+
+  return <CreateChangeMCM
+    nc={nc} setNc={setNc} ncSf={ncSf} ncStep={ncStep} setNcStep={setNcStep}
+    NC_DEFAULTS={NC_DEFAULTS}
+    peaks={peaks}
+    currentUser={currentUser}
+    onClose={() => { reset(); onClose(); }}
+    onCreate={newC => { onCreated(newC); reset(); onClose(); }}
+  />;
+}
+
 export default function CreateChangeMCM({nc, setNc, ncSf, ncStep, setNcStep, NC_DEFAULTS, currentUser, peaks=[], onClose, onCreate}) {
   const peakConflict = isInPeakPeriod(nc.scheduledFor, peaks);
   const catRules = getCategoryRules(nc.category, nc.risk);

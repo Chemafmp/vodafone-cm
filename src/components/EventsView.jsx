@@ -53,7 +53,7 @@ function fmtHM(ts) { const d = new Date(ts); return `${p2(d.getHours())}:${p2(d.
 function fmtDMH(ts) { const d = new Date(ts); return `${d.toLocaleDateString("en-US",{month:"short",day:"numeric"})} ${fmtHM(ts)}`; }
 
 /* ═══════════════════════════════════════════════════════════════════════ */
-export default function EventsView({ changes = [] }) {
+export default function EventsView({ changes = [], liveEvents = [], pollerConnected = false }) {
   const { nodes: NODES } = useNodes();
   const canvasRef = useRef(null);
   const axisRef = useRef(null);
@@ -143,7 +143,17 @@ export default function EventsView({ changes = [] }) {
       }
     }
 
-    let evs = [...fromEvents, ...fromAlarms, ...fromChanges];
+    // Live events from the poller WebSocket
+    const fromLive = liveEvents.map(le => ({
+      id: le.id, nodeId: le.nodeId,
+      country: le.nodeId ? le.nodeId.split("-")[0].toUpperCase() : "??",
+      type: le.type, severity: le.severity, source: le.source || "poller",
+      message: le.message, detail: le.message, ts: le.ts,
+      _type: le.severity === "critical" ? "alarm-crit" : le.severity === "warning" ? "alarm-warn" : "system",
+      _ts: new Date(le.ts).getTime(), _src: "live",
+    }));
+
+    let evs = [...fromEvents, ...fromAlarms, ...fromChanges, ...fromLive];
 
     if (fCountry !== "ALL") evs = evs.filter(e => e.country === fCountry);
     if (fSite !== "ALL") {
@@ -161,7 +171,7 @@ export default function EventsView({ changes = [] }) {
     }
     if (fDevice !== "ALL") evs = evs.filter(e => e.nodeId === fDevice || e.serviceId);
     return evs;
-  }, [fCountry, fSite, fService, fDevice, changes, nodeMap]);
+  }, [fCountry, fSite, fService, fDevice, changes, liveEvents, nodeMap]);
 
   const svcMap = useMemo(() => Object.fromEntries(SERVICES.map(s => [s.id, s])), []);
 
@@ -586,6 +596,13 @@ export default function EventsView({ changes = [] }) {
         <div style={{ fontFamily:"monospace", fontSize:15, fontWeight:700, lineHeight:1, color:k.c }}>{k.v}</div>
         <div style={{ fontSize:7, textTransform:"uppercase", letterSpacing:0.8, color:"#7a8fa8" }}>{k.l}</div>
       </div>)}
+
+      {pollerConnected && <div style={{ display:"flex", alignItems:"center", gap:5, padding:"0 10px",
+        borderRight:"1px solid #dde2ea", height:"100%" }}>
+        <span style={{ width:7, height:7, borderRadius:"50%", background:"#22c55e",
+          boxShadow:"0 0 0 3px #22c55e40" }}/>
+        <span style={{ fontSize:9, fontWeight:700, color:"#15803d", textTransform:"uppercase" }}>Live</span>
+      </div>}
 
       <div style={{ display:"flex", gap:5, alignItems:"center", padding:"0 10px", marginLeft:6, flex:1, flexWrap:"wrap" }}>
         <Sel value={fCountry} onChange={setFCountry} options={[{v:"ALL",l:"🌐 All Countries"},...["FJ","HW","IB"].map(c=>({v:c,l:`${COUNTRY_META[c]?.flag} ${COUNTRY_META[c]?.name}`}))]}/>

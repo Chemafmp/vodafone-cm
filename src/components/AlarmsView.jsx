@@ -85,7 +85,7 @@ function TreeRow({ depth, label, icon, sub, alarmCounts, isOpen, onToggle, hasCh
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-export default function AlarmsView() {
+export default function AlarmsView({ liveAlarms = [], pollerConnected = false }) {
   const { nodes: NODES } = useNodes();
   const [expanded, setExpanded] = useState({ FJ:true, HW:true, IB:true }); // country-level open
   const [expandedSites, setExpandedSites] = useState({});
@@ -108,9 +108,17 @@ export default function AlarmsView() {
   const filteredSites = useMemo(() => fCountry === "ALL" ? SITES : SITES.filter(s => s.country === fCountry), [fCountry]);
   const filteredServices = useMemo(() => fCountry === "ALL" ? SERVICES : SERVICES.filter(s => s.country === fCountry), [fCountry]);
 
+  /* ── enrich live alarms with country/detail so they integrate with the tree ── */
+  const enrichedLive = useMemo(() => liveAlarms.map(a => ({
+    ...a,
+    country: a.nodeId.split("-")[0].toUpperCase(),
+    detail: a.detail || a.message,
+    affectedServices: a.affectedServices || [],
+  })), [liveAlarms]);
+
   /* ── filtered alarms ── */
   const filteredAlarms = useMemo(() => {
-    let a = [...ALARMS];
+    let a = [...ALARMS, ...enrichedLive];
     if (statusFilter === "ACTIVE") a = a.filter(x => x.status !== "RESOLVED");
     else if (statusFilter === "RESOLVED") a = a.filter(x => x.status === "RESOLVED");
     if (sevFilter !== "ALL") a = a.filter(x => x.severity === sevFilter);
@@ -133,7 +141,7 @@ export default function AlarmsView() {
       a = a.filter(x => x.message.toLowerCase().includes(q) || x.nodeId.toLowerCase().includes(q) || x.detail.toLowerCase().includes(q));
     }
     return a;
-  }, [NODES, statusFilter, sevFilter, search, fCountry, fSite, fService, fType]);
+  }, [NODES, enrichedLive, statusFilter, sevFilter, search, fCountry, fSite, fService, fType]);
 
   /* ── build tree data ── */
   const tree = useMemo(() => {
@@ -184,21 +192,23 @@ export default function AlarmsView() {
 
   /* ── summary counts ── */
   const totalCounts = useMemo(() => {
-    const active = ALARMS.filter(a => a.status !== "RESOLVED");
+    const all = [...ALARMS, ...enrichedLive];
+    const active = all.filter(a => a.status !== "RESOLVED");
     return {
-      total: ALARMS.length,
+      total: all.length,
       active: active.length,
       critical: active.filter(a=>a.severity==="Critical").length,
       major: active.filter(a=>a.severity==="Major").length,
       minor: active.filter(a=>a.severity==="Minor").length,
-      resolved: ALARMS.filter(a=>a.status==="RESOLVED").length,
+      resolved: all.filter(a=>a.status==="RESOLVED").length,
     };
-  }, []);
+  }, [enrichedLive]);
 
   const toggle = useCallback((key, setter) => setter(prev => ({...prev, [key]: !prev[key]})), []);
 
   /* ── selected detail ── */
-  const selAlarm = selectedType === "alarm" ? ALARMS.find(a => a.id === selected) : null;
+  const allAlarms = useMemo(() => [...ALARMS, ...enrichedLive], [enrichedLive]);
+  const selAlarm = selectedType === "alarm" ? allAlarms.find(a => a.id === selected) : null;
   const selDevice = selectedType === "device" ? nodeMap[selected] : null;
   const selNode = selAlarm ? nodeMap[selAlarm.nodeId] : null;
   const deviceAlarms = selDevice ? filteredAlarms.filter(a => a.nodeId === selDevice.id) : [];
@@ -219,6 +229,16 @@ export default function AlarmsView() {
           <div style={{ fontSize:9, fontWeight:700, color:c.color, textTransform:"uppercase", opacity:0.7 }}>{c.label}</div>
         </div>)}
       </div>
+      {/* Live poller indicator */}
+      {pollerConnected && <div style={{ display:"flex", alignItems:"center", gap:6, background:"#f0fdf4",
+        border:"1px solid #86efac", borderRadius:10, padding:"8px 14px" }}>
+        <span style={{ width:8, height:8, borderRadius:"50%", background:"#22c55e",
+          boxShadow:"0 0 0 3px #22c55e40", animation:"pulse 2s infinite" }}/>
+        <div>
+          <div style={{ fontSize:13, fontWeight:800, color:"#15803d" }}>LIVE</div>
+          <div style={{ fontSize:9, fontWeight:600, color:"#15803d", opacity:0.7 }}>{enrichedLive.length} from poller</div>
+        </div>
+      </div>}
       <div style={{ flex:1 }}/>
 
       {/* Filters */}
