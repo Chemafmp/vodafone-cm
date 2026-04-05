@@ -18,7 +18,7 @@ const NAV_GROUPS=[
   ]},
 ];
 
-export default function Sidebar({ view, setView, user, onLogout, badges, onNewChange, onNewFreeze, onDemoData, onResetSeed, pollerConnected = false }) {
+export default function Sidebar({ view, setView, user, onLogout, badges, onNewChange, onNewFreeze, onDemoData, onResetSeed, onOpenChaos, pollerConnected = false }) {
   return (
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
 
@@ -90,17 +90,23 @@ export default function Sidebar({ view, setView, user, onLogout, badges, onNewCh
       </div>
 
       {/* ── Poller status ── */}
-      <div style={{margin:"0 10px 8px",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",
-        background:pollerConnected?"rgba(34,197,94,0.1)":"rgba(255,255,255,0.04)",
-        border:`1px solid ${pollerConnected?"rgba(34,197,94,0.3)":T.sidebarBorder}`,borderRadius:8}}>
+      <button
+        onClick={pollerConnected && onOpenChaos ? onOpenChaos : undefined}
+        disabled={!pollerConnected}
+        title={pollerConnected ? "Open Chaos Control" : "Poller not connected"}
+        style={{margin:"0 10px 8px",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",
+          background:pollerConnected?"rgba(34,197,94,0.1)":"rgba(255,255,255,0.04)",
+          border:`1px solid ${pollerConnected?"rgba(34,197,94,0.3)":T.sidebarBorder}`,borderRadius:8,
+          cursor:pollerConnected?"pointer":"default",fontFamily:"inherit",textAlign:"left",width:"calc(100% - 20px)"}}>
         <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
           background:pollerConnected?"#22c55e":"#64748b",
           boxShadow:pollerConnected?"0 0 0 3px rgba(34,197,94,0.3)":"none"}}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:10,fontWeight:700,color:pollerConnected?"#4ade80":"rgba(255,255,255,0.3)",
             letterSpacing:"0.5px"}}>{pollerConnected?"LIVE — Poller connected":"STATIC — No poller"}</div>
+          {pollerConnected&&<div style={{fontSize:9,color:"rgba(255,255,255,0.45)",marginTop:1,letterSpacing:"0.3px"}}>Click for Chaos Control →</div>}
         </div>
-      </div>
+      </button>
 
       {/* ── User profile ── */}
       <div style={{margin:"0 10px",background:"rgba(255,255,255,0.06)",border:`1px solid ${T.sidebarBorder}`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>

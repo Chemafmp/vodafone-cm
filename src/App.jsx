@@ -22,6 +22,7 @@ const TopologyView    = lazy(() => import("./components/TopologyView.jsx"));
 const AlarmsView      = lazy(() => import("./components/AlarmsView.jsx"));
 const EventsView      = lazy(() => import("./components/EventsView.jsx"));
 const ObservabilityView = lazy(() => import("./components/ObservabilityView.jsx"));
+const ChaosControlPanel = lazy(() => import("./components/ChaosControlPanel.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -65,6 +66,7 @@ export default function App(){
   const [user,setUser]=useState(null);
   const [view,setView]=useState("changes");
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
+  const [chaosOpen,setChaosOpen]=useState(false);
 
 
   const [dashFilters,setDashFilters]=useState({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""});
@@ -118,6 +120,7 @@ export default function App(){
       onNewFreeze={()=>setPeaks(p=>[...p,{id:`BNOC-${Math.random().toString().slice(2,10)}`,name:"",start:"",end:"",severity:"orange",reason:""}])}
       onDemoData={handleDemoData}
       onResetSeed={handleResetSeed}
+      onOpenChaos={()=>setChaosOpen(true)}
       pollerConnected={pollerConnected}
     />
 
@@ -296,6 +299,7 @@ export default function App(){
       onClose={()=>setCreatingMode(null)}
       onCreated={newC=>{addChange(newC);setCreatingMode(null);}}
     />}
+    {chaosOpen&&<Suspense fallback={null}><ChaosControlPanel onClose={()=>setChaosOpen(false)}/></Suspense>}
 
   </div></></NodesProvider>;
 }
