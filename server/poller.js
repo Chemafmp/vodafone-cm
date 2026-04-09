@@ -25,6 +25,7 @@ import { processSnapshot, getActiveAlarms, getActiveAlarmCount } from "./lib/ala
 import { eventFromAlarm, eventFromResolution, getRecentEvents } from "./lib/event-logger.js";
 import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
+import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -81,6 +82,9 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
+
+// ─── Tickets router ──────────────────────────────────────────────────────────
+app.use("/api/tickets", ticketsRouter);
 
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {
@@ -199,11 +203,62 @@ async function runPollCycle() {
       const event = eventFromAlarm(alarm);
       allNewEvents.push(event);
       allNewAlarms.push(alarm);
+
+      // Auto-create or link ticket for new alarm
+      const nodeEntry = fleetMap.get(alarm.nodeId);
+      const nodeMeta = nodeEntry ? { country: nodeEntry.def.country } : null;
+      autoCreateTicketFromAlarm(alarm, nodeMeta).catch(e =>
+        log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`))
+      );
     }
     for (const alarm of resolvedAlarms) {
       const event = eventFromResolution(alarm);
       allNewEvents.push(event);
       allResolvedAlarms.push(alarm);
+
+      // For resolved alarms: auto-resolve sev3/sev4 tickets; add timeline event for sev1/sev2
+      try {
+        const sev = alarm.severity;
+        const alarmType = alarm.type;
+        const nodeId = alarm.nodeId;
+
+        // Look up open tickets for this alarm type + node
+        // For sev3/sev4 (Minor, Warning, Info) → auto-resolve
+        // For sev1/sev2 (Critical, Major) → just add timeline event
+        if (["Minor", "Warning", "Info"].includes(sev)) {
+          // Use fetch to avoid circular dep; just call our own HTTP API
+          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress`)
+            .then(r => r.json())
+            .then(tickets => {
+              for (const t of (tickets || [])) {
+                fetch(`http://localhost:${PORT}/api/tickets/${t.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: "resolved", actor_name: "System" }),
+                }).catch(() => {});
+              }
+            }).catch(() => {});
+        } else if (["Critical", "Major"].includes(sev)) {
+          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress`)
+            .then(r => r.json())
+            .then(tickets => {
+              for (const t of (tickets || [])) {
+                fetch(`http://localhost:${PORT}/api/tickets/${t.id}/events`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    event_type: "alarm_resolved",
+                    actor_name: "System",
+                    content: `Underlying alarm cleared: ${alarm.message || alarmType}`,
+                    metadata: { alarm_id: alarm.id, alarm_type: alarmType },
+                  }),
+                }).catch(() => {});
+              }
+            }).catch(() => {});
+        }
+      } catch (e) {
+        // non-fatal
+      }
     }
 
     // Build node status for broadcast

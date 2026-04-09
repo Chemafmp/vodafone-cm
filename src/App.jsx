@@ -9,6 +9,7 @@ import ChangeDetail from "./components/ChangeDetail.jsx";
 import FreezeManager from "./components/FreezeManager.jsx";
 import { ChangeWizardModal } from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
+import LandingPage from "./components/LandingPage.jsx";
 import { NodesProvider, useNodes } from "./context/NodesContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import usePollerSocket from "./hooks/usePollerSocket.js";
@@ -24,6 +25,7 @@ const AlarmsView      = lazy(() => import("./components/AlarmsView.jsx"));
 const EventsView      = lazy(() => import("./components/EventsView.jsx"));
 const ObservabilityView = lazy(() => import("./components/ObservabilityView.jsx"));
 const ChaosControlPanel = lazy(() => import("./components/ChaosControlPanel.jsx"));
+const TicketListView  = lazy(() => import("./components/TicketListView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -65,9 +67,30 @@ export default function App(){
   const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
 
   const [user,setUser]=useState(null);
+  const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
   const [view,setView]=useState("changes");
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
   const [chaosOpen,setChaosOpen]=useState(false);
+
+  const APP_DEFAULTS = { changes: "changes", monitoring: "livestatus", network: "network", tickets: "tickets_all" };
+  const handleSelectApp = (a) => { setApp(a); setView(APP_DEFAULTS[a]); };
+  const handleBack = () => { setApp(null); };
+
+  // ── Hash-based deep linking for tickets ──────────────────────────────────────
+  const [deepLinkTicketId, setDeepLinkTicketId] = useState(null);
+  useEffect(() => {
+    function readHash() {
+      const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
+      if (m) {
+        setDeepLinkTicketId(decodeURIComponent(m[1]));
+        setApp("tickets");
+        setView("tickets_all");
+      }
+    }
+    readHash();
+    window.addEventListener("hashchange", readHash);
+    return () => window.removeEventListener("hashchange", readHash);
+  }, []);
 
 
   const [dashFilters,setDashFilters]=useState({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""});
@@ -104,18 +127,25 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Projects",tickets_my:"My Tickets",tickets_sla:"SLA Watch"};
 
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
+  if (!app) return <NodesProvider><><PollerNodeSync nodeSnapshots={nodeSnapshots}/>
+    <LandingPage user={user} onSelectApp={handleSelectApp} />
+    {/* Modals still available from landing (e.g. if deep-linked) */}
+    {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)} onDelete={()=>deleteChange(selected.id)}/>}
+  </></NodesProvider>;
+
   return <NodesProvider><><PollerNodeSync nodeSnapshots={nodeSnapshots}/><div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
 
     <Sidebar
-      view={view} setView={setView} user={user}
-      onLogout={()=>setUser(null)}
+      app={app} view={view} setView={setView} user={user}
+      onLogout={()=>{setUser(null);setApp(null);}}
+      onBack={handleBack}
       badges={{pending:stats.pending||0, actionable:myActionable.length||0}}
       onNewChange={()=>setCreatingMode("picker")}
       onNewFreeze={()=>setPeaks(p=>[...p,{id:`BNOC-${Math.random().toString().slice(2,10)}`,name:"",start:"",end:"",severity:"orange",reason:""}])}
@@ -161,7 +191,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -289,6 +319,20 @@ export default function App(){
         {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected}/></div>}
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
+
+        {/* TICKETING */}
+        {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <TicketListView
+              currentUser={user}
+              defaultType={view==="tickets_incidents"?"incident":view==="tickets_problems"?"problem":view==="tickets_projects"?"project":undefined}
+              defaultMine={view==="tickets_my"}
+              defaultSlaWatch={view==="tickets_sla"}
+              deepLinkTicketId={deepLinkTicketId}
+              onDeepLinkConsumed={()=>setDeepLinkTicketId(null)}
+            />
+          </div>
+        )}
 
       </div>
       </Suspense>

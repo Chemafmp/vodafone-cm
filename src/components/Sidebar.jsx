@@ -1,25 +1,42 @@
 import { T } from "../data/constants.js";
 
-const NAV_GROUPS=[
-  { label:"OPERATIONS", items:[
+const ALL_NAV_GROUPS=[
+  { label:"OPERATIONS", app:"changes", items:[
     {id:"changes",  icon:"↻", label:"Changes",        badgeKey:"pending"},
     {id:"mywork",   icon:"👤",label:"My Work",         badgeKey:"actionable"},
     {id:"timeline", icon:"⋮", label:"Timeline"},
     {id:"peakcal",  icon:"❄", label:"Freeze Periods"},
   ]},
-  { label:"NETWORK", items:[
+  { label:"NETWORK", app:"network", items:[
     {id:"network",  icon:"🗺", label:"Inventory"},
     {id:"topology", icon:"🔗", label:"Topology"},
   ]},
-  { label:"MONITORING", items:[
+  { label:"MONITORING", app:"monitoring", items:[
     {id:"livestatus",    icon:"◉", label:"Live Status"},
     {id:"alarms",        icon:"🔔", label:"Alarms"},
     {id:"events",        icon:"📋", label:"Events"},
     {id:"observability", icon:"📈", label:"Observability"},
   ]},
+  { label:"TICKETING", app:"tickets", items:[
+    {id:"tickets_all",       icon:"🎫", label:"All Tickets"},
+    {id:"tickets_incidents", icon:"🚨", label:"Incidents"},
+    {id:"tickets_problems",  icon:"🔍", label:"Problems"},
+    {id:"tickets_projects",  icon:"📁", label:"Projects"},
+    {id:"tickets_my",        icon:"👤", label:"My Tickets",  badgeKey:"myTickets"},
+    {id:"tickets_sla",       icon:"⏱", label:"SLA Watch",   badgeKey:"slaWatch"},
+  ]},
 ];
 
-export default function Sidebar({ view, setView, user, onLogout, badges, onNewChange, onNewFreeze, onDemoData, onResetSeed, onOpenChaos, pollerConnected = false }) {
+const APP_TITLES = {
+  changes: "Change Management",
+  monitoring: "Monitoring",
+  network: "Network",
+  tickets: "Ticketing",
+};
+
+export default function Sidebar({ app, view, setView, user, onLogout, onBack, badges, onNewChange, onNewFreeze, onDemoData, onResetSeed, onOpenChaos, pollerConnected = false }) {
+  const navGroups = ALL_NAV_GROUPS.filter(g => g.app === app);
+
   return (
     <div style={{width:232,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.sidebarBorder}`,display:"flex",flexDirection:"column",padding:"0 0 16px"}}>
 
@@ -29,13 +46,22 @@ export default function Sidebar({ view, setView, user, onLogout, badges, onNewCh
           <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#e40000,#9b0000)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:900,flexShrink:0,boxShadow:"0 2px 8px rgba(228,0,0,0.4)",cursor:"default"}}>B</div>
           <div>
             <div style={{fontSize:13,fontWeight:800,color:"#fff",letterSpacing:"-0.3px",lineHeight:1.25}}>Bodaphone</div>
-            <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>Centro de Operaciones · Operations Centre</div>
+            <div style={{fontSize:11,fontWeight:500,color:T.sidebarMuted,letterSpacing:"0.2px",lineHeight:1.25}}>{APP_TITLES[app] || "Operations Centre"}</div>
           </div>
         </div>
       </div>
 
+      {/* ── Back button ── */}
+      <div style={{padding:"10px 10px 0"}}>
+        <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.sidebarBorder}`,background:"rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:T.sidebarMuted,transition:"background 0.15s"}}
+          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}
+          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+          <span style={{fontSize:14,lineHeight:1}}>←</span> Back to Home
+        </button>
+      </div>
+
       {/* ── Contextual Action Button ── */}
-      <div style={{padding:"12px 10px 0"}}>
+      <div style={{padding:"8px 10px 0"}}>
         {(view==="changes"||view==="mywork"||view==="timeline") && (
           <button onClick={onNewChange} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#e40000,#9b0000)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(228,0,0,0.45)",letterSpacing:"0.1px"}}>
             <span style={{fontSize:18,lineHeight:1,fontWeight:300}}>+</span> New Change
@@ -60,7 +86,7 @@ export default function Sidebar({ view, setView, user, onLogout, badges, onNewCh
 
       {/* ── Navigation ── */}
       <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-        {NAV_GROUPS.map((group,gi)=>(
+        {navGroups.map((group,gi)=>(
           <div key={group.label} style={{marginBottom:4}}>
             <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.25)",letterSpacing:"1px",textTransform:"uppercase",padding:"8px 12px 4px",marginTop:gi>0?6:0}}>{group.label}</div>
             {group.items.map(item=>{
