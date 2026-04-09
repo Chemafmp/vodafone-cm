@@ -492,8 +492,10 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       return existingTicket;
     }
 
-    // Create new incident ticket
-    const title = `${alarmType.replace(/_/g, " ")} — ${nodeId}`;
+    // Create new incident ticket — use alarm.message for descriptive title
+    const title = alarm.message
+      ? `${alarm.message} — ${nodeId}`
+      : `${alarmType.replace(/_/g, " ")} — ${nodeId}`;
     const id = await generateTicketId("incident");
 
     const { data: ticket, error } = await db

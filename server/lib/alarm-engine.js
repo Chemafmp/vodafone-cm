@@ -31,7 +31,7 @@ export function processSnapshot(snapshot) {
     // ── Node unreachable ──
     const key = `${nodeId}:REACHABILITY:unreachable`;
     if (!activeAlarms.has(key)) {
-      const alarm = createAlarm(nodeId, "REACHABILITY", "Critical", `Device unreachable — no SNMP response within ${THRESHOLDS.POLL_TIMEOUT_MS}ms`, key);
+      const alarm = createAlarm(nodeId, "REACHABILITY", "Critical", `Device unreachable: no SNMP response from ${nodeId} (timeout ${THRESHOLDS.POLL_TIMEOUT_MS / 1000}s)`, key);
       activeAlarms.set(key, alarm);
       newAlarms.push(alarm);
     }
@@ -125,7 +125,7 @@ export function markNodeGone(nodeId) {
   const key = `${nodeId}:REACHABILITY:unreachable`;
   if (!activeAlarms.has(key)) {
     const alarm = createAlarm(nodeId, "REACHABILITY", "Critical",
-      "Device unreachable — removed from polling", key);
+      `Device unreachable: ${nodeId} removed from polling`, key);
     activeAlarms.set(key, alarm);
     return alarm;
   }
