@@ -505,8 +505,17 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
 
           {saving && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>saving…</span>}
 
-          <button onClick={onClose}
-            style={{ background: "none", border: "none", fontSize: 20, color: T.muted, cursor: "pointer", padding: "2px 6px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          {fullScreen && (
+            <button onClick={onClose}
+              style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+              ← Back to Tickets
+            </button>
+          )}
+
+          {!fullScreen && (
+            <button onClick={onClose}
+              style={{ background: "none", border: "none", fontSize: 20, color: T.muted, cursor: "pointer", padding: "2px 6px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          )}
         </div>
 
         {/* ── BODY ────────────────────────────────────────────────────────── */}
