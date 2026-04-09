@@ -613,6 +613,11 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
               </select>
             </RailField>
 
+            {/* Created at */}
+            <RailField label="Created">
+              <span style={{ fontSize: 11, color: T.sidebarMuted }}>{fmtTs(ticket.created_at)}</span>
+            </RailField>
+
             {/* Created by */}
             <RailField label="Created by">
               {isAutoCreated ? (
@@ -700,11 +705,6 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                 <span style={{ fontSize: 11, fontWeight: 600, color: "#4ade80" }}>{closureLabel}</span>
               </RailField>
             )}
-
-            {/* Created */}
-            <RailField label="Created">
-              <span style={{ fontSize: 11, color: T.sidebarMuted }}>{fmtTs(ticket.created_at)}</span>
-            </RailField>
 
             {ticket.resolved_at && (
               <RailField label="Resolved">
