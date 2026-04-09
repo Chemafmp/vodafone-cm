@@ -154,6 +154,7 @@ router.post("/", async (req, res) => {
       .from("tickets")
       .insert({
         id, type, title, severity, status: "new",
+        source: "manual",
         owner_id: owner_id || null,
         owner_name: owner_name || null,
         team: team || "Core Transport",
@@ -524,6 +525,7 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       .from("tickets")
       .insert({
         id, type: "incident", title, severity, status: "new",
+        source: "alarm",
         team: "Core Transport",
         country: nodeMeta?.country || null,
         impacted_nodes: [nodeId],

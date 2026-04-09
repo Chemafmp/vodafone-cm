@@ -463,7 +463,10 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   // ─── Created by ───────────────────────────────────────────────────────────
   const createdEvent = events.find(e => e.event_type === "created");
   const createdByActor = createdEvent?.actor_name || null;
-  const isAutoCreated = !createdByActor || createdByActor === "System";
+  // source field is authoritative when present; fall back to event actor heuristic
+  const isAutoCreated = ticket.source
+    ? ticket.source === "alarm"
+    : (!createdByActor || createdByActor === "System");
 
   // ─── Alarm lifecycle derived state ────────────────────────────────────────
   const isOpen = !["resolved", "closed"].includes(ticket.status);
@@ -498,6 +501,13 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
 
           <span style={{ fontSize: 10, fontWeight: 800, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
             {ticket.type === "project" ? "REQUEST" : ticket.type.toUpperCase()}
+          </span>
+
+          <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 8px", flexShrink: 0,
+            color: isAutoCreated ? "#b45309" : "#6366f1",
+            background: isAutoCreated ? "#fffbeb" : "#eef2ff",
+            border: `1px solid ${isAutoCreated ? "#fcd34d" : "#c7d2fe"}` }}>
+            {isAutoCreated ? "🤖 Auto" : "👤 Manual"}
           </span>
 
           {sev && (
