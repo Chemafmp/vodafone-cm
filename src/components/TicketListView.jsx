@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T } from "../data/constants.js";
 import {
   TICKET_COLORS, SEV_META, TICKET_STATUS_META, TICKET_TEAMS,
-  fetchTickets, computeSubStatus, SLA_RESOLVE,
+  fetchTickets, updateTicket, computeSubStatus, SLA_RESOLVE,
 } from "../utils/ticketsDb.js";
 import CreateTicketModal from "./CreateTicketModal.jsx";
 
@@ -63,6 +63,12 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
   const [creating, setCreating] = useState(false);
   const [now, setNow] = useState(Date.now());
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkOwner, setBulkOwner] = useState("");
+  const [bulkApplying, setBulkApplying] = useState(false);
+
   // Filters
   const [typeFilter, setTypeFilter] = useState(defaultType || "all");
   const [sevFilter, setSevFilter] = useState("all");
@@ -103,6 +109,28 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
     const t = setInterval(load, 15000); // silent background refresh every 15s
     return () => clearInterval(t);
   }, [load]);
+
+  async function applyBulk() {
+    if (!bulkStatus && !bulkOwner) return;
+    setBulkApplying(true);
+    const updates = {};
+    if (bulkStatus) updates.status = bulkStatus;
+    if (bulkOwner) updates.owner_name = bulkOwner;
+    updates.actor_name = currentUser?.name || "System";
+    try {
+      for (const id of selectedIds) {
+        await updateTicket(id, updates);
+      }
+      setSelectedIds(new Set());
+      setBulkStatus("");
+      setBulkOwner("");
+      await load();
+    } catch (e) {
+      console.error("Bulk update failed:", e.message);
+    } finally {
+      setBulkApplying(false);
+    }
+  }
 
   // Client-side text search + SLA watch filter
   const filtered = useMemo(() => {
@@ -249,6 +277,34 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
         </div>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div style={{ padding: "8px 20px", background: "#eff6ff", borderBottom: `2px solid #3b82f6`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8" }}>{selectedIds.size} ticket{selectedIds.size > 1 ? "s" : ""} selected</span>
+          <div style={{ width: 1, height: 18, background: "#93c5fd" }} />
+          <span style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 600 }}>Move to:</span>
+          <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
+            style={{ padding: "4px 8px", fontSize: 11, fontFamily: "inherit", borderRadius: 5, border: "1px solid #93c5fd", background: "#fff", color: T.text, cursor: "pointer" }}>
+            <option value="">— Status —</option>
+            {Object.entries(TICKET_STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+          </select>
+          <span style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 600 }}>Assign to:</span>
+          <select value={bulkOwner} onChange={e => setBulkOwner(e.target.value)}
+            style={{ padding: "4px 8px", fontSize: 11, fontFamily: "inherit", borderRadius: 5, border: "1px solid #93c5fd", background: "#fff", color: T.text, cursor: "pointer" }}>
+            <option value="">— Owner —</option>
+            {users.map(u => <option key={u.id || u.name} value={u.name}>{u.name} · {u.role}</option>)}
+          </select>
+          <button onClick={applyBulk} disabled={bulkApplying || (!bulkStatus && !bulkOwner)}
+            style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: bulkApplying || (!bulkStatus && !bulkOwner) ? T.muted : "#1d4ed8", border: "none", color: "#fff", opacity: (!bulkStatus && !bulkOwner) ? 0.5 : 1 }}>
+            {bulkApplying ? "Applying…" : "Apply"}
+          </button>
+          <button onClick={() => { setSelectedIds(new Set()); setBulkStatus(""); setBulkOwner(""); }}
+            style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: "1px solid #93c5fd", color: "#1d4ed8", marginLeft: "auto" }}>
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Error state */}
       {error && (
         <div style={{
@@ -278,6 +334,13 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                  <th style={{ padding: "8px 14px", background: T.surface, position: "sticky", top: 0, zIndex: 1, borderBottom: `1px solid ${T.border}`, width: 36 }}>
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(t => selectedIds.has(t.id))}
+                      onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(t => t.id)) : new Set())}
+                      style={{ cursor: "pointer" }}
+                    />
+                  </th>
                   {["ID","Type","Title","Nodes","Owner","Team","Status","Opened","SLA"].map(h => (
                     <th key={h} style={{
                       padding: "8px 14px", fontSize: 10, fontWeight: 700, color: T.muted,
@@ -300,12 +363,23 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
                     <tr key={t.id} onClick={() => openTicket(t)}
                       style={{
                         cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-                        background: rowBg(t),
-                        borderLeft: `3px solid ${rowBorderColor(t)}`,
+                        background: selectedIds.has(t.id) ? "#eff6ff" : rowBg(t),
+                        borderLeft: `3px solid ${selectedIds.has(t.id) ? "#3b82f6" : rowBorderColor(t)}`,
                         transition: "background 0.1s",
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
-                      onMouseLeave={e => e.currentTarget.style.background = rowBg(t)}>
+                      onMouseEnter={e => { if (!selectedIds.has(t.id)) e.currentTarget.style.background = "#f8fafc"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = selectedIds.has(t.id) ? "#eff6ff" : rowBg(t); }}>
+                      <td style={{ padding: "10px 14px", width: 36 }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          checked={selectedIds.has(t.id)}
+                          onChange={e => setSelectedIds(prev => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(t.id) : next.delete(t.id);
+                            return next;
+                          })}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </td>
                       <td style={{ padding: "10px 14px" }}>
                         <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: T.primary }}>{t.id}</span>
                       </td>
