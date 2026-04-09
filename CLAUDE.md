@@ -8,6 +8,7 @@ This file provides guidance to Claude Code when working with this repository.
 npm run dev -- --port 5178   # Dev server (always use port 5178)
 npm run build                 # Production build
 npm run lint                  # ESLint
+npm run deploy                # build + push to gh-pages (see script in package.json)
 ```
 
 **If the app is blank after starting dev:** delete `.vite/` cache and restart.
@@ -15,167 +16,269 @@ npm run lint                  # ESLint
 rm -rf node_modules/.vite .vite && npm run dev -- --port 5178
 ```
 
-**Deploy to GitHub Pages:**
+**Deploy to GitHub Pages (manual fallback):**
 ```bash
 npm run build
 cd /tmp && rm -rf gh-deploy && mkdir gh-deploy && cd gh-deploy
 git init && git remote add origin https://github.com/Chemafmp/vodafone-cm.git
-git fetch origin gh-pages --depth=1 && git checkout gh-pages
 cp -r /Users/josemafernandez/vodafone-cm/dist/. . && touch .nojekyll
 git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-pages --force
 ```
 
 ---
 
-## Current State — v1.2
+## Current State — v1.3
 
-**Live:** https://chemafmp.github.io/vodafone-cm/
+**Frontend live:** https://chemafmp.github.io/vodafone-cm/
+**Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
 
-React 19 + Vite SPA. **Supabase DB backend (Phase 2 complete).** Data persists across devices/users. No auth yet (Phase 3 next).
+React 19 + Vite SPA. Supabase DB backend (Phase 2 complete). Live poller backend on DigitalOcean.
 
 **Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
 Tables: `changes` (JSONB), `freeze_periods` (JSONB)
 Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
+`.env.production` sets `VITE_POLLER_WS=wss://api.chemafmp.dev` (not committed)
+
+---
+
+## Infrastructure (DigitalOcean)
+
+Droplet: `bodaphone-lab`, Ubuntu 24.04, 1 GB RAM, fra1, IP `159.89.17.36`
+SSH: `ssh root@159.89.17.36`
+App dir: `/root/vodafone-cm/`
+
+**docker-compose.yml** (on droplet):
+- `poller` — Node.js backend, port 4000 (internal), `AUTO_FLEET=6`
+- `caddy` — Caddy 2 reverse proxy, ports 80/443, auto Let's Encrypt for `api.chemafmp.dev`
+
+**Caddyfile** (on droplet): `api.chemafmp.dev { reverse_proxy poller:4000 }`
+
+**Update backend after git push:**
+```bash
+# on the droplet
+cd ~/vodafone-cm && git pull && docker compose up -d --build
+```
+
+**Key backend endpoints:**
+```
+GET  /health                          → fleet status
+GET  /api/status                      → registered nodes
+GET  /api/alarms                      → active alarms
+GET  /api/events                      → recent events
+WS   wss://api.chemafmp.dev           → live poll-result stream
+GET  /api/control/nodes               → fleet node list + status
+POST /api/control/kill/:nodeId        → SIGTERM a simulated node
+POST /api/control/revive/:nodeId      → re-fork a killed node
+POST /api/control/scenario/:nodeId    → trigger chaos scenario (body: {scenario})
+     valid scenarios: cascade | maintenance | linkflap | bgpleak | thermal
+```
 
 ---
 
 ## File Structure
 
 ```
+server/
+  poller.js              # Express + WS server. Manages fleet (fleetMap), polls nodes,
+                         # broadcasts poll-result via WebSocket. Chaos Control API here.
+  node-sim.js            # Simulated SNMP node (child_process.fork). Sends metrics to poller.
+  lib/
+    scenarios.js         # Chaos scenarios: cascade, maintenance, linkFlap, bgpLeak, thermalRunaway
+    alarm-engine.js      # Threshold-based alarm detection + dedup
+    events.js            # Event log builder
+
 src/
-  App.jsx                  # Main app — all state, navigation, layout (~1700 lines)
+  App.jsx                # Main app — state, navigation, layout
+  context/
+    ChangesContext.jsx   # Supabase CRUD + all change state
+    NodesContext.jsx     # Network inventory state (localStorage)
+  hooks/
+    usePollerSocket.js   # WebSocket hook → { connected, liveAlarms, liveEvents, nodeSnapshots }
   data/
-    seed.js                # SEED_CHANGES (7 records: 5 templates + 2 op changes)
-                           # DEMO_CHANGES (20 realistic network changes)
-                           # PEAK_PERIODS (6 freeze periods)
-    constants.js           # T (theme), TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS,
-                           # COUNTRIES, RISK_LEVELS, STATUS_META, RISK_C, EXEC_RESULTS
+    seed.js              # SEED_CHANGES, DEMO_CHANGES (affectedDeviceIds links changes to nodes),
+                         # PEAK_PERIODS
+    constants.js         # T (theme), TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS,
+                         # COUNTRIES, RISK_LEVELS, STATUS_META, RISK_C, EXEC_RESULTS
+    inventory/           # Node inventory seed data
   utils/
-    db.js                  # Supabase CRUD: fetchChanges, upsertChange, deleteChange,
-                           # fetchPeaks, upsertPeak, syncPeaks, resetToSeedDB, loadDemoDB
-    storage.js             # localStorage helpers (legacy, kept for resetToSeed/loadDemoData)
-    helpers.js             # fmt, fmtDT, genId, genChangeId, genTemplateId,
-                           # initChangeCounter, initTemplateCounter, now,
-                           # isInPeakPeriod, getActivePeak, applyVars,
-                           # CAT_META, getCategoryRules, exportAuditCSV
+    db.js                # Supabase CRUD
+    helpers.js           # fmt, fmtDT, genId, genChangeId, applyVars, exportAuditCSV, etc.
   components/
-    ui/index.jsx           # Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag,
-                           # Btn, Inp, Sel, Card, Modal
-    ChangeDetail.jsx       # Full change panel (steps, approvals, audit log, comments)
-    CreateChange.jsx       # + New Change flow: CreateModePicker, TemplateQuickFill,
-                           # CreateChangeMCM (4-step wizard)
-    FreezeManager.jsx      # Freeze period CRUD (orange/red severity)
-    TimelineView.jsx       # Gantt calendar view
-    CABPanel.jsx           # Change Advisory Board approvals
-    CommentStream.jsx      # Per-change comment thread
+    ui/index.jsx         # Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag,
+                         # Btn, Inp, Sel, Card, Modal
+    LiveStatusView.jsx   # ★ NEW — per-node incident aggregation (see below)
+    ChaosControlPanel.jsx# ★ NEW — kill/revive/scenario modal (opened from sidebar LIVE pill)
+    AlarmsView.jsx        # Flat alarm table (kept, not modified)
+    EventsView.jsx        # Event log (needs redesign — Session 3)
+    ChangeDetail.jsx      # Full change panel
+    CreateChange.jsx      # New change wizard
+    FreezeManager.jsx     # Freeze period CRUD
+    TimelineView.jsx      # Gantt calendar
+    ObservabilityView.jsx # Metrics charts
+    TopologyView.jsx      # Network topology map
+    NetworkInventory.jsx  # Node inventory CRUD
 ```
+
+---
+
+## WebSocket Data Shape (`usePollerSocket`)
+
+```js
+// poll-result message broadcast every ~10s:
+{
+  type: "poll-result",
+  cycle: number,
+  timestamp: ISO string,
+  nodes: {
+    [nodeId]: {
+      reachable: boolean,
+      cpu: number,      // %
+      mem: number,      // %
+      temp: number,     // °C
+      uptime: number,
+      interfaces: [{ name, speed, operStatus: "UP"|"DOWN" }],
+      bgpPeers: [{ ip, description, state: "Established"|"Idle", prefixesRx }],
+    }
+  },
+  newAlarms: Alarm[],
+  resolvedAlarms: Alarm[],
+  newEvents: Event[],
+  activeAlarmCount: number,
+}
+
+// Alarm shape:
+{ id, key, nodeId, type, severity, status, message, since, resolvedAt }
+// types: PERFORMANCE | INTERFACE | HARDWARE | BGP | REACHABILITY
+// severity: Critical | Major | Minor | Warning | Info
+```
+
+---
+
+## LiveStatusView — How it works
+
+`src/components/LiveStatusView.jsx` — view id `"livestatus"`, sidebar item "◉ Live Status" under MONITORING.
+
+**Props:** `{ liveAlarms, nodeSnapshots, pollerConnected, crs, onSelectChange }`
+
+**Health classification (per node, worst wins):**
+- `DOWN`     → `!reachable` OR any Critical alarm
+- `DEGRADED` → any Major alarm OR cpu≥85 OR mem≥90 OR temp≥70
+- `WARNING`  → any alarm OR cpu≥70 OR mem≥80
+- `HEALTHY`  → otherwise
+
+**Incident label** derived from alarm type combination (CASCADE FAILURE, BGP INSTABILITY, THERMAL EVENT, LINK FLAP STORM, etc.)
+
+**Change cross-reference:** for each incident node, finds `crs` entries where `c.affectedDeviceIds.includes(nodeId)` AND `c.status` is one of `["Scheduled","Preflight","Approved","In Execution"]`. Shows as yellow (In Execution) or blue (Scheduled) banner on the card. Clicking opens the change detail panel.
+
+---
+
+## ChaosControlPanel — How it works
+
+`src/components/ChaosControlPanel.jsx` — opened by clicking the LIVE pill in the sidebar.
+HTTP base URL derived from `VITE_POLLER_WS` (wss→https, ws→http).
+3s polling to keep node state fresh. Kill/Revive/Scenario via REST to `/api/control/*`.
 
 ---
 
 ## ID System
 
-| Type | Format | Example | Counter init |
-|---|---|---|---|
-| Operational changes | `BNOC-0000000001-A` | `BNOC-0000000003-A` | `initChangeCounter(2)` |
-| Template blueprints | `BNOC-TEM-00000001-A` | `BNOC-TEM-00000003-A` | `initTemplateCounter(3)` |
-| Freeze periods etc. | `BNOC-XXXXXXXX` (random) | `BNOC-87351209` | `genId()` |
+| Type | Format | Example |
+|---|---|---|
+| Operational changes | `BNOC-0000000001-A` | `BNOC-0000000003-A` |
+| Template blueprints | `BNOC-TEM-00000001-A` | `BNOC-TEM-00000003-A` |
+| Freeze periods / misc | `BNOC-XXXXXXXX` (random) | `BNOC-87351209` |
 
-Counters are initialised in `App.jsx` on mount from the max ID in the loaded data (Option B — self-healing).
-New changes: `genChangeId()` · New templates: `genTemplateId()` · Non-change: `genId()`
+Node IDs (inventory + poller fleet):
+`fj-suva-cr-01`, `fj-suva-pe-01`, `hw-hnl1-cr-01`, `hw-hnl1-pe-01`, `ib-town-cr-01`, `ib-town-pe-01`
+(plus many more in inventory that are NOT in the live fleet)
+
+Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same IDs.
 
 ---
 
 ## Key Domain Concepts
 
 - **Change record** — `status` (Draft → Preflight → Pending Approval → Approved → In Execution → Completed/Failed/Aborted/etc.), `category` (Normal/Standard/Emergency), `risk` (Low/Medium/High/Critical), `approvalLevel` (L1/L2/L3), `steps[]`, `preflightResults`, `approvals[]`, `auditLog[]`, `comments[]`
-- **Templates** — `isTemplate:true`, `variables:[{key,label,type,required,defaultValue}]`, `{{key}}` placeholders in all text fields. Changes created from templates have `sourceTemplateId`.
-- **Freeze periods** — `PEAK_PERIODS` in React state (`peaks`). `severity:"orange"` = Manager approval, `severity:"red"` = Director approval. Changes get `freezePeriod:true`, `freezeSeverity:"orange"|"red"` when scheduled inside a freeze.
-- **Users** (`USERS` in App.jsx) — roles: Engineer, Manager, Director, NOC/SAC, Bar Raiser. Role controls available actions.
-- **Approval levels** — L1 (Engineer), L2 (Manager/Director), L3 (Director only). Freeze overrides: orange→Manager+, red→Director only.
+- **Templates** — `isTemplate:true`, `variables:[{key,label,type,required,defaultValue}]`, `{{key}}` placeholders. Changes from templates have `sourceTemplateId`.
+- **Freeze periods** — `severity:"orange"` = Manager approval, `severity:"red"` = Director approval.
+- **Users** (`USERS` in App.jsx) — roles: Engineer, Manager, Director, NOC/SAC, Bar Raiser.
+- **Approval levels** — L1 (Engineer), L2 (Manager/Director), L3 (Director only).
 
 ---
 
-## Changes View — Tab Logic
+## Views in Sidebar
 
-| Tab | Filter | Default |
+| Group | view id | Component |
 |---|---|---|
-| ↻ Changes | `!c.isTemplate` | ✅ Yes |
-| ⊡ Templates | `c.isTemplate` | No |
-
-`kind:"Changes"` is the default filter value. "All" tab was removed intentionally.
+| OPERATIONS | `changes` | ChangesView |
+| OPERATIONS | `mywork` | MyWorkView |
+| OPERATIONS | `timeline` | TimelineView |
+| OPERATIONS | `peakcal` | FreezeManager |
+| NETWORK | `network` | NetworkInventory |
+| NETWORK | `topology` | TopologyView |
+| MONITORING | `livestatus` | **LiveStatusView** ← new |
+| MONITORING | `alarms` | AlarmsView |
+| MONITORING | `events` | EventsView ← needs Session 3 redesign |
+| MONITORING | `observability` | ObservabilityView |
 
 ---
 
 ## App.jsx Top-level State
 
 ```js
-const [changes, setChanges]   // All records (templates + changes) — loaded from Supabase on mount
-const [peaks, setPeaks]        // Freeze periods — loaded from Supabase, synced on every change
-const [loading, setLoading]    // true while Supabase fetch is in flight
-const [selected, setSelected]  // Currently open change in detail panel
-const [view, setView]          // "changes" | "timeline" | "peakcal" | "audit" | "mywork"
-const [filters, setFilters]    // Changes view filters (kind, status, risk, team, etc.)
-
-// Derived
-const templates = changes.filter(c => c.isTemplate)
-const crs = changes.filter(c => !c.isTemplate)
-const filtered = useMemo(...)    // Filtered + sorted changes for current view
-const activePeak = useMemo(...)  // Current active freeze period if any
-const tmplStats = useMemo(...)   // Per-template usage metrics {total, ok, fail, running}
+const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
+const [view, setView] = useState("changes");
+const [chaosOpen, setChaosOpen] = useState(false);
+// crs = changes.filter(c => !c.isTemplate)  — passed to LiveStatusView for cross-reference
 ```
-
-`updateChange(id, updater)` — updates `changes[]` + `selected` in React state AND calls `upsertChange()` to persist to Supabase.
-`addChange(newC)` — prepends to state AND calls `upsertChange()`.
-`syncPeaks(peaks)` — called via `useEffect` whenever `peaks` changes; wipes and re-inserts all freeze periods in Supabase.
 
 ---
 
-## NC_DEFAULTS (new change skeleton)
+## Next Work — Session 3: EventsView → Incident Timeline
 
-```js
-{
-  name:"", domain:"", risk:"Medium", category:"Normal", type:"Ad-hoc",
-  execMode:"Manual", intrusion:"Non-Intrusive", approvalLevel:"L1",
-  scheduledFor:"", scheduledEnd:"", isTemplate:false, variables:[],
-  freezePeriod:false, freezeJustification:"", freezeSeverity:null,
-  sourceTemplateId:null,
-  steps:[], preflightSteps:[], approvers:[], affectedServices:"",
-  description:"", rollbackPlan:"", serviceImpact:"", incidentId:"",
-  country:"", team:"", dept:"", director:"", manager:""
-}
-```
+**Problem:** `EventsView` exists but doesn't work well. It currently shows a flat list of
+events from the WebSocket stream mixed with Supabase change history. The design is broken.
+
+**Goal:** Replace the content of `EventsView` (or create `IncidentTimelineView.jsx`) that answers
+"what happened, when, and in what order?" — a chronological feed of:
+1. Network events (from `liveEvents` WebSocket stream) — alarm open/resolve, interface flap, BGP changes
+2. Change management events (from `crs`) — status transitions (Approved, In Execution, Completed)
+3. **Correlation:** if a change was "In Execution" at the time a network alarm fired on one of its
+   `affectedDeviceIds`, flag the event as "change-correlated" (yellow badge)
+
+**Design rules (user confirmed):**
+- Organized by information type, NOT by role
+- No NOC / engineer separation — single view for the whole team
+- Sub-views: information categories, not personas
+
+**Implementation approach (agreed):**
+- Create `src/components/IncidentTimelineView.jsx` as a NEW component (same pattern as LiveStatusView)
+- Wire it in as `view="events"` replacing the existing EventsView render in App.jsx
+- Keep old `EventsView.jsx` file but stop rendering it
+- Timeline items: chronological, newest first, with severity badge + node + message + "X ago"
+- Correlation badge: check `crs` for changes with matching `affectedDeviceIds` and overlapping time window
+- Filter bar: severity (All/Critical/Major/Minor), type (All/PERFORMANCE/INTERFACE/BGP/HARDWARE/CHANGE)
 
 ---
 
 ## Production Migration Roadmap
 
-The app is fully functional as a prototype. Migration plan (one phase at a time):
-
 ### ✅ Phase 0 — Prototype (DONE)
-In-memory, all data resets on page reload. Tagged `v1.1-prototype`.
-
 ### ✅ Phase 1 — localStorage (DONE)
-Data survives page reload. `src/utils/storage.js` — `useLocalStorage`, `resetToSeed`, `loadDemoData`.
-Dev toolbar: `⟳ Demo data` / `↺ Reset seed` buttons in sidebar.
-
 ### ✅ Phase 2 — Supabase DB (DONE)
-Supabase Postgres replaces localStorage. Data shared across devices/users.
-- `src/utils/db.js` — all CRUD functions
-- `scripts/seed-supabase.mjs` — seeds freeze_periods; changes seeded via `⟳ Demo data` button
-- `updateChange` and `addChange` persist to Supabase automatically
-- `syncPeaks` keeps freeze_periods in sync via `useEffect`
-- Dev toolbar buttons now write to Supabase (not localStorage)
+### ✅ Phase 2b — Live Poller Backend on DigitalOcean (DONE)
+  - Docker + Caddy + Let's Encrypt on `api.chemafmp.dev`
+  - Chaos Control API for live demos
+  - WebSocket live feed to frontend
 
-### 🔲 Phase 3 — Authentication (NEXT)
+### 🔲 Phase 3 — Authentication (NEXT AFTER SESSION 3)
 Supabase Auth (email magic link or SSO). `currentUser` from real session.
-`USERS` array in App.jsx replaced by `supabase.auth.getUser()`.
 
 ### 🔲 Phase 4 — RBAC with RLS
-Row-Level Security in Supabase. Each user sees only what their role allows.
-Add generated columns (`data->>'team'`, `data->>'status'`) for policy filtering.
+Row-Level Security in Supabase.
 
-### 🔲 Phase 5 — Real-time
-Supabase Realtime subscriptions. Multiple users see live updates without refresh.
+### 🔲 Phase 5 — Real-time (Supabase)
+Supabase Realtime subscriptions for the change management side.
 
 ---
 
