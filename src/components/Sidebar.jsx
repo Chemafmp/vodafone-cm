@@ -24,6 +24,7 @@ const ALL_NAV_GROUPS=[
     {id:"tickets_projects",  icon:"📁", label:"Projects"},
     {id:"tickets_my",        icon:"👤", label:"My Tickets",  badgeKey:"myTickets"},
     {id:"tickets_sla",       icon:"⏱", label:"SLA Watch",   badgeKey:"slaWatch"},
+    {id:"tickets_reports",   icon:"📊", label:"Reports"},
   ]},
 ];
 
