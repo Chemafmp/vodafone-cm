@@ -333,7 +333,17 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
                         </div>
                       </td>
                       <td style={{ padding: "10px 14px", maxWidth: 280 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.title}</div>
+                          {t.source && (
+                            <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0, borderRadius: 3, padding: "1px 5px",
+                              color: t.source === "alarm" ? "#b45309" : "#6366f1",
+                              background: t.source === "alarm" ? "#fffbeb" : "#eef2ff",
+                              border: `1px solid ${t.source === "alarm" ? "#fcd34d" : "#c7d2fe"}` }}>
+                              {t.source === "alarm" ? "🤖" : "👤"}
+                            </span>
+                          )}
+                        </div>
                         {(t.tags || []).length > 0 && (
                           <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap" }}>
                             {t.tags.slice(0,3).map(tag => (
