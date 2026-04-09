@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { T } from "../data/constants.js";
 import { useNodes } from "../context/NodesContext.jsx";
 import { SITES, COUNTRY_META, LAYER_COLORS } from "../data/inventory/index.js";
+import { fetchTickets } from "../utils/ticketsDb.js";
 
 /**
  * LiveStatusView — "what is burning in the network right now?"
@@ -237,7 +238,7 @@ function FilterBar({ sevFilter, setSevFilter, layerFilter, setLayerFilter, searc
 }
 
 /* ── IncidentCard (compact) ── */
-function IncidentCard({ incident, expanded, onToggle, onOpenChange, now }) {
+function IncidentCard({ incident, expanded, onToggle, onOpenChange, onOpenTicket, ticketMap = {}, now }) {
   const h = HEALTH[incident.health];
   const { node, snap, alarms, activeChanges, label, nodeMeta, startedAt } = incident;
   const layerCol = nodeMeta?.layer ? LAYER_COLORS[nodeMeta.layer] : null;
@@ -294,12 +295,20 @@ function IncidentCard({ incident, expanded, onToggle, onOpenChange, now }) {
             <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${T.border}`, display: "flex", flexDirection: "column", gap: 4 }}>
               {alarms.map(a => {
                 const sevCol = a.severity === "Critical" ? "#dc2626" : a.severity === "Major" ? "#b45309" : "#0891b2";
+                const ticket = ticketMap[`${node}::${a.type}`];
                 return (
                   <div key={a.id || a.key} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 10 }}>
                     <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: sevCol, padding: "1px 5px", borderRadius: 3, letterSpacing: "0.3px", minWidth: 50, textAlign: "center" }}>{a.severity.toUpperCase()}</span>
                     <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, background: T.bg, border: `1px solid ${T.border}`, padding: "1px 5px", borderRadius: 3, minWidth: 66, textAlign: "center" }}>{a.type}</span>
                     <span style={{ flex: 1, color: T.text, fontFamily: "monospace", fontSize: 10 }}>{a.message}</span>
                     <span style={{ color: T.muted, fontSize: 9 }}>{timeAgo(a.since, now)}</span>
+                    {ticket && onOpenTicket && (
+                      <button onClick={() => onOpenTicket(ticket.id)}
+                        title={`Open ticket: ${ticket.id}`}
+                        style={{ fontSize: 9, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 4, padding: "1px 6px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        🎫 {ticket.id.replace("BNOC-", "").replace(/^0+/, "")}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -315,7 +324,7 @@ function IncidentCard({ incident, expanded, onToggle, onOpenChange, now }) {
    Main component
    ══════════════════════════════════════════════════════════════════════════════ */
 
-export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, pollerConnected, crs = [], onSelectChange }) {
+export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, pollerConnected, crs = [], onSelectChange, onOpenTicket }) {
   const { nodes: inventoryNodes } = useNodes();
 
   // Alarm expand per node
@@ -329,6 +338,29 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
   const [showHealthy, setShowHealthy] = useState(false);
   // Time tick
   const [now, setNow] = useState(Date.now());
+
+  // Open tickets — keyed by "nodeId::alarmType" for fast lookup
+  const [ticketMap, setTicketMap] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTickets() {
+      try {
+        const data = await fetchTickets({ status: "new,assigned,in_progress,mitigated" });
+        if (cancelled) return;
+        const map = {};
+        for (const t of (data || [])) {
+          if (!t.alarm_type) continue;
+          for (const nodeId of (t.impacted_nodes || [])) {
+            map[`${nodeId}::${t.alarm_type}`] = t;
+          }
+        }
+        setTicketMap(map);
+      } catch { /* backend may be offline */ }
+    }
+    loadTickets();
+    const interval = setInterval(loadTickets, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -611,6 +643,8 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
                               expanded={!!expanded[inc.node]}
                               onToggle={() => toggleNode(inc.node)}
                               onOpenChange={onSelectChange}
+                              onOpenTicket={onOpenTicket}
+                              ticketMap={ticketMap}
                               now={now}
                             />
                           ))}
