@@ -519,7 +519,17 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
               </select>
             </RailField>
 
-            {/* Working state */}
+            {/* Severity */}
+            <RailField label="Severity">
+              <select value={ticket.severity || ""} disabled={saving}
+                onChange={e => patchTicket({ severity: e.target.value })}
+                style={{ ...railSelectStyle, fontWeight: 700, color: sev?.color || T.sidebarMuted, background: sev ? `${sev.color}18` : "transparent", border: `1px solid ${sev ? sev.color + "55" : "rgba(255,255,255,0.1)"}` }}>
+                {Object.entries(SEV_META).map(([v, m]) => (
+                  <option key={v} value={v}>{m.label}</option>
+                ))}
+              </select>
+            </RailField>
+
             <RailDivider />
             <SlaTimer ticket={ticket} />
             <RailDivider />
