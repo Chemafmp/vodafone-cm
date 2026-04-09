@@ -275,6 +275,8 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [loadingTicket, setLoadingTicket] = useState(!initialTicket && !!ticketId);
   const [activeTab, setActiveTab] = useState("work");
   const [noteText, setNoteText] = useState("");
+  const [worklogText, setWorklogText] = useState("");
+  const [postingWorklog, setPostingWorklog] = useState(false);
   const [postingNote, setPostingNote] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
@@ -361,6 +363,25 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     }
   }
 
+  async function postWorklog() {
+    if (!worklogText.trim()) return;
+    setPostingWorklog(true);
+    try {
+      await addTicketEvent(ticket.id, {
+        event_type: "worklog",
+        actor_name: currentUser?.name,
+        actor_id: currentUser?.id,
+        content: worklogText.trim(),
+      });
+      setWorklogText("");
+      await refresh();
+    } catch (e) {
+      console.error("post worklog failed:", e.message);
+    } finally {
+      setPostingWorklog(false);
+    }
+  }
+
   async function addLink() {
     if (!linkUrl.trim()) return;
     setAddingLink(true);
@@ -433,7 +454,8 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const sev = ticket.severity ? SEV_META[ticket.severity] : null;
   const statusMeta = TICKET_STATUS_META[ticket.status] || { label: ticket.status, color: T.muted };
   const notes = events.filter(e => e.event_type === "note");
-  const logEvents = events.filter(e => e.event_type !== "note");
+  const worklogEvents = events.filter(e => e.event_type === "worklog" || e.event_type === "automation_note");
+  const logEvents = events.filter(e => !["note", "worklog", "automation_note"].includes(e.event_type));
   const systemEvents = logEvents.filter(e => !e.actor_name || e.actor_name === "System");
   const humanEvents = logEvents.filter(e => e.actor_name && e.actor_name !== "System");
   const closureLabel = ticket.closure_code ? CLOSURE_CODES.find(c => c.value === ticket.closure_code)?.label : null;
@@ -698,6 +720,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
               {[
                 { key: "work",        label: `Work (${notes.length})` },
+                { key: "worklog",     label: `Worklog (${worklogEvents.length})` },
                 { key: "log",         label: `Log (${logEvents.length})` },
                 { key: "attachments", label: `Attachments (${evidence.length})` },
               ].map(tab => (
@@ -800,6 +823,65 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                           {postingNote ? "Posting…" : "Post note"}
                         </button>
                       </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── WORKLOG TAB ─────────────────────────────────────────────────── */}
+            {activeTab === "worklog" && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Entries */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {worklogEvents.length === 0 && (
+                    <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
+                  )}
+                  {worklogEvents.map(ev => {
+                    const isAuto = ev.event_type === "automation_note";
+                    return (
+                      <div key={ev.id} style={{
+                        borderRadius: 8,
+                        border: isAuto ? "1px solid #38bdf8" : `1px solid ${T.border}`,
+                        borderLeft: isAuto ? "4px solid #38bdf8" : `4px solid ${T.border}`,
+                        background: isAuto ? "#f0f9ff" : T.surface,
+                        overflow: "hidden",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: `1px solid ${isAuto ? "#bae6fd" : T.border}`, background: isAuto ? "#e0f2fe" : T.bg }}>
+                          <span style={{ fontSize: 12 }}>{isAuto ? "🤖" : "📋"}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: isAuto ? "#0369a1" : T.muted }}>
+                            {isAuto ? (ev.metadata?.source || "Automation") : (ev.actor_name || "System")}
+                          </span>
+                          {isAuto && ev.metadata?.workflow_id && (
+                            <span style={{ fontSize: 10, color: "#0ea5e9", background: "#e0f2fe", border: "1px solid #bae6fd", borderRadius: 4, padding: "1px 5px" }}>{ev.metadata.workflow_id}</span>
+                          )}
+                          {isAuto && ev.metadata?.node && (
+                            <span style={{ fontSize: 10, fontFamily: "monospace", color: "#0369a1", background: "#e0f2fe", border: "1px solid #bae6fd", borderRadius: 4, padding: "1px 5px" }}>{ev.metadata.node}</span>
+                          )}
+                          <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
+                        </div>
+                        <pre style={{ margin: 0, padding: "10px 14px", fontSize: 11, fontFamily: "monospace", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", color: isAuto ? "#0c4a6e" : T.text, background: "transparent" }}>
+                          {ev.content}
+                        </pre>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Input */}
+                <div style={{ flexShrink: 0, padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                  <textarea
+                    value={worklogText}
+                    onChange={e => setWorklogText(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) postWorklog(); }}
+                    placeholder="Paste command output, quick note, diagnostic result… (Cmd+Enter to submit)"
+                    rows={4}
+                    style={{ width: "100%", padding: "8px 10px", fontSize: 11, fontFamily: "monospace", lineHeight: 1.6, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                    <button onClick={postWorklog} disabled={postingWorklog || !worklogText.trim()}
+                      style={{ padding: "7px 20px", fontSize: 12, fontWeight: 700, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "#374151", border: "none", color: "#fff", opacity: postingWorklog || !worklogText.trim() ? 0.5 : 1 }}>
+                      {postingWorklog ? "…" : "Add entry"}
+                    </button>
                   </div>
                 </div>
               </div>
