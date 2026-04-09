@@ -6,6 +6,17 @@ import {
   slaCountdown,
 } from "../utils/ticketsDb.js";
 
+// ─── Working state ─────────────────────────────────────────────────────────────
+const WORKING_STATES = [
+  { value: "unassigned",    label: "Unassigned",      color: "#64748b", bg: "#f1f5f9", border: "#cbd5e1" },
+  { value: "acknowledged",  label: "Acknowledged",    color: "#1d4ed8", bg: "#eff6ff", border: "#93c5fd" },
+  { value: "active_work",   label: "Active Work",     color: "#15803d", bg: "#f0fdf4", border: "#86efac" },
+  { value: "waiting",       label: "Waiting on Others", color: "#b45309", bg: "#fffbeb", border: "#fcd34d" },
+  { value: "at_risk",       label: "At Risk",         color: "#c2410c", bg: "#fff7ed", border: "#fdba74" },
+  { value: "stalled",       label: "Stalled",         color: "#dc2626", bg: "#fef2f2", border: "#fca5a5" },
+];
+const WS_MAP = Object.fromEntries(WORKING_STATES.map(s => [s.value, s]));
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
   { value: "no_fault_found",   label: "No Fault Found" },
@@ -168,7 +179,7 @@ function InlineEdit({ value, onSave, style = {}, placeholder = "Click to edit…
   );
 }
 
-// ─── SLA Timer (compact rail version) ─────────────────────────────────────────
+// ─── SLA Timer — quiet unless at risk/breached ────────────────────────────────
 function SlaTimer({ ticket }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -179,11 +190,28 @@ function SlaTimer({ ticket }) {
   const info = slaCountdown(ticket, now);
   if (!info) return null;
 
+  const urgent = info.pct > 0.75 || info.breached;
+
+  if (!urgent) {
+    // Quiet mode: just a small line
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: "0.6px", textTransform: "uppercase" }}>SLA</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>{info.label}</span>
+      </div>
+    );
+  }
+
+  // Urgent mode: prominent box
   return (
-    <div style={{ background: info.breached ? "rgba(220,38,38,0.15)" : "rgba(21,128,61,0.1)", border: `1px solid ${info.color}44`, borderRadius: 8, padding: "10px 12px" }}>
-      <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.7px", textTransform: "uppercase", marginBottom: 4 }}>SLA</div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: info.color, fontFamily: "monospace", marginBottom: 6 }}>{info.label}</div>
-      <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, overflow: "hidden" }}>
+    <div style={{ background: info.breached ? "rgba(220,38,38,0.2)" : "rgba(194,65,12,0.15)", border: `1px solid ${info.color}55`, borderRadius: 8, padding: "8px 10px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+        <span style={{ fontSize: 9, fontWeight: 800, color: info.color, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+          {info.breached ? "⚠ SLA BREACHED" : "⚠ SLA AT RISK"}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 800, color: info.color, fontFamily: "monospace" }}>{info.label}</span>
+      </div>
+      <div style={{ height: 3, background: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden" }}>
         <div style={{ width: `${Math.min(100, info.pct * 100)}%`, height: "100%", background: info.color, transition: "width 1s linear" }} />
       </div>
     </div>
@@ -250,10 +278,11 @@ function Avatar({ name, size = 32 }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function TicketDetailView({ ticket: initialTicket, currentUser, users = [], onClose, onUpdated }) {
-  const [ticket, setTicket] = useState(initialTicket);
-  const [events, setEvents] = useState(initialTicket.events || []);
-  const [evidence, setEvidence] = useState(initialTicket.evidence || []);
+export default function TicketDetailView({ ticket: initialTicket, ticketId, currentUser, users = [], onClose, onUpdated, fullScreen = false }) {
+  const [ticket, setTicket] = useState(initialTicket || null);
+  const [events, setEvents] = useState(initialTicket?.events || []);
+  const [evidence, setEvidence] = useState(initialTicket?.evidence || []);
+  const [loadingTicket, setLoadingTicket] = useState(!initialTicket && !!ticketId);
   const [activeTab, setActiveTab] = useState("work");
   const [noteText, setNoteText] = useState("");
   const [postingNote, setPostingNote] = useState(false);
@@ -266,6 +295,16 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
   const [descDraft, setDescDraft] = useState(initialTicket.description || "");
   const [closureModal, setClosureModal] = useState(null);
   const notesEndRef = useRef();
+
+  // Full-screen mode: load ticket by ID on mount
+  useEffect(() => {
+    if (!ticketId || initialTicket) return;
+    setLoadingTicket(true);
+    fetchTicket(ticketId)
+      .then(data => { setTicket(data); setEvents(data.events || []); setEvidence(data.evidence || []); })
+      .catch(() => {})
+      .finally(() => setLoadingTicket(false));
+  }, [ticketId, initialTicket]);
 
   useEffect(() => {
     notesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -345,11 +384,23 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
     navigator.clipboard.writeText(url).then(() => { setCopying(true); setTimeout(() => setCopying(false), 2000); }).catch(() => {});
   }
 
+  // Loading state (full-screen mode, fetching ticket by ID)
+  if (loadingTicket || !ticket) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: T.bg, color: T.muted, fontSize: 13, fontFamily: "'Inter','Segoe UI',sans-serif", gap: 10 }}>
+        <span style={{ fontSize: 20 }}>⟳</span> Loading ticket…
+      </div>
+    );
+  }
+
   const tc = TICKET_COLORS[ticket.type] || TICKET_COLORS.incident;
   const sev = ticket.severity ? SEV_META[ticket.severity] : null;
   const statusMeta = TICKET_STATUS_META[ticket.status] || { label: ticket.status, color: T.muted };
+  const wsState = ticket.working_state ? WS_MAP[ticket.working_state] : null;
   const notes = events.filter(e => e.event_type === "note");
   const logEvents = events.filter(e => e.event_type !== "note");
+  const systemEvents = logEvents.filter(e => !e.actor_name || e.actor_name === "System");
+  const humanEvents = logEvents.filter(e => e.actor_name && e.actor_name !== "System");
   const closureLabel = ticket.closure_code ? CLOSURE_CODES.find(c => c.value === ticket.closure_code)?.label : null;
 
   // ─── Left rail style helpers ───────────────────────────────────────────────
@@ -359,12 +410,17 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
     color: T.sidebarText, fontFamily: "inherit", outline: "none", cursor: "pointer",
   };
 
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "stretch" }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+  const containerStyle = fullScreen
+    ? { position: "fixed", inset: 0, background: T.bg, display: "flex", flexDirection: "column", fontFamily: "'Inter','Segoe UI',sans-serif" }
+    : { position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "stretch" };
 
-      <div style={{ marginLeft: "auto", width: "92%", maxWidth: 1200, background: T.bg, display: "flex", flexDirection: "column", height: "100%", boxShadow: "-8px 0 48px rgba(0,0,0,0.25)" }}>
+  return (
+    <div style={containerStyle} onClick={!fullScreen ? (e => e.target === e.currentTarget && onClose()) : undefined}>
+
+      <div style={fullScreen
+        ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }
+        : { marginLeft: "auto", width: "92%", maxWidth: 1200, background: T.bg, display: "flex", flexDirection: "column", height: "100%", boxShadow: "-8px 0 48px rgba(0,0,0,0.25)" }
+      }>
 
         {/* ── TOPBAR ──────────────────────────────────────────────────────── */}
         <div style={{ padding: "12px 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -397,6 +453,21 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
             {Object.entries(TICKET_STATUS_META).map(([v, m]) => (
               <option key={v} value={v}>{m.label}</option>
             ))}
+          </select>
+
+          {/* Working state — lightweight attention indicator */}
+          <select
+            value={ticket.working_state || "unassigned"}
+            disabled={saving}
+            onChange={e => patchTicket({ working_state: e.target.value })}
+            style={{
+              padding: "5px 10px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer",
+              fontFamily: "inherit", outline: "none", flexShrink: 0,
+              border: `1px solid ${(wsState || WS_MAP.unassigned).border}`,
+              background: (wsState || WS_MAP.unassigned).bg,
+              color: (wsState || WS_MAP.unassigned).color,
+            }}>
+            {WORKING_STATES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
 
           <button onClick={copyLink}
@@ -642,30 +713,62 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
             {/* ── LOG TAB ─────────────────────────────────────────────────────── */}
             {activeTab === "log" && (
               <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, fontStyle: "italic" }}>
-                  Automatic log of all status changes, assignments, alarm links, and system events.
-                </div>
                 {logEvents.length === 0 && (
                   <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No events yet.</div>
                 )}
-                {logEvents.map(ev => {
-                  const meta = EVENT_META[ev.event_type] || { icon: "•", color: T.muted };
-                  return (
-                    <div key={ev.id} style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-                      <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, background: `${meta.color}15`, border: `1px solid ${meta.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: meta.color }}>
-                        {meta.icon}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ev.actor_name || "System"}</span>
-                          <span style={{ fontSize: 9, color: T.muted, fontWeight: 600, background: T.surface, border: `1px solid ${T.border}`, padding: "1px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.4px" }}>{ev.event_type.replace(/_/g, " ")}</span>
-                          <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
-                        </div>
-                        {ev.content && <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>{ev.content}</div>}
-                      </div>
+
+                {/* Human-originated events — more prominent */}
+                {humanEvents.length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.7px", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>Operator Actions</span>
+                      <span style={{ flex: 1, height: 1, background: T.border }} />
                     </div>
-                  );
-                })}
+                    {humanEvents.map(ev => {
+                      const meta = EVENT_META[ev.event_type] || { icon: "•", color: T.muted };
+                      return (
+                        <div key={ev.id} style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                          <Avatar name={ev.actor_name} size={28} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ev.actor_name}</span>
+                              <span style={{ fontSize: 9, color: meta.color, fontWeight: 700, background: `${meta.color}12`, border: `1px solid ${meta.color}30`, padding: "1px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.4px" }}>{ev.event_type.replace(/_/g, " ")}</span>
+                              <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
+                            </div>
+                            {ev.content && <div style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }}>{ev.content}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* System events — compact, muted */}
+                {systemEvents.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.7px", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>System Events</span>
+                      <span style={{ flex: 1, height: 1, background: T.border }} />
+                    </div>
+                    {systemEvents.map(ev => {
+                      const meta = EVENT_META[ev.event_type] || { icon: "•", color: T.muted };
+                      return (
+                        <div key={ev.id} style={{ display: "flex", gap: 10, marginBottom: 8, opacity: 0.75 }}>
+                          <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, background: `${meta.color}10`, border: `1px solid ${meta.color}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: meta.color }}>
+                            {meta.icon}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: T.muted }}>{ev.event_type.replace(/_/g, " ")}</span>
+                              <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
+                            </div>
+                            {ev.content && <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5, marginTop: 1 }}>{ev.content}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

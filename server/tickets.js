@@ -289,7 +289,7 @@ router.patch("/:id", async (req, res) => {
     const db = getDb();
     const { id } = req.params;
     const { status, owner_name, owner_id, team, title, severity, description, tags,
-            closure_code, resolution_summary, related_change_id, actor_name } = req.body;
+            closure_code, resolution_summary, related_change_id, working_state, actor_name } = req.body;
 
     // Fetch current ticket to check existing timestamps
     const { data: current, error: fetchErr } = await db.from("tickets").select("*").eq("id", id).single();
@@ -309,6 +309,7 @@ router.patch("/:id", async (req, res) => {
     if (closure_code !== undefined) updates.closure_code = closure_code;
     if (resolution_summary !== undefined) updates.resolution_summary = resolution_summary;
     if (related_change_id !== undefined) updates.related_change_id = related_change_id;
+    if (working_state !== undefined) updates.working_state = working_state;
 
     // Auto-set timestamps based on status transitions
     if (status === "assigned" && !current.assigned_at) updates.assigned_at = now;

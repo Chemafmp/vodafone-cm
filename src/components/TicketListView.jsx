@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T } from "../data/constants.js";
 import {
   TICKET_COLORS, SEV_META, TICKET_STATUS_META, TICKET_TEAMS,
-  fetchTickets, fetchTicket, computeSubStatus, SLA_RESOLVE,
+  fetchTickets, computeSubStatus, SLA_RESOLVE,
 } from "../utils/ticketsDb.js";
 import CreateTicketModal from "./CreateTicketModal.jsx";
-import TicketDetailView from "./TicketDetailView.jsx";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function timeAgo(iso) {
@@ -62,7 +61,6 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState(null);
   const [now, setNow] = useState(Date.now());
 
   // Filters
@@ -98,13 +96,6 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
     }
   }, [typeFilter, sevFilter, statusFilter, teamFilter, ownerFilter]);
 
-  // Deep link: open ticket by ID from URL hash
-  useEffect(() => {
-    if (!deepLinkTicketId) return;
-    fetchTicket(deepLinkTicketId)
-      .then(t => { setSelectedTicket(t); onDeepLinkConsumed?.(); })
-      .catch(() => onDeepLinkConsumed?.());
-  }, [deepLinkTicketId, onDeepLinkConsumed]);
 
   useEffect(() => {
     setLoading(true);
@@ -133,15 +124,8 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
     );
   }, [tickets, search, defaultSlaWatch]);
 
-  async function openTicket(t) {
-    // Fetch full ticket with events + evidence
-    try {
-      const full = await fetchTicket(t.id);
-      setSelectedTicket(full);
-      onSelectTicket?.(full);
-    } catch {
-      setSelectedTicket(t);
-    }
+  function openTicket(t) {
+    window.open(`#ticket=${encodeURIComponent(t.id)}`, "_blank");
   }
 
   // Badge counts
@@ -419,18 +403,6 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
         />
       )}
 
-      {/* Detail view */}
-      {selectedTicket && (
-        <TicketDetailView
-          ticket={selectedTicket}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => setSelectedTicket(null)}
-          onUpdated={updated => {
-            setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
-          }}
-        />
-      )}
     </div>
   );
 }

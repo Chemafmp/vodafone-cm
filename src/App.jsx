@@ -7,6 +7,7 @@ import { useChanges } from "./context/ChangesContext.jsx";
 import { Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card } from "./components/ui/index.jsx";
 import ChangeDetail from "./components/ChangeDetail.jsx";
 import FreezeManager from "./components/FreezeManager.jsx";
+import TicketDetailView from "./components/TicketDetailView.jsx";
 import { ChangeWizardModal } from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import LandingPage from "./components/LandingPage.jsx";
@@ -66,7 +67,11 @@ export default function App(){
 
   const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
 
-  const [user,setUser]=useState(null);
+  const [user,setUser]=useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("bnocUser")) || null; } catch { return null; }
+  });
+  function handleLogin(u) { sessionStorage.setItem("bnocUser", JSON.stringify(u)); setUser(u); }
+  function handleLogout() { sessionStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
   const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
   const [view,setView]=useState("changes");
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
@@ -76,21 +81,22 @@ export default function App(){
   const handleSelectApp = (a) => { setApp(a); setView(APP_DEFAULTS[a]); };
   const handleBack = () => { setApp(null); };
 
-  // ── Hash-based deep linking for tickets ──────────────────────────────────────
-  const [deepLinkTicketId, setDeepLinkTicketId] = useState(null);
+  // ── Hash-based deep linking: #ticket=ID → full-screen ticket page ────────────
+  const [fullScreenTicketId, setFullScreenTicketId] = useState(() => {
+    const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  });
   useEffect(() => {
     function readHash() {
       const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
-      if (m) {
-        setDeepLinkTicketId(decodeURIComponent(m[1]));
-        setApp("tickets");
-        setView("tickets_all");
-      }
+      setFullScreenTicketId(m ? decodeURIComponent(m[1]) : null);
     }
-    readHash();
     window.addEventListener("hashchange", readHash);
     return () => window.removeEventListener("hashchange", readHash);
   }, []);
+
+  // kept for legacy callers that still use deepLinkTicketId
+  const [deepLinkTicketId, setDeepLinkTicketId] = useState(null);
 
 
   const [dashFilters,setDashFilters]=useState({team:"All",manager:"All",director:"All",status:"All",risk:"All",country:"All",dateFrom:"",dateTo:""});
@@ -132,11 +138,28 @@ export default function App(){
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
 
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
+  // ── Full-screen ticket page (opened via window.open with #ticket=ID hash) ────
+  if (fullScreenTicketId) return (
+    <NodesProvider>
+      <TicketDetailView
+        ticketId={fullScreenTicketId}
+        currentUser={user}
+        users={USERS}
+        fullScreen
+        onClose={() => {
+          // Clear hash and close page — if opened with window.open, window.close() works
+          window.history.replaceState(null, "", window.location.pathname);
+          setFullScreenTicketId(null);
+          if (window.opener) window.close();
+        }}
+      />
+    </NodesProvider>
+  );
 
   if (!app) return <NodesProvider><><PollerNodeSync nodeSnapshots={nodeSnapshots}/>
     <LandingPage user={user} onSelectApp={handleSelectApp} />
-    {/* Modals still available from landing (e.g. if deep-linked) */}
     {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)} onDelete={()=>deleteChange(selected.id)}/>}
   </></NodesProvider>;
 
@@ -144,7 +167,7 @@ export default function App(){
 
     <Sidebar
       app={app} view={view} setView={setView} user={user}
-      onLogout={()=>{setUser(null);setApp(null);}}
+      onLogout={handleLogout}
       onBack={handleBack}
       badges={{pending:stats.pending||0, actionable:myActionable.length||0}}
       onNewChange={()=>setCreatingMode("picker")}
@@ -315,8 +338,8 @@ export default function App(){
         {view==="topology"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
         {/* MONITORING */}
-        {view==="livestatus"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange} onOpenTicket={ticketId=>{setApp("tickets");setView("tickets_all");setDeepLinkTicketId(ticketId);}}/></div>}
-        {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected} onOpenTicket={ticketId=>{setApp("tickets");setView("tickets_all");setDeepLinkTicketId(ticketId);}}/></div>}
+        {view==="livestatus"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}
+        {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
 
