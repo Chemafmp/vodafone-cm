@@ -25,7 +25,7 @@ import { processSnapshot, getActiveAlarms, getActiveAlarmCount } from "./lib/ala
 import { eventFromAlarm, eventFromResolution, getRecentEvents } from "./lib/event-logger.js";
 import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
-import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
+import ticketsRouter, { autoCreateTicketFromAlarm, autoResolveTicketFromAlarm } from "./tickets.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -272,7 +272,7 @@ async function runPollCycle() {
 
   // Auto-create tickets sequentially to avoid ID race conditions
   // (concurrent inserts all read the same MAX(seq_number) → collisions)
-  if (autoTicketsEnabled && allNewAlarms.length > 0) {
+  if (autoTicketsEnabled) {
     (async () => {
       for (const alarm of allNewAlarms) {
         const nodeEntry = fleetMap.get(alarm.nodeId);
@@ -281,6 +281,13 @@ async function runPollCycle() {
           await autoCreateTicketFromAlarm(alarm, nodeMeta);
         } catch (e) {
           log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`));
+        }
+      }
+      for (const alarm of allResolvedAlarms) {
+        try {
+          await autoResolveTicketFromAlarm(alarm);
+        } catch (e) {
+          log(chalk.yellow(`[tickets] auto-resolve failed: ${e.message}`));
         }
       }
     })();

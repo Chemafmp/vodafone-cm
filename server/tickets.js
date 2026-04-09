@@ -483,6 +483,35 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       return existingTicket;
     }
 
+    // Reopen window check: recently resolved/closed ticket for same condition
+    const { data: recentlyClosed } = await db
+      .from("tickets")
+      .select("id, severity, status, resolved_at, closed_at")
+      .eq("alarm_type", alarmType)
+      .contains("impacted_nodes", [nodeId])
+      .in("status", ["resolved", "closed"])
+      .order("resolved_at", { ascending: false, nullsFirst: false })
+      .limit(1);
+
+    if (recentlyClosed && recentlyClosed.length > 0) {
+      const closed = recentlyClosed[0];
+      const closedTs = new Date(closed.resolved_at || closed.closed_at).getTime();
+      const hoursSince = (Date.now() - closedTs) / 3600000;
+      // SEV1/SEV2: reopen within 2h. SEV3/SEV4: always new ticket.
+      const reopenWindowH = ["sev1", "sev2"].includes(closed.severity) ? 2 : 0;
+
+      if (reopenWindowH > 0 && hoursSince < reopenWindowH) {
+        await db.from("tickets")
+          .update({ status: "in_progress", resolved_at: null })
+          .eq("id", closed.id);
+        await insertEvent(closed.id, "alarm_linked", "System", null,
+          `Ticket reopened — alarm re-fired within ${reopenWindowH}h reopen window: ${alarm.message || alarmType}`,
+          { alarm_id: alarm.id, alarm_severity: alarm.severity }
+        );
+        return closed;
+      }
+    }
+
     // Create new incident ticket
     const title = alarm.message
       ? `${alarm.message.replace(/\s*\(threshold:[^)]+\)/g, "").replace(/\s*within \d+ms/, "")} — ${nodeId}`
@@ -518,6 +547,50 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
   } catch (e) {
     console.error("[tickets] autoCreateTicketFromAlarm error:", e.message);
     return null;
+  }
+}
+
+// ─── Auto-resolve / signal ticket when alarm clears ──────────────────────────
+export async function autoResolveTicketFromAlarm(alarm) {
+  if (!supabase) return;
+
+  try {
+    const db = getDb();
+    const alarmType = alarm.type || "UNKNOWN";
+    const nodeId = alarm.nodeId;
+
+    // Find the open ticket for this alarm condition
+    const { data: tickets } = await db
+      .from("tickets")
+      .select("id, severity, status")
+      .eq("alarm_type", alarmType)
+      .contains("impacted_nodes", [nodeId])
+      .not("status", "in", "(resolved,closed)")
+      .limit(1);
+
+    if (!tickets || tickets.length === 0) return;
+
+    const ticket = tickets[0];
+    const now = new Date().toISOString();
+
+    if (["sev3", "sev4"].includes(ticket.severity)) {
+      // Low severity — auto-resolve
+      await db.from("tickets")
+        .update({ status: "resolved", resolved_at: now })
+        .eq("id", ticket.id);
+      await insertEvent(ticket.id, "alarm_resolved", "System", null,
+        `Alarm cleared — ticket auto-resolved (${alarmType} on ${nodeId})`,
+        { alarm_id: alarm.id, alarm_severity: alarm.severity, node: nodeId }
+      );
+    } else {
+      // SEV1/SEV2 — log only, operator must close
+      await insertEvent(ticket.id, "alarm_resolved", "System", null,
+        `Alarm cleared — operator verification required before closing`,
+        { alarm_id: alarm.id, alarm_severity: alarm.severity, node: nodeId }
+      );
+    }
+  } catch (e) {
+    console.error("[tickets] autoResolveTicketFromAlarm error:", e.message);
   }
 }
 

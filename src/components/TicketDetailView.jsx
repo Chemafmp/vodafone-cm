@@ -635,6 +635,22 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             {activeTab === "work" && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
+                {/* Alarm-cleared banner — SEV1/SEV2 only, shown when alarm resolved but ticket still open */}
+                {(() => {
+                  const alarmClearedEv = [...events].reverse().find(e => e.event_type === "alarm_resolved");
+                  const needsVerification = alarmClearedEv && !["resolved","closed"].includes(ticket.status) && ["sev1","sev2"].includes(ticket.severity);
+                  if (!needsVerification) return null;
+                  return (
+                    <div style={{ background: "#fffbeb", borderBottom: `2px solid #fbbf24`, padding: "10px 22px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <span style={{ fontSize: 16 }}>⚡</span>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Alarm cleared — operator verification required </span>
+                        <span style={{ fontSize: 11, color: "#b45309" }}>The triggering alarm has resolved but this ticket must be closed manually after verifying service is stable.</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Description block */}
                 <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
