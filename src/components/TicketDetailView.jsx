@@ -613,26 +613,24 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
               </select>
             </RailField>
 
-            {/* Created at */}
+            {/* Created at + by */}
             <RailField label="Created">
-              <span style={{ fontSize: 11, color: T.sidebarMuted }}>{fmtTs(ticket.created_at)}</span>
-            </RailField>
-
-            {/* Created by */}
-            <RailField label="Created by">
-              {isAutoCreated ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 13 }}>🤖</span>
-                  <span style={{ fontSize: 11, color: T.sidebarMuted, lineHeight: 1.3 }}>BNOC Alarm Engine</span>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#6366f1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
-                    {createdByActor[0].toUpperCase()}
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontSize: 11, color: T.sidebarMuted }}>{fmtTs(ticket.created_at)}</span>
+                {isAutoCreated ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: 12 }}>🤖</span>
+                    <span style={{ fontSize: 10, color: T.sidebarMuted }}>BNOC Alarm Engine</span>
                   </div>
-                  <span style={{ fontSize: 11, color: T.sidebarText }}>{createdByActor}</span>
-                </div>
-              )}
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#6366f1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                      {createdByActor[0].toUpperCase()}
+                    </div>
+                    <span style={{ fontSize: 10, color: T.sidebarMuted }}>{createdByActor}</span>
+                  </div>
+                )}
+              </div>
             </RailField>
 
             <RailDivider />
