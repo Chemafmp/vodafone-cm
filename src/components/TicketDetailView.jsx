@@ -6,17 +6,6 @@ import {
   slaCountdown,
 } from "../utils/ticketsDb.js";
 
-// ─── Working state ─────────────────────────────────────────────────────────────
-const WORKING_STATES = [
-  { value: "unassigned",    label: "Unassigned",      color: "#64748b", bg: "#f1f5f9", border: "#cbd5e1" },
-  { value: "acknowledged",  label: "Acknowledged",    color: "#1d4ed8", bg: "#eff6ff", border: "#93c5fd" },
-  { value: "active_work",   label: "Active Work",     color: "#15803d", bg: "#f0fdf4", border: "#86efac" },
-  { value: "waiting",       label: "Waiting on Others", color: "#b45309", bg: "#fffbeb", border: "#fcd34d" },
-  { value: "at_risk",       label: "At Risk",         color: "#c2410c", bg: "#fff7ed", border: "#fdba74" },
-  { value: "stalled",       label: "Stalled",         color: "#dc2626", bg: "#fef2f2", border: "#fca5a5" },
-];
-const WS_MAP = Object.fromEntries(WORKING_STATES.map(s => [s.value, s]));
-
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
   { value: "no_fault_found",   label: "No Fault Found" },
@@ -403,7 +392,6 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const tc = TICKET_COLORS[ticket.type] || TICKET_COLORS.incident;
   const sev = ticket.severity ? SEV_META[ticket.severity] : null;
   const statusMeta = TICKET_STATUS_META[ticket.status] || { label: ticket.status, color: T.muted };
-  const wsState = ticket.working_state ? WS_MAP[ticket.working_state] : null;
   const notes = events.filter(e => e.event_type === "note");
   const logEvents = events.filter(e => e.event_type !== "note");
   const systemEvents = logEvents.filter(e => !e.actor_name || e.actor_name === "System");
@@ -434,7 +422,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
           <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 800, color: T.muted, flexShrink: 0 }}>{ticket.id}</span>
 
           <span style={{ fontSize: 10, fontWeight: 800, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
-            {ticket.type.toUpperCase()}
+            {ticket.type === "project" ? "REQUEST" : ticket.type.toUpperCase()}
           </span>
 
           {sev && (
@@ -453,39 +441,21 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             />
           </div>
 
-          {/* Status */}
-          <select value={ticket.status} disabled={saving}
-            onChange={e => handleStatusChange(e.target.value)}
-            style={{ padding: "5px 10px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", border: `1px solid ${statusMeta.color}55`, background: `${statusMeta.color}15`, color: statusMeta.color, fontFamily: "inherit", outline: "none", flexShrink: 0 }}>
-            {Object.entries(TICKET_STATUS_META).map(([v, m]) => (
-              <option key={v} value={v}>{m.label}</option>
-            ))}
-          </select>
-
-          {/* Working state — lightweight attention indicator */}
-          <select
-            value={ticket.working_state || "unassigned"}
-            disabled={saving}
-            onChange={e => patchTicket({ working_state: e.target.value })}
-            style={{
-              padding: "5px 10px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer",
-              fontFamily: "inherit", outline: "none", flexShrink: 0,
-              border: `1px solid ${(wsState || WS_MAP.unassigned).border}`,
-              background: (wsState || WS_MAP.unassigned).bg,
-              color: (wsState || WS_MAP.unassigned).color,
-            }}>
-            {WORKING_STATES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-
-          <button onClick={copyLink}
-            style={{ padding: "5px 11px", fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: copying ? "#15803d" : T.muted, fontFamily: "inherit", flexShrink: 0 }}>
-            {copying ? "✓ Copied!" : "Copy link"}
-          </button>
-
           {saving && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>saving…</span>}
 
-          <button onClick={onClose}
-            style={{ background: "none", border: "none", fontSize: 20, color: T.muted, cursor: "pointer", padding: "2px 6px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          <button onClick={copyLink}
+            style={{ padding:"5px 11px", fontSize:11, fontWeight:600, borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color: copying ? "#15803d" : T.muted, fontFamily:"inherit", flexShrink:0 }}>
+            {copying ? "✓ Copied!" : "🔗 Copy link"}
+          </button>
+
+          {fullScreen
+            ? <button onClick={onClose}
+                style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color:T.muted, fontFamily:"inherit", flexShrink:0 }}>
+                ← Back to Tickets
+              </button>
+            : <button onClick={onClose}
+                style={{ background:"none", border:"none", fontSize:20, color:T.muted, cursor:"pointer", padding:"2px 6px", lineHeight:1, flexShrink:0 }}>✕</button>
+          }
         </div>
 
         {/* ── BODY ────────────────────────────────────────────────────────── */}
@@ -498,6 +468,19 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             background: T.sidebar,
             display: "flex", flexDirection: "column", gap: 14,
           }}>
+            {/* Status */}
+            <RailField label="Status">
+              <select value={ticket.status} disabled={saving}
+                onChange={e => handleStatusChange(e.target.value)}
+                style={{ ...railSelectStyle, fontWeight: 700, color: statusMeta.color, background: `${statusMeta.color}18`, border: `1px solid ${statusMeta.color}55` }}>
+                {Object.entries(TICKET_STATUS_META).map(([v, m]) => (
+                  <option key={v} value={v}>{m.label}</option>
+                ))}
+              </select>
+            </RailField>
+
+            {/* Working state */}
+            <RailDivider />
             <SlaTimer ticket={ticket} />
             <RailDivider />
 

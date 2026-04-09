@@ -113,11 +113,6 @@ function computeSubStatus(ticket) {
     if (pct >= 0.75) return "sla_at_risk";
   }
 
-  // In progress but no active work note
-  if (ticket.status === "in_progress" && !ticket.work_started_at) {
-    return "no_active_work";
-  }
-
   return null;
 }
 
@@ -310,7 +305,7 @@ router.patch("/:id", async (req, res) => {
     const db = getDb();
     const { id } = req.params;
     const { status, owner_name, owner_id, team, title, severity, description, tags,
-            closure_code, resolution_summary, related_change_id, working_state, actor_name } = req.body;
+            closure_code, resolution_summary, related_change_id, actor_name } = req.body;
 
     // Fetch current ticket to check existing timestamps
     const { data: current, error: fetchErr } = await db.from("tickets").select("*").eq("id", id).single();
@@ -330,14 +325,10 @@ router.patch("/:id", async (req, res) => {
     if (closure_code !== undefined) updates.closure_code = closure_code;
     if (resolution_summary !== undefined) updates.resolution_summary = resolution_summary;
     if (related_change_id !== undefined) updates.related_change_id = related_change_id;
-    if (working_state !== undefined) updates.working_state = working_state;
 
     // Auto-set timestamps based on status transitions
     if (status === "assigned" && !current.assigned_at) updates.assigned_at = now;
-    if (status === "in_progress") {
-      if (!current.acknowledged_at) updates.acknowledged_at = now;
-      if (!current.work_started_at) updates.work_started_at = now;
-    }
+    if (status === "in_progress" && !current.acknowledged_at) updates.acknowledged_at = now;
     if (status === "mitigated" && !current.mitigated_at) updates.mitigated_at = now;
     if (status === "resolved" && !current.resolved_at) updates.resolved_at = now;
     if (status === "closed" && !current.closed_at) updates.closed_at = now;

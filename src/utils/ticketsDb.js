@@ -19,6 +19,7 @@ export const TICKET_STATUS_META = {
   new:         { label: "New",         color: "#6b7280" },
   assigned:    { label: "Assigned",    color: "#8b5cf6" },
   in_progress: { label: "In Progress", color: "#0891b2" },
+  waiting:     { label: "Waiting",     color: "#d97706" },
   mitigated:   { label: "Mitigated",   color: "#f59e0b" },
   resolved:    { label: "Resolved",    color: "#15803d" },
   closed:      { label: "Closed",      color: "#374151" },
@@ -162,7 +163,6 @@ export function computeSubStatus(ticket) {
     if (minutesSinceCreated >= resolveDeadline) return "breached";
     if (minutesSinceCreated / resolveDeadline >= 0.75) return "sla_at_risk";
   }
-  if (ticket.status === "in_progress" && !ticket.work_started_at) return "no_active_work";
   return null;
 }
 

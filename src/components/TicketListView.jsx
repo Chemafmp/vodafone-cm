@@ -84,7 +84,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
       if (typeFilter !== "all") filters.type = typeFilter;
       if (sevFilter !== "all") filters.severity = sevFilter;
       if (teamFilter !== "all") filters.team = teamFilter;
-      if (statusFilter === "active") filters.status = "new,assigned,in_progress,mitigated";
+      if (statusFilter === "active") filters.status = "new,assigned,in_progress,waiting,mitigated";
       else if (statusFilter !== "all") filters.status = statusFilter;
       if (ownerFilter && ownerFilter !== "all") filters.owner_name = ownerFilter;
       const data = await fetchTickets(filters);
