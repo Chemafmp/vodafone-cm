@@ -79,6 +79,7 @@ export default function TicketReportsView() {
   const [range, setRange] = useState(30);
   const [teamFilter, setTeamFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
 
   useEffect(() => {
     fetchTickets({}).then(data => {
@@ -91,7 +92,10 @@ export default function TicketReportsView() {
   const allTeams = useMemo(() => [...new Set(tickets.map(t => t.team).filter(Boolean))].sort(), [tickets]);
   const allOwners = useMemo(() => [...new Set(tickets.map(t => t.owner_name).filter(Boolean))].sort(), [tickets]);
 
-  // Apply time range + team + owner filters
+  // Helper: resolve source for a ticket (same logic as TicketDetailView)
+  const resolveSource = t => t.source || (t.alarm_id ? "alarm" : "manual");
+
+  // Apply time range + team + owner + source filters
   const scoped = useMemo(() => {
     let result = tickets;
     if (range) {
@@ -100,8 +104,9 @@ export default function TicketReportsView() {
     }
     if (teamFilter !== "all") result = result.filter(t => t.team === teamFilter);
     if (ownerFilter !== "all") result = result.filter(t => t.owner_name === ownerFilter);
+    if (sourceFilter !== "all") result = result.filter(t => resolveSource(t) === sourceFilter);
     return result;
-  }, [tickets, range, teamFilter, ownerFilter]);
+  }, [tickets, range, teamFilter, ownerFilter, sourceFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Aggregations ────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -158,8 +163,18 @@ export default function TicketReportsView() {
       return { sev, label: SEV_META[sev].label, color: SEV_META[sev].color, bg: SEV_META[sev].bg, border: SEV_META[sev].border, avg: avg(hours), count: resolved.length };
     });
 
-    return { total, open, resolved, incidents, mttrAvg, slaPct, byStatus, bySev, byType, byTeam, mttrBySev };
-  }, [scoped]);
+    // Auto vs Manual
+    const autoTickets  = scoped.filter(t => resolveSource(t) === "alarm");
+    const manualTickets = scoped.filter(t => resolveSource(t) === "manual");
+    const autoCount  = autoTickets.length;
+    const manualCount = manualTickets.length;
+
+    // MTTR auto vs manual
+    const mttrAuto   = avg(autoTickets.map(mttrHours).filter(v => v != null));
+    const mttrManual = avg(manualTickets.map(mttrHours).filter(v => v != null));
+
+    return { total, open, resolved, incidents, mttrAvg, slaPct, byStatus, bySev, byType, byTeam, mttrBySev, autoCount, manualCount, mttrAuto, mttrManual };
+  }, [scoped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.muted, fontSize: 13 }}>
@@ -189,8 +204,15 @@ export default function TicketReportsView() {
             <option value="all">All People</option>
             {allOwners.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
-          {(teamFilter !== "all" || ownerFilter !== "all") && (
-            <button onClick={() => { setTeamFilter("all"); setOwnerFilter("all"); }}
+          {/* Source filter */}
+          <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
+            style={{ padding: "5px 10px", fontSize: 11, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.border}`, background: sourceFilter !== "all" ? "#eff6ff" : T.bg, color: T.text, cursor: "pointer" }}>
+            <option value="all">All Sources</option>
+            <option value="alarm">🤖 Auto</option>
+            <option value="manual">👤 Manual</option>
+          </select>
+          {(teamFilter !== "all" || ownerFilter !== "all" || sourceFilter !== "all") && (
+            <button onClick={() => { setTeamFilter("all"); setOwnerFilter("all"); setSourceFilter("all"); }}
               style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}>
               Clear
             </button>
@@ -223,6 +245,47 @@ export default function TicketReportsView() {
         <MetricCard label="Incidents"         value={stats.incidents} color="#dc2626"    icon="🚨" />
         <MetricCard label="Avg MTTR"          value={fmtDuration(stats.mttrAvg)} color="#0891b2" icon="⏱" sub="mean time to resolve" />
         <MetricCard label="SLA Compliance"    value={stats.slaPct != null ? `${stats.slaPct}%` : "—"} color={stats.slaPct >= 90 ? "#15803d" : stats.slaPct >= 70 ? "#b45309" : "#dc2626"} icon="📋" sub="tickets resolved within SLA" />
+      </div>
+
+      {/* Auto vs Manual breakdown */}
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "18px 20px", marginBottom: 24 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 14 }}>
+          Auto vs Manual <span style={{ fontSize: 10, fontWeight: 400, color: T.muted }}>— ticket creation source</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* Auto */}
+          <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderLeft: "4px solid #0891b2", borderRadius: 8, padding: "14px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+            <span style={{ fontSize: 26 }}>🤖</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#0891b2", marginBottom: 2 }}>AUTO-CREATED (Alarm Engine)</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                <span style={{ fontSize: 28, fontWeight: 800, color: "#0891b2", fontFamily: "monospace" }}>{stats.autoCount}</span>
+                <span style={{ fontSize: 11, color: "#0891b2", opacity: 0.7 }}>
+                  {stats.total > 0 ? `${Math.round((stats.autoCount / stats.total) * 100)}%` : "—"} of total
+                </span>
+              </div>
+              {stats.mttrAuto != null && (
+                <div style={{ fontSize: 10, color: "#0369a1", marginTop: 4 }}>Avg MTTR: <strong>{fmtDuration(stats.mttrAuto)}</strong></div>
+              )}
+            </div>
+          </div>
+          {/* Manual */}
+          <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderLeft: "4px solid #7c3aed", borderRadius: 8, padding: "14px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+            <span style={{ fontSize: 26 }}>👤</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", marginBottom: 2 }}>MANUAL (Operator-created)</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                <span style={{ fontSize: 28, fontWeight: 800, color: "#7c3aed", fontFamily: "monospace" }}>{stats.manualCount}</span>
+                <span style={{ fontSize: 11, color: "#7c3aed", opacity: 0.7 }}>
+                  {stats.total > 0 ? `${Math.round((stats.manualCount / stats.total) * 100)}%` : "—"} of total
+                </span>
+              </div>
+              {stats.mttrManual != null && (
+                <div style={{ fontSize: 10, color: "#6d28d9", marginTop: 4 }}>Avg MTTR: <strong>{fmtDuration(stats.mttrManual)}</strong></div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Charts row */}
