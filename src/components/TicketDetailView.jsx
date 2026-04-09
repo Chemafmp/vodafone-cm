@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { T } from "../data/constants.js";
 import {
   TICKET_COLORS, SEV_META, TICKET_STATUS_META, TICKET_TEAMS,
-  fetchTicket, updateTicket, addTicketEvent, addTicketEvidence,
+  fetchTicket, updateTicket, addTicketEvent, addTicketEvidence, deleteTicketEvidence,
   slaCountdown,
 } from "../utils/ticketsDb.js";
-import { uploadEvidenceFile } from "../utils/db.js";
+import { uploadEvidenceFile, deleteEvidenceFile } from "../utils/db.js";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
@@ -401,6 +401,17 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDeleteEvidence(ev) {
+    if (!window.confirm(`Delete "${ev.label}"?`)) return;
+    try {
+      if (ev.type === "attachment" && ev.url) await deleteEvidenceFile(ev.url);
+      await deleteTicketEvidence(ticket.id, ev.id);
+      await refresh();
+    } catch (e) {
+      alert(`Delete failed: ${e.message}`);
     }
   }
 
@@ -808,6 +819,12 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                       </div>
                       <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{ev.type}{ev.metadata?.size ? ` · ${(ev.metadata.size / 1024).toFixed(0)} KB` : ""} · {ev.uploaded_by || "System"} · {timeAgo(ev.created_at)}</div>
                     </div>
+                    <button onClick={() => handleDeleteEvidence(ev)} title="Delete"
+                      style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: T.muted, padding: "4px 6px", borderRadius: 5, lineHeight: 1 }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#dc2626"}
+                      onMouseLeave={e => e.currentTarget.style.color = T.muted}>
+                      ✕
+                    </button>
                   </div>
                 ))}
 

@@ -142,6 +142,12 @@ export async function addTicketEvidence(id, evidence) {
   });
 }
 
+export async function deleteTicketEvidence(ticketId, evidenceId) {
+  return apiFetch(`/api/tickets/${encodeURIComponent(ticketId)}/evidence/${encodeURIComponent(evidenceId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchSlaTickets() {
   return apiFetch("/api/tickets/sla");
 }

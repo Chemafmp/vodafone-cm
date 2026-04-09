@@ -155,6 +155,20 @@ export async function uploadEvidenceFile(ticketId, file) {
   return urlData.publicUrl;
 }
 
+/**
+ * Delete a file from Supabase Storage given its public URL.
+ * Extracts the storage path from the URL and removes the object.
+ */
+export async function deleteEvidenceFile(publicUrl) {
+  // URL format: .../storage/v1/object/public/ticket-evidence/<path>
+  const marker = `/object/public/${EVIDENCE_BUCKET}/`;
+  const idx = publicUrl.indexOf(marker);
+  if (idx === -1) return; // not a storage URL, nothing to delete
+  const path = decodeURIComponent(publicUrl.slice(idx + marker.length));
+  const { error } = await supabase.storage.from(EVIDENCE_BUCKET).remove([path]);
+  if (error) throw new Error(`Storage delete failed: ${error.message}`);
+}
+
 // ─── SEED HELPERS ──────────────────────────────────────────────────────────────
 
 /** Wipe all changes and freeze periods, then write seed data only. */

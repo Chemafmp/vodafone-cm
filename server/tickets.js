@@ -408,6 +408,35 @@ router.post("/:id/evidence", async (req, res) => {
   }
 });
 
+// ── DELETE /api/tickets/:id/evidence/:evidenceId ──────────────────────────────
+router.delete("/:id/evidence/:evidenceId", async (req, res) => {
+  try {
+    const db = getDb();
+    const { data: ev, error: fetchErr } = await db
+      .from("ticket_evidence")
+      .select("label, type, uploaded_by")
+      .eq("id", req.params.evidenceId)
+      .eq("ticket_id", req.params.id)
+      .single();
+
+    if (fetchErr || !ev) return res.status(404).json({ error: "Evidence not found" });
+
+    const { error } = await db
+      .from("ticket_evidence")
+      .delete()
+      .eq("id", req.params.evidenceId);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    await insertEvent(req.params.id, "updated", ev.uploaded_by || "System", null, `Evidence removed: ${ev.label} (${ev.type})`);
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.message.includes("not configured")) return res.status(503).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── POST /api/tickets/:id/evidence/upload ─────────────────────────────────────
 // MVP: stores file metadata + external URL. If Supabase Storage is not configured,
 // stores as a link type evidence record.
