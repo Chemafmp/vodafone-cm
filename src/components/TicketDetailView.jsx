@@ -590,26 +590,29 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
                   )}
                 </div>
 
-                {/* Notes thread */}
+                {/* Notes feed */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
                   {notes.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", textAlign: "center", padding: "28px 0" }}>
                       No notes yet — add context, paste command output, share findings.
                     </div>
                   )}
-                  {notes.map(ev => (
-                    <div key={ev.id} style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-                      <Avatar name={ev.actor_name} size={32} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 5 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{ev.actor_name || "System"}</span>
-                          <span style={{ fontSize: 11, color: T.muted }}>{timeAgo(ev.created_at)}</span>
+                  {notes.map((ev, i) => (
+                    <div key={ev.id}>
+                      {i > 0 && <div style={{ borderTop: `1px solid ${T.border}`, margin: "18px 0" }} />}
+                      {/* Author line */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg,#1d4ed8,#0e7490)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 9, color: "#fff", flexShrink: 0 }}>
+                          {initials(ev.actor_name)}
                         </div>
-                        <div
-                          style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: "0 10px 10px 10px", padding: "10px 14px", fontSize: 13, lineHeight: 1.75, color: T.text }}
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(ev.content) }}
-                        />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ev.actor_name || "System"}</span>
+                        <span style={{ fontSize: 11, color: T.muted }}>{fmtTs(ev.created_at)}</span>
                       </div>
+                      {/* Content — no bubble, plain text */}
+                      <div
+                        style={{ fontSize: 13, lineHeight: 1.75, color: T.text, paddingLeft: 28 }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(ev.content) }}
+                      />
                     </div>
                   ))}
                   <div ref={notesEndRef} />
@@ -617,9 +620,7 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
 
                 {/* Note composer — always visible at bottom */}
                 <div style={{ padding: "12px 22px 16px", borderTop: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                    <Avatar name={currentUser?.name} size={28} />
-                    <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1 }}>
                       <textarea
                         value={noteText} onChange={e => setNoteText(e.target.value)} rows={3}
                         placeholder="Add a note, paste command output, share analysis… (Markdown supported)"
@@ -633,7 +634,6 @@ export default function TicketDetailView({ ticket: initialTicket, currentUser, u
                           {postingNote ? "Posting…" : "Post note"}
                         </button>
                       </div>
-                    </div>
                   </div>
                 </div>
               </div>
