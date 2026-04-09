@@ -86,14 +86,9 @@ app.use((req, res, next) => {
 // ─── Tickets router ──────────────────────────────────────────────────────────
 app.use("/api/tickets", ticketsRouter);
 
-// ─── Auto-ticket toggle ───────────────────────────────────────────────────────
-let autoTicketsEnabled = true;
-app.get("/api/control/auto-tickets", (_req, res) => res.json({ enabled: autoTicketsEnabled }));
-app.post("/api/control/auto-tickets", (req, res) => {
-  autoTicketsEnabled = req.body.enabled !== false;
-  log(chalk.cyan(`[tickets] auto-create ${autoTicketsEnabled ? "ENABLED" : "DISABLED"}`));
-  res.json({ enabled: autoTicketsEnabled });
-});
+// ─── Auto-ticket toggle (env-controlled only, no public HTTP endpoint) ────────
+const autoTicketsEnabled = process.env.AUTO_TICKETS !== "false";
+log(chalk.cyan(`[tickets] auto-create ${autoTicketsEnabled ? "ENABLED" : "DISABLED"} (AUTO_TICKETS=${process.env.AUTO_TICKETS ?? "unset"})`));
 
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {
