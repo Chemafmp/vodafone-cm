@@ -161,7 +161,7 @@ router.get("/sla", async (req, res) => {
     const { data: tickets, error } = await db
       .from("tickets")
       .select("*")
-      .not("status", "in", '("resolved","closed")')
+      .not("status", "in", "(resolved,closed)")
       .not("severity", "is", null);
 
     if (error) return res.status(500).json({ error: error.message });
@@ -424,7 +424,7 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       .select("id, status")
       .eq("alarm_type", alarmType)
       .contains("impacted_nodes", [nodeId])
-      .not("status", "in", '("resolved","closed")')
+      .not("status", "in", "(resolved,closed)")
       .limit(1);
 
     if (existing && existing.length > 0) {
