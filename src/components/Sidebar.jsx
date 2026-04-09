@@ -12,6 +12,7 @@ const NAV_GROUPS=[
     {id:"topology", icon:"🔗", label:"Topology"},
   ]},
   { label:"MONITORING", items:[
+    {id:"livestatus",    icon:"◉", label:"Live Status"},
     {id:"alarms",        icon:"🔔", label:"Alarms"},
     {id:"events",        icon:"📋", label:"Events"},
     {id:"observability", icon:"📈", label:"Observability"},

@@ -19,6 +19,7 @@ const ChangesView     = lazy(() => import("./components/ChangesView.jsx"));
 const TimelineView    = lazy(() => import("./components/TimelineView.jsx"));
 const NetworkInventory = lazy(() => import("./components/NetworkInventory.jsx"));
 const TopologyView    = lazy(() => import("./components/TopologyView.jsx"));
+const LiveStatusView  = lazy(() => import("./components/LiveStatusView.jsx"));
 const AlarmsView      = lazy(() => import("./components/AlarmsView.jsx"));
 const EventsView      = lazy(() => import("./components/EventsView.jsx"));
 const ObservabilityView = lazy(() => import("./components/ObservabilityView.jsx"));
@@ -103,7 +104,7 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",alarms:"Alarms",events:"Events",observability:"Observability"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability"};
 
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
@@ -160,7 +161,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -284,6 +285,7 @@ export default function App(){
         {view==="topology"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
         {/* MONITORING */}
+        {view==="livestatus"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange}/></div>}
         {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected}/></div>}
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
