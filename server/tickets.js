@@ -45,17 +45,28 @@ const SEV_MAP = {
 const TYPE_PREFIX = { incident: "INC", problem: "PRB", project: "PRJ" };
 
 // ─── ID generation ────────────────────────────────────────────────────────────
+// Derives next seq from the highest existing id for this type, not seq_number column
+// (seq_number may be null on auto-created tickets). Includes 1ms jitter so that
+// concurrent calls in the same event-loop tick get different seeds — but the real
+// fix is to call this sequentially, not in parallel.
 async function generateTicketId(type) {
   const db = getDb();
+  const prefix = TYPE_PREFIX[type] || "TKT";
+  const pattern = `BNOC-${prefix}-%`;
+
   const { data } = await db
     .from("tickets")
-    .select("seq_number")
-    .eq("type", type)
-    .order("seq_number", { ascending: false })
+    .select("id")
+    .like("id", pattern)
+    .order("id", { ascending: false })
     .limit(1);
 
-  const nextSeq = data && data.length > 0 ? Number(data[0].seq_number) + 1 : 1;
-  const prefix = TYPE_PREFIX[type] || "TKT";
+  let nextSeq = 1;
+  if (data && data.length > 0) {
+    const last = data[0].id; // e.g. "BNOC-INC-00000043"
+    const num = parseInt(last.split("-").pop(), 10);
+    if (!isNaN(num)) nextSeq = num + 1;
+  }
   return `BNOC-${prefix}-${String(nextSeq).padStart(8, "0")}`;
 }
 

@@ -207,15 +207,6 @@ async function runPollCycle() {
       const event = eventFromAlarm(alarm);
       allNewEvents.push(event);
       allNewAlarms.push(alarm);
-
-      // Auto-create or link ticket for new alarm (if enabled)
-      if (autoTicketsEnabled) {
-        const nodeEntry = fleetMap.get(alarm.nodeId);
-        const nodeMeta = nodeEntry ? { country: nodeEntry.def.country } : null;
-        autoCreateTicketFromAlarm(alarm, nodeMeta).catch(e =>
-          log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`))
-        );
-      }
     }
     for (const alarm of resolvedAlarms) {
       const event = eventFromResolution(alarm);
@@ -277,6 +268,22 @@ async function runPollCycle() {
       interfaces: snapshot.interfaces,
       bgpPeers: snapshot.bgpPeers,
     };
+  }
+
+  // Auto-create tickets sequentially to avoid ID race conditions
+  // (concurrent inserts all read the same MAX(seq_number) → collisions)
+  if (autoTicketsEnabled && allNewAlarms.length > 0) {
+    (async () => {
+      for (const alarm of allNewAlarms) {
+        const nodeEntry = fleetMap.get(alarm.nodeId);
+        const nodeMeta = nodeEntry ? { country: nodeEntry.def.country } : null;
+        try {
+          await autoCreateTicketFromAlarm(alarm, nodeMeta);
+        } catch (e) {
+          log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`));
+        }
+      }
+    })();
   }
 
   const elapsed = Date.now() - cycleStart;
