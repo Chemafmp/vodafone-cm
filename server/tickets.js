@@ -326,6 +326,10 @@ router.patch("/:id", requireApiKey, async (req, res) => {
       if (!current.acknowledged_at) updates.acknowledged_at = now;
       if (!current.work_started_at) updates.work_started_at = now;
     }
+    // working_state "acknowledged" or higher also clears the ack deadline
+    if (working_state && ["acknowledged","active_work","waiting","at_risk","stalled"].includes(working_state)) {
+      if (!current.acknowledged_at) updates.acknowledged_at = now;
+    }
     if (status === "mitigated" && !current.mitigated_at) updates.mitigated_at = now;
     if (status === "resolved" && !current.resolved_at) updates.resolved_at = now;
     if (status === "closed" && !current.closed_at) updates.closed_at = now;
