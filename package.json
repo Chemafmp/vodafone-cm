@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && cd /tmp && rm -rf gh-deploy && mkdir gh-deploy && cd gh-deploy && git init && git remote add origin https://github.com/Chemafmp/vodafone-cm.git && cp -r /Users/josemafernandez/vodafone-cm/dist/. . && touch .nojekyll && git add -A && git commit -m 'Deploy to GitHub Pages' && git push origin HEAD:gh-pages --force"
+    "deploy": "npm run build && cd /tmp && rm -rf gh-deploy && mkdir gh-deploy && cd gh-deploy && git init && git remote add origin https://github.com/Chemafmp/vodafone-cm.git && cp -r $INIT_CWD/dist/. . && touch .nojekyll && git add -A && git commit -m 'Deploy to GitHub Pages' && git push origin HEAD:gh-pages --force"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
