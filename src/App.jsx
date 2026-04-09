@@ -324,6 +324,7 @@ export default function App(){
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <TicketListView
+              key={view}
               currentUser={user}
               users={USERS}
               defaultType={view==="tickets_incidents"?"incident":view==="tickets_problems"?"problem":view==="tickets_projects"?"project":undefined}
