@@ -464,6 +464,25 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             </select>
           )}
 
+          {/* Re-fire counter badge */}
+          {(() => {
+            const refires = events.filter(e =>
+              e.event_type === "alarm_linked" && e.content?.includes("re-fired")
+            ).length;
+            if (refires === 0) return null;
+            return (
+              <span title={`This alarm has re-fired ${refires} time${refires !== 1 ? "s" : ""} since the ticket was opened`}
+                style={{
+                  fontSize: 10, fontWeight: 800, color: "#92400e",
+                  background: "#fffbeb", border: "1px solid #fcd34d",
+                  borderRadius: 5, padding: "2px 8px", flexShrink: 0,
+                  cursor: "default", letterSpacing: "0.2px",
+                }}>
+                ↺ {refires} re-{refires === 1 ? "fire" : "fires"}
+              </span>
+            );
+          })()}
+
           {/* Title — editable, fills remaining space */}
           <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: T.text }}>
             <InlineEdit
