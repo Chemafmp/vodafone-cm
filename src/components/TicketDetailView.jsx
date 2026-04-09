@@ -438,6 +438,11 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const humanEvents = logEvents.filter(e => e.actor_name && e.actor_name !== "System");
   const closureLabel = ticket.closure_code ? CLOSURE_CODES.find(c => c.value === ticket.closure_code)?.label : null;
 
+  // ─── Created by ───────────────────────────────────────────────────────────
+  const createdEvent = events.find(e => e.event_type === "created");
+  const createdByActor = createdEvent?.actor_name || null;
+  const isAutoCreated = !createdByActor || createdByActor === "System";
+
   // ─── Alarm lifecycle derived state ────────────────────────────────────────
   const isOpen = !["resolved", "closed"].includes(ticket.status);
   const alarmClearedEvents = events.filter(e => e.event_type === "alarm_resolved");
@@ -584,6 +589,23 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                 style={railSelectStyle}>
                 {TICKET_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+            </RailField>
+
+            {/* Created by */}
+            <RailField label="Created by">
+              {isAutoCreated ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13 }}>🤖</span>
+                  <span style={{ fontSize: 11, color: T.sidebarMuted, lineHeight: 1.3 }}>BNOC Alarm Engine</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#6366f1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                    {createdByActor[0].toUpperCase()}
+                  </div>
+                  <span style={{ fontSize: 11, color: T.sidebarText }}>{createdByActor}</span>
+                </div>
+              )}
             </RailField>
 
             <RailDivider />
