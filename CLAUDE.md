@@ -16,6 +16,13 @@ npm run deploy                # build + push to gh-pages (works from worktree to
 rm -rf node_modules/.vite .vite && npm run dev -- --port 5178
 ```
 
+**Worktree env setup (required before building for production):**
+```bash
+cp /Users/josemafernandez/vodafone-cm/.env .env
+cp /Users/josemafernandez/vodafone-cm/.env.production .env.production
+```
+> ⚠️ Without `.env.production`, the build uses `ws://localhost:4000` instead of `wss://api.chemafmp.dev`.
+
 **Deploy to GitHub Pages (manual fallback — use this if `npm run deploy` fails):**
 ```bash
 # Run from the worktree root (e.g. /Users/josemafernandez/vodafone-cm/.claude/worktrees/zen-fermi)
