@@ -326,6 +326,12 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     } catch { /* ignore */ }
   }, [ticket?.id]);
 
+  // Auto-refresh every 10s while ticket is open
+  useEffect(() => {
+    const t = setInterval(refresh, 10000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
   async function patchTicket(updates) {
     setSaving(true);
     try {
