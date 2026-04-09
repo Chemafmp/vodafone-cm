@@ -444,10 +444,24 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             {ticket.type.toUpperCase()}
           </span>
 
-          {sev && (
-            <span style={{ fontSize: 10, fontWeight: 800, color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
-              {sev.label}
-            </span>
+          {ticket.type === "incident" && (
+            <select
+              value={ticket.severity || ""}
+              disabled={saving}
+              onChange={e => patchTicket({ severity: e.target.value || null })}
+              style={{
+                fontSize: 10, fontWeight: 800, fontFamily: "inherit",
+                color: sev?.color || T.muted,
+                background: sev?.bg || T.bg,
+                border: `1px solid ${sev?.border || T.border}`,
+                borderRadius: 5, padding: "2px 6px",
+                cursor: "pointer", outline: "none", flexShrink: 0,
+              }}>
+              <option value="">— No SEV —</option>
+              {Object.entries(SEV_META).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
           )}
 
           {/* Title — editable, fills remaining space */}
