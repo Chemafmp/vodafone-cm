@@ -29,9 +29,52 @@ export const TICKET_TEAMS = [
   "OSS/BSS","Security Ops","Network Engineering","NOC","SAC","Platform Engineering"
 ];
 
-// SLA ack deadlines (minutes) — used client-side for sub-status
-export const SLA_ACK = { sev1: 5, sev2: 15, sev3: 60, sev4: 240 };
-export const SLA_RESOLVE = { sev1: 240, sev2: 480, sev3: 4320, sev4: 10080 };
+// ─── SLA matrix (minutes) — per type + severity ───────────────────────────────
+//
+//  Incident  SEV1:  ACK 5m    / Resolve 4h (240m)
+//            SEV2:  ACK 15m   / Resolve 8h (480m)
+//            SEV3:  ACK 60m   / Resolve 72h (4320m)
+//            SEV4:  ACK 4h    / Resolve 7d (10080m)
+//
+//  Problem   SEV1:  ACK 15m   / Resolve 24h (1440m)
+//            SEV2:  ACK 60m   / Resolve 72h (4320m)
+//            SEV3:  ACK 4h    / Resolve 14d (20160m)
+//            SEV4:  ACK 24h   / Resolve 30d (43200m)
+//
+//  Request   (no severity)    ACK 4h / Resolve 5 business days (7200m)
+
+const SLA_MATRIX = {
+  incident: {
+    ack:     { sev1: 5,    sev2: 15,   sev3: 60,    sev4: 240   },
+    resolve: { sev1: 240,  sev2: 480,  sev3: 4320,  sev4: 10080 },
+  },
+  problem: {
+    ack:     { sev1: 15,   sev2: 60,   sev3: 240,   sev4: 1440  },
+    resolve: { sev1: 1440, sev2: 4320, sev3: 20160, sev4: 43200 },
+  },
+  project: {
+    ack:     { sev1: 240,  sev2: 240,  sev3: 240,   sev4: 240   }, // 4h for all
+    resolve: { sev1: 7200, sev2: 7200, sev3: 7200,  sev4: 7200  }, // 5 days for all
+  },
+};
+
+/** Get ACK deadline (minutes) for a ticket, or null if unknown type/sev. */
+export function getSlaAck(ticket) {
+  const type = ticket.type === "project" ? "project" : (ticket.type || "incident");
+  const sev  = ticket.severity || "sev4";
+  return SLA_MATRIX[type]?.ack[sev] ?? SLA_MATRIX.incident.ack[sev] ?? null;
+}
+
+/** Get resolve deadline (minutes) for a ticket, or null if unknown type/sev. */
+export function getSlaResolve(ticket) {
+  const type = ticket.type === "project" ? "project" : (ticket.type || "incident");
+  const sev  = ticket.severity || "sev4";
+  return SLA_MATRIX[type]?.resolve[sev] ?? SLA_MATRIX.incident.resolve[sev] ?? null;
+}
+
+// Legacy flat exports kept for any remaining callers (map to incident SLAs)
+export const SLA_ACK     = SLA_MATRIX.incident.ack;
+export const SLA_RESOLVE = SLA_MATRIX.incident.resolve;
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 function apiBase() {
@@ -55,6 +98,10 @@ async function apiFetch(path, options = {}) {
 }
 
 // ─── API functions ────────────────────────────────────────────────────────────
+
+export async function seedDemoTickets() {
+  return apiFetch("/api/tickets/demo", { method: "POST" });
+}
 
 export async function fetchTickets(filters = {}) {
   const params = new URLSearchParams();
@@ -100,12 +147,13 @@ export async function fetchSlaTickets() {
 
 // ─── Client-side sub-status computation (mirrors server) ─────────────────────
 export function computeSubStatus(ticket) {
-  if (!ticket.severity || !SLA_ACK[ticket.severity]) return null;
+  const ackDeadline     = getSlaAck(ticket);
+  const resolveDeadline = getSlaResolve(ticket);
+  if (!ackDeadline || !resolveDeadline) return null;
+
   const now = Date.now();
   const createdMs = new Date(ticket.created_at).getTime();
   const minutesSinceCreated = (now - createdMs) / 60000;
-  const ackDeadline = SLA_ACK[ticket.severity];
-  const resolveDeadline = SLA_RESOLVE[ticket.severity];
 
   if (ticket.status === "assigned" && !ticket.acknowledged_at && minutesSinceCreated > ackDeadline) {
     return "assigned_unacknowledged";
@@ -120,11 +168,12 @@ export function computeSubStatus(ticket) {
 
 // ─── SLA countdown helper ────────────────────────────────────────────────────
 export function slaCountdown(ticket, nowMs) {
-  if (!ticket.severity || !SLA_RESOLVE[ticket.severity]) return null;
+  const resolveDeadline = getSlaResolve(ticket);
+  if (!resolveDeadline) return null;
   const createdMs = new Date(ticket.created_at).getTime();
-  const resolveMs = createdMs + SLA_RESOLVE[ticket.severity] * 60000;
+  const resolveMs = createdMs + resolveDeadline * 60000;
   const remainingMs = resolveMs - nowMs;
-  const pct = Math.min(1, (nowMs - createdMs) / (SLA_RESOLVE[ticket.severity] * 60000));
+  const pct = Math.min(1, (nowMs - createdMs) / (resolveDeadline * 60000));
 
   const absMin = Math.abs(Math.floor(remainingMs / 60000));
   const h = Math.floor(absMin / 60);

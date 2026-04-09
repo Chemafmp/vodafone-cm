@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, lazy, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS } from "./data/constants.js";
 import { fmt } from "./utils/helpers.js";
@@ -14,6 +14,7 @@ import LandingPage from "./components/LandingPage.jsx";
 import { NodesProvider, useNodes } from "./context/NodesContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import usePollerSocket from "./hooks/usePollerSocket.js";
+import { fetchTickets, computeSubStatus, seedDemoTickets } from "./utils/ticketsDb.js";
 
 // ─── Lazy-loaded views ───────────────────────────────────────────────────────
 const MyWorkView      = lazy(() => import("./components/MyWorkView.jsx"));
@@ -26,7 +27,8 @@ const AlarmsView      = lazy(() => import("./components/AlarmsView.jsx"));
 const EventsView      = lazy(() => import("./components/EventsView.jsx"));
 const ObservabilityView = lazy(() => import("./components/ObservabilityView.jsx"));
 const ChaosControlPanel = lazy(() => import("./components/ChaosControlPanel.jsx"));
-const TicketListView  = lazy(() => import("./components/TicketListView.jsx"));
+const TicketListView    = lazy(() => import("./components/TicketListView.jsx"));
+const TicketReportsView = lazy(() => import("./components/TicketReportsView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -76,6 +78,32 @@ export default function App(){
   const [view,setView]=useState("changes");
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
   const [chaosOpen,setChaosOpen]=useState(false);
+
+  // ── Ticket sidebar counts ────────────────────────────────────────────────────
+  const [ticketCounts,setTicketCounts]=useState({});
+  const refreshTicketCounts = useCallback(async () => {
+    try {
+      const open = await fetchTickets({ status:"new,assigned,in_progress,mitigated", limit:500 });
+      const critical = open.filter(t=>t.severity==="sev1").length;
+      const slaAt = open.filter(t=>["sla_at_risk","breached"].includes(computeSubStatus(t))).length;
+      setTicketCounts({
+        ticketsAll:       open.length,
+        ticketsIncidents: open.filter(t=>t.type==="incident").length,
+        ticketsProblems:  open.filter(t=>t.type==="problem").length,
+        ticketsProjects:  open.filter(t=>t.type==="project").length,
+        myTickets:        open.filter(t=>t.owner_name===user?.name).length,
+        slaWatch:         slaAt,
+        ticketsCritical:  critical,
+      });
+    } catch(_) {}
+  }, [user?.name]);
+
+  useEffect(() => {
+    if (app !== "tickets") return;
+    refreshTicketCounts();
+    const t = setInterval(refreshTicketCounts, 60000);
+    return () => clearInterval(t);
+  }, [app, refreshTicketCounts]);
 
   const APP_DEFAULTS = { changes: "changes", monitoring: "livestatus", network: "network", tickets: "tickets_all" };
   const handleSelectApp = (a) => { setApp(a); setView(APP_DEFAULTS[a]); };
@@ -133,7 +161,7 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Projects",tickets_my:"My Tickets",tickets_sla:"SLA Watch"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
@@ -169,10 +197,15 @@ export default function App(){
       app={app} view={view} setView={setView} user={user}
       onLogout={handleLogout}
       onBack={handleBack}
-      badges={{pending:stats.pending||0, actionable:myActionable.length||0}}
+      badges={{pending:stats.pending||0, actionable:myActionable.length||0, ...ticketCounts}}
       onNewChange={()=>setCreatingMode("picker")}
       onNewFreeze={()=>setPeaks(p=>[...p,{id:`BNOC-${Math.random().toString().slice(2,10)}`,name:"",start:"",end:"",severity:"orange",reason:""}])}
-      onDemoData={handleDemoData}
+      onDemoData={() => {
+        handleDemoData();
+        seedDemoTickets()
+          .then(r => { console.log("[demo] tickets seeded:", r); refreshTicketCounts(); })
+          .catch(console.error);
+      }}
       onResetSeed={handleResetSeed}
       onOpenChaos={()=>setChaosOpen(true)}
       pollerConnected={pollerConnected}
@@ -343,7 +376,7 @@ export default function App(){
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
 
-        {/* TICKETING */}
+        {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <TicketListView
@@ -358,6 +391,9 @@ export default function App(){
             />
           </div>
         )}
+
+        {/* TICKETING — reports */}
+        {view==="tickets_reports"&&<TicketReportsView currentUser={user}/>}
 
       </div>
       </Suspense>

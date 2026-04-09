@@ -17,13 +17,14 @@ const ALL_NAV_GROUPS=[
     {id:"events",        icon:"📋", label:"Events"},
     {id:"observability", icon:"📈", label:"Observability"},
   ]},
-  { label:"TICKETING", app:"tickets", items:[
-    {id:"tickets_all",       icon:"🎫", label:"All Tickets"},
-    {id:"tickets_incidents", icon:"🚨", label:"Incidents"},
-    {id:"tickets_problems",  icon:"🔍", label:"Problems"},
-    {id:"tickets_projects",  icon:"📁", label:"Projects"},
-    {id:"tickets_my",        icon:"👤", label:"My Tickets",  badgeKey:"myTickets"},
-    {id:"tickets_sla",       icon:"⏱", label:"SLA Watch",   badgeKey:"slaWatch"},
+  { label:"TICKETING", app:"tickets", summaryKeys:{ open:"ticketsAll", critical:"ticketsCritical" }, items:[
+    {id:"tickets_all",       icon:"🎫", label:"All Tickets", badgeKey:"ticketsAll",       badgeColor:"#475569"},
+    {id:"tickets_incidents", icon:"🚨", label:"Incidents",   badgeKey:"ticketsIncidents", badgeColor:"#dc2626"},
+    {id:"tickets_problems",  icon:"🔍", label:"Problems",    badgeKey:"ticketsProblems",  badgeColor:"#b45309"},
+    {id:"tickets_projects",  icon:"📋", label:"Requests",   badgeKey:"ticketsProjects",  badgeColor:"#1d4ed8"},
+    {id:"tickets_my",        icon:"👤", label:"My Tickets",  badgeKey:"myTickets",        badgeColor:"#7c3aed"},
+    {id:"tickets_sla",       icon:"⏱", label:"SLA Watch",   badgeKey:"slaWatch",         badgeColor:"#b45309"},
+    {id:"tickets_reports",   icon:"📊", label:"Reports"},
   ]},
 ];
 
@@ -86,11 +87,28 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
 
       {/* ── Navigation ── */}
       <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-        {navGroups.map((group,gi)=>(
+        {navGroups.map((group,gi)=>{
+          const openCount    = group.summaryKeys ? (badges[group.summaryKeys.open]    ?? null) : null;
+          const criticalCount= group.summaryKeys ? (badges[group.summaryKeys.critical] ?? null) : null;
+          return (
           <div key={group.label} style={{marginBottom:4}}>
-            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.25)",letterSpacing:"1px",textTransform:"uppercase",padding:"8px 12px 4px",marginTop:gi>0?6:0}}>{group.label}</div>
+            {/* Group header + optional summary */}
+            <div style={{padding:"8px 12px 4px",marginTop:gi>0?6:0}}>
+              <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.25)",letterSpacing:"1px",textTransform:"uppercase"}}>{group.label}</div>
+              {openCount!=null&&(
+                <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+                  <span style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,0.45)"}}>{openCount} open</span>
+                  {criticalCount>0&&<>
+                    <span style={{width:3,height:3,borderRadius:"50%",background:"rgba(255,255,255,0.2)",flexShrink:0}}/>
+                    <span style={{fontSize:10,fontWeight:700,color:"#f87171"}}>{criticalCount} critical</span>
+                  </>}
+                </div>
+              )}
+            </div>
+
             {group.items.map(item=>{
-              const badge = item.badgeKey ? badges[item.badgeKey] : null;
+              const badge      = item.badgeKey ? badges[item.badgeKey] : null;
+              const badgeColor = item.badgeColor || "#e40000";
               return (
                 <button key={item.id} disabled={item.disabled} onClick={()=>!item.disabled&&setView(item.id)}
                   style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",
@@ -101,13 +119,14 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
                     opacity:item.disabled?0.5:1}}>
                   <span style={{fontSize:14,opacity:item.disabled?0.4:view===item.id?1:0.7}}>{item.icon}</span>
                   {item.label}
-                  {badge>0&&<span style={{marginLeft:"auto",background:"#e40000",color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px"}}>{badge}</span>}
+                  {badge>0&&<span style={{marginLeft:"auto",background:badgeColor,color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px",minWidth:20,textAlign:"center"}}>{badge>99?"99+":badge}</span>}
                   {item.disabled&&<span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,0.2)",fontWeight:600,letterSpacing:"0.5px"}}>SOON</span>}
                 </button>
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* ── Dev tools ── */}

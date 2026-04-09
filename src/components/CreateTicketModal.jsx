@@ -5,7 +5,7 @@ import { TICKET_TEAMS, TICKET_COLORS, createTicket } from "../utils/ticketsDb.js
 const TICKET_TYPES = [
   { value: "incident", icon: "🚨", label: "Incident", desc: "Service disruption or degradation requiring immediate action" },
   { value: "problem",  icon: "🔍", label: "Problem",  desc: "Root cause investigation for recurring or complex incidents" },
-  { value: "project",  icon: "📁", label: "Project",  desc: "Planned work item, improvement, or network project" },
+  { value: "project",  icon: "📋", label: "Request",  desc: "Team demand, planned work item, improvement, or network project" },
 ];
 
 const SEVERITIES = ["sev1","sev2","sev3","sev4"];
@@ -67,7 +67,7 @@ export default function CreateTicketModal({ currentUser, onClose, onCreated, pre
         <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Ticket</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Create an incident, problem, or project ticket</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Create an incident, problem, or request ticket</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: T.muted, cursor: "pointer", padding: "4px 8px", lineHeight: 1 }}>✕</button>
         </div>

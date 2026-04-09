@@ -27,12 +27,36 @@ export const TICKET_TEAMS = [
   "OSS/BSS","Security Ops","Network Engineering","NOC","SAC","Platform Engineering"
 ];
 
-const SLA = {
-  sev1: { ackMin: 5,   mitigMin: 60,   resolveMin: 240   },
-  sev2: { ackMin: 15,  mitigMin: 240,  resolveMin: 480   },
-  sev3: { ackMin: 60,  mitigMin: 1440, resolveMin: 4320  },
-  sev4: { ackMin: 240, mitigMin: 4320, resolveMin: 10080 },
+// SLA matrix — per type + severity (minutes)
+const SLA_MATRIX = {
+  incident: {
+    sev1: { ackMin: 5,    mitigMin: 60,    resolveMin: 240   },
+    sev2: { ackMin: 15,   mitigMin: 240,   resolveMin: 480   },
+    sev3: { ackMin: 60,   mitigMin: 1440,  resolveMin: 4320  },
+    sev4: { ackMin: 240,  mitigMin: 4320,  resolveMin: 10080 },
+  },
+  problem: {
+    sev1: { ackMin: 15,   mitigMin: 240,   resolveMin: 1440  },
+    sev2: { ackMin: 60,   mitigMin: 1440,  resolveMin: 4320  },
+    sev3: { ackMin: 240,  mitigMin: 10080, resolveMin: 20160 },
+    sev4: { ackMin: 1440, mitigMin: 20160, resolveMin: 43200 },
+  },
+  project: {
+    sev1: { ackMin: 240,  mitigMin: 1440,  resolveMin: 7200  },
+    sev2: { ackMin: 240,  mitigMin: 1440,  resolveMin: 7200  },
+    sev3: { ackMin: 240,  mitigMin: 1440,  resolveMin: 7200  },
+    sev4: { ackMin: 240,  mitigMin: 1440,  resolveMin: 7200  },
+  },
 };
+
+function getSla(ticket) {
+  const type = ticket.type || "incident";
+  const sev  = ticket.severity || "sev4";
+  return (SLA_MATRIX[type] || SLA_MATRIX.incident)[sev] || SLA_MATRIX.incident.sev4;
+}
+
+// Legacy flat map (alarm engine + any other callers still use SLA[severity])
+const SLA = SLA_MATRIX.incident;
 
 const SEV_MAP = {
   Critical: "sev2",
@@ -72,8 +96,7 @@ async function generateTicketId(type) {
 
 // ─── Sub-status computation ───────────────────────────────────────────────────
 function computeSubStatus(ticket) {
-  if (!ticket.severity || !SLA[ticket.severity]) return null;
-  const sla = SLA[ticket.severity];
+  const sla = getSla(ticket);
   const now = Date.now();
   const createdMs = new Date(ticket.created_at).getTime();
   const minutesSinceCreated = (now - createdMs) / 60000;
@@ -85,9 +108,8 @@ function computeSubStatus(ticket) {
 
   // Check SLA at risk (>75% of resolve time consumed) or breached
   if (!["resolved", "closed"].includes(ticket.status)) {
-    const resolveDeadlineMin = sla.resolveMin;
-    const pct = minutesSinceCreated / resolveDeadlineMin;
-    if (minutesSinceCreated >= resolveDeadlineMin) return "breached";
+    const pct = minutesSinceCreated / sla.resolveMin;
+    if (minutesSinceCreated >= sla.resolveMin) return "breached";
     if (pct >= 0.75) return "sla_at_risk";
   }
 
@@ -179,8 +201,7 @@ router.get("/sla", async (req, res) => {
 
     const now = Date.now();
     const result = (tickets || []).map(t => {
-      const sla = SLA[t.severity];
-      if (!sla) return null;
+      const sla = getSla(t);
       const createdMs = new Date(t.created_at).getTime();
       const minutesElapsed = (now - createdMs) / 60000;
       const resolveDeadlineMs = createdMs + sla.resolveMin * 60000;
@@ -484,5 +505,169 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
     return null;
   }
 }
+
+// ── POST /api/tickets/demo — seed realistic demo tickets ──────────────────────
+router.post("/demo", async (req, res) => {
+  try {
+    const db = getDb();
+    const now = Date.now();
+    const ago = (h) => new Date(now - h * 3600000).toISOString();
+
+    // Delete existing demo tickets first (tagged with demo:true in tags)
+    await db.from("tickets").delete().contains("tags", ["demo"]);
+
+    const DEMO_TICKETS = [
+      // ── 10 Problems ────────────────────────────────────────────────────────
+      {
+        type:"problem", severity:"sev2",
+        title:"BGP route oscillation causing intermittent path instability on fj-suva-cr-01",
+        description:"BGP sessions are flapping every 15–20 minutes between fj-suva-cr-01 and its upstream peers, triggering route withdrawals and re-advertisements. Root cause under investigation.",
+        status:"in_progress", owner_name:"Alex Torres", team:"Core Transport",
+        impacted_nodes:["fj-suva-cr-01"], country:"FJ", created_at: ago(72),
+      },
+      {
+        type:"problem", severity:"sev1",
+        title:"Recurring packet loss on trans-Pacific link fj-suva → hw-hnl1",
+        description:"30–40% packet loss observed in 10-minute bursts every ~2h on the trans-Pacific segment. Correlated with high CPU on fj-suva-cr-01 during BGP convergence. Possible queue starvation.",
+        status:"in_progress", owner_name:"Ivan M.", team:"Core Transport",
+        impacted_nodes:["fj-suva-cr-01","hw-hnl1-cr-01"], country:"FJ", created_at: ago(6),
+      },
+      {
+        type:"problem", severity:"sev2",
+        title:"Memory leak in MPLS FIB table on hw-hnl1-pe-01 after software upgrade",
+        description:"Following the v15.4 software upgrade, hw-hnl1-pe-01 shows a steady memory increase of ~0.8% per hour in MPLS FIB. No traffic impact yet but node will require reload if unresolved.",
+        status:"assigned", owner_name:"Davide Z.", team:"Data Core",
+        impacted_nodes:["hw-hnl1-pe-01"], country:"HW", created_at: ago(48), acknowledged_at: ago(47),
+      },
+      {
+        type:"problem", severity:"sev3",
+        title:"OSPF adjacency instability in Access ring — flapping every 4h",
+        description:"OSPF adjacencies in the Ibiza access ring are dropping and re-forming. Suspected MTU mismatch or hello/dead timer misconfiguration introduced during last maintenance window.",
+        status:"new", owner_name:"Adam S.", team:"Access",
+        impacted_nodes:["ib-town-cr-01","ib-town-pe-01"], country:"IB", created_at: ago(24),
+      },
+      {
+        type:"problem", severity:"sev3",
+        title:"NTP drift causing log correlation failures across NOC toolset",
+        description:"Multiple nodes showing NTP offset > 500ms. This is breaking event correlation in the NOC dashboard — alarm timestamps from different nodes cannot be reliably compared.",
+        status:"assigned", owner_name:"Ram", team:"NOC",
+        impacted_nodes:[], country:null, created_at: ago(96), acknowledged_at: ago(95),
+      },
+      {
+        type:"problem", severity:"sev2",
+        title:"Spanning tree topology change storm on Data Core L2 segment",
+        description:"A series of uncontrolled topology changes in the Data Core L2 domain caused a brief broadcast storm. Traffic was restored after disabling the offending port. Root cause: unauthorised device connected to access switch.",
+        status:"mitigated", owner_name:"Ivan M.", team:"Data Core",
+        impacted_nodes:[], country:null, created_at: ago(120),
+      },
+      {
+        type:"problem", severity:"sev3",
+        title:"VLAN mismatch causing intermittent traffic drops on enterprise customer A",
+        description:"Customer A is reporting 2–3 minute traffic outages every few hours. Investigation points to a VLAN tag mismatch between two PE handoff interfaces introduced during last patch.",
+        status:"in_progress", owner_name:"Alex Torres", team:"Core Transport",
+        impacted_nodes:["ib-town-pe-01"], country:"IB", created_at: ago(50),
+      },
+      {
+        type:"problem", severity:"sev1",
+        title:"BGP prefix leak from AS64512 propagating to internet peers",
+        description:"Customer BGP session (AS64512) is advertising more-specific prefixes that are leaking into upstream transit. Risk of traffic hijacking. Filters applied as emergency mitigation — permanent fix required.",
+        status:"in_progress", owner_name:"Chema F.", team:"Core Transport",
+        impacted_nodes:["fj-suva-cr-01"], country:"FJ", created_at: ago(2),
+      },
+      {
+        type:"problem", severity:"sev4",
+        title:"QoS policy misconfiguration on core PE — EF class not prioritised correctly",
+        description:"Traffic engineering review found that the EF (Expedited Forwarding) DSCP queue is not being serviced correctly on three core PE nodes. Voice/video traffic may experience higher jitter under congestion.",
+        status:"new", owner_name:"Adam S.", team:"Core Transport",
+        impacted_nodes:["hw-hnl1-pe-01","fj-suva-pe-01"], country:null, created_at: ago(168),
+      },
+      {
+        type:"problem", severity:"sev2",
+        title:"DNS resolution failures for internal services after resolver config change",
+        description:"Internal DNS resolvers are returning NXDOMAIN for some internal hostnames following a config push yesterday. Affects monitoring agents and automation scripts. Public DNS resolution unaffected.",
+        status:"new", owner_name:"Davide Z.", team:"Platform Engineering",
+        impacted_nodes:[], country:null, created_at: ago(1),
+      },
+
+      // ── 3 Requests ──────────────────────────────────────────────────────────
+      {
+        type:"project", severity:"sev4",
+        title:"MPLS core firmware upgrade — Q3 2026 maintenance window request",
+        description:"Request to schedule and execute an MPLS core firmware upgrade across all 6 core routers during the next maintenance window. Upgrade addresses 3 CVEs and includes performance improvements for RSVP-TE.",
+        status:"new", owner_name:"Matt I.", team:"Core Transport",
+        impacted_nodes:["fj-suva-cr-01","hw-hnl1-cr-01","ib-town-cr-01"], country:null, created_at: ago(336),
+      },
+      {
+        type:"project", severity:"sev4",
+        title:"New customer VLAN provisioning — Vodafone Enterprise contract expansion",
+        description:"New VLAN required for Vodafone Enterprise customer expansion into the Pacific region. Requires provisioning on fj-suva-pe-01 and hw-hnl1-pe-01 with BGP handoff configuration.",
+        status:"assigned", owner_name:"Sam Reyes", team:"Data Core",
+        impacted_nodes:["fj-suva-pe-01","hw-hnl1-pe-01"], country:"FJ", created_at: ago(240), acknowledged_at: ago(238),
+      },
+      {
+        type:"project", severity:"sev4",
+        title:"Pacific Ring capacity review — bandwidth forecast for H2 2026",
+        description:"Conduct a capacity review of the Pacific Ring based on current utilisation trends. Deliverable: a capacity report with 6-month forecast, identified congestion points, and upgrade recommendations.",
+        status:"in_progress", owner_name:"Alex Torres", team:"Core Transport",
+        impacted_nodes:["fj-suva-cr-01","hw-hnl1-cr-01"], country:null, created_at: ago(480),
+      },
+    ];
+
+    const inserted = [];
+    for (const t of DEMO_TICKETS) {
+      const id = await generateTicketId(t.type);
+      const { data, error } = await db
+        .from("tickets")
+        .insert({
+          id,
+          type: t.type,
+          title: t.title,
+          description: t.description || null,
+          severity: t.severity || null,
+          status: t.status || "new",
+          owner_name: t.owner_name || null,
+          team: t.team || "Core Transport",
+          impacted_nodes: t.impacted_nodes || [],
+          impacted_services: [],
+          country: t.country || null,
+          tags: ["demo"],
+          created_at: t.created_at,
+          acknowledged_at: t.acknowledged_at || null,
+        })
+        .select()
+        .single();
+
+      if (error) { console.error("[demo]", error.message); continue; }
+
+      await insertEvent(id, "created", t.owner_name || "System", null,
+        `Demo ticket created: ${t.title}`,
+        { demo: true }
+      );
+
+      // Add a status-transition event for tickets not in 'new'
+      if (t.status === "assigned") {
+        await insertEvent(id, "status_changed", t.owner_name, null,
+          `Assigned to ${t.owner_name}`, { from: "new", to: "assigned" }
+        );
+      } else if (t.status === "in_progress") {
+        await insertEvent(id, "status_changed", t.owner_name, null,
+          "Investigation started — working to identify root cause.", { from: "assigned", to: "in_progress" }
+        );
+      } else if (t.status === "mitigated") {
+        await insertEvent(id, "status_changed", t.owner_name, null,
+          "Issue mitigated — monitoring for recurrence.", { from: "in_progress", to: "mitigated" }
+        );
+      }
+
+      inserted.push(data);
+    }
+
+    res.json({ inserted: inserted.length, ids: inserted.map(t => t.id) });
+  } catch (e) {
+    if (e.message.includes("not configured")) return res.status(503).json({ error: e.message });
+    console.error("[tickets] demo seed error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 export default router;

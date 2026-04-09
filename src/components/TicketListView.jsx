@@ -66,7 +66,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
   // Filters
   const [typeFilter, setTypeFilter] = useState(defaultType || "all");
   const [sevFilter, setSevFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [teamFilter, setTeamFilter] = useState("all");
   const [ownerFilter] = useState(defaultMine ? currentUser?.name : "all");
   const [search, setSearch] = useState("");
@@ -84,7 +84,8 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
       if (typeFilter !== "all") filters.type = typeFilter;
       if (sevFilter !== "all") filters.severity = sevFilter;
       if (teamFilter !== "all") filters.team = teamFilter;
-      if (statusFilter !== "all") filters.status = statusFilter;
+      if (statusFilter === "active") filters.status = "new,assigned,in_progress,mitigated";
+      else if (statusFilter !== "all") filters.status = statusFilter;
       if (ownerFilter && ownerFilter !== "all") filters.owner_name = ownerFilter;
       const data = await fetchTickets(filters);
       setTickets(data || []);
@@ -173,7 +174,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
           { value: "all", label: "All" },
           { value: "incident", label: "Incidents", badgeCount: openIncidents },
           { value: "problem", label: "Problems" },
-          { value: "project", label: "Projects" },
+          { value: "project", label: "Requests" },
         ].map(f => {
           const active = typeFilter === f.value;
           const col = f.value === "all" ? T.primary : TICKET_COLORS[f.value];
@@ -221,6 +222,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
             padding: "5px 8px", fontSize: 11, fontFamily: "inherit", borderRadius: 6,
             border: `1px solid ${T.border}`, background: T.bg, color: T.text, cursor: "pointer",
           }}>
+          <option value="active">Active (open)</option>
           <option value="all">All Statuses</option>
           {Object.entries(TICKET_STATUS_META).map(([v,m]) => <option key={v} value={v}>{m.label}</option>)}
         </select>
