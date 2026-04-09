@@ -224,7 +224,7 @@ async function runPollCycle() {
         // For sev1/sev2 (Critical, Major) → just add timeline event
         if (["Minor", "Warning", "Info"].includes(sev)) {
           // Use fetch to avoid circular dep; just call our own HTTP API
-          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress`)
+          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress,waiting`)
             .then(r => r.json())
             .then(tickets => {
               for (const t of (tickets || [])) {
@@ -236,7 +236,7 @@ async function runPollCycle() {
               }
             }).catch(() => {});
         } else if (["Critical", "Major"].includes(sev)) {
-          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress`)
+          fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress,waiting`)
             .then(r => r.json())
             .then(tickets => {
               for (const t of (tickets || [])) {

@@ -441,7 +441,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   // ─── Alarm lifecycle derived state ────────────────────────────────────────
   const isOpen = !["resolved", "closed"].includes(ticket.status);
   const alarmClearedEvents = events.filter(e => e.event_type === "alarm_resolved");
-  const showAlarmClearedBanner = isOpen && alarmClearedEvents.length > 0;
+  const showAlarmClearedBanner = isOpen && alarmClearedEvents.length > 0 && ["sev1", "sev2"].includes(ticket.severity);
   const reopenedEvents = events.filter(e => e.event_type === "alarm_linked" && e.metadata?.reopened);
   const wasReopened = reopenedEvents.length > 0;
   const refireCount = events.filter(e => e.event_type === "alarm_linked" && e.metadata?.refire && !e.metadata?.reopened).length;
