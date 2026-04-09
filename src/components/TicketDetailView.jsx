@@ -292,7 +292,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [copying, setCopying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
-  const [descDraft, setDescDraft] = useState(initialTicket.description || "");
+  const [descDraft, setDescDraft] = useState(initialTicket?.description || "");
   const [closureModal, setClosureModal] = useState(null);
   const notesEndRef = useRef();
 
@@ -301,7 +301,12 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     if (!ticketId || initialTicket) return;
     setLoadingTicket(true);
     fetchTicket(ticketId)
-      .then(data => { setTicket(data); setEvents(data.events || []); setEvidence(data.evidence || []); })
+      .then(data => {
+        setTicket(data);
+        setEvents(data.events || []);
+        setEvidence(data.evidence || []);
+        setDescDraft(data.description || "");
+      })
       .catch(() => {})
       .finally(() => setLoadingTicket(false));
   }, [ticketId, initialTicket]);
@@ -311,13 +316,15 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   }, [events]);
 
   const refresh = useCallback(async () => {
+    const id = ticket?.id;
+    if (!id) return;
     try {
-      const data = await fetchTicket(ticket.id);
+      const data = await fetchTicket(id);
       setTicket(data);
       setEvents(data.events || []);
       setEvidence(data.evidence || []);
     } catch { /* ignore */ }
-  }, [ticket.id]);
+  }, [ticket?.id]);
 
   async function patchTicket(updates) {
     setSaving(true);
