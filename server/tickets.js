@@ -472,7 +472,7 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
     const alarmType = alarm.type || "UNKNOWN";
     const nodeId = alarm.nodeId;
 
-    // Dedup check: existing open ticket for same alarm_type + node
+    // Dedup check 1: existing OPEN ticket for same alarm_type + node → re-fire
     const { data: existing } = await db
       .from("tickets")
       .select("id, status")
@@ -482,14 +482,36 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       .limit(1);
 
     if (existing && existing.length > 0) {
-      // Link alarm to existing ticket
       const existingTicket = existing[0];
       await insertEvent(
         existingTicket.id, "alarm_linked", "System", null,
         `Alarm re-fired: ${alarm.message || alarmType} on ${nodeId}`,
-        { alarm_id: alarm.id, alarm_severity: alarm.severity }
+        { alarm_id: alarm.id, alarm_severity: alarm.severity, refire: true }
       );
       return existingTicket;
+    }
+
+    // Dedup check 2: recently closed/resolved ticket (< 2h) → reopen
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { data: recent } = await db
+      .from("tickets")
+      .select("id, status, closed_at, resolved_at")
+      .eq("alarm_type", alarmType)
+      .contains("impacted_nodes", [nodeId])
+      .in("status", ["resolved", "closed"])
+      .gte("updated_at", twoHoursAgo)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (recent && recent.length > 0) {
+      const t = recent[0];
+      await db.from("tickets").update({ status: "in_progress", resolved_at: null, closed_at: null }).eq("id", t.id);
+      await insertEvent(
+        t.id, "alarm_linked", "System", null,
+        `Ticket reopened: same alarm re-fired within 2h — ${alarm.message || alarmType}`,
+        { alarm_id: alarm.id, alarm_severity: alarm.severity, refire: true, reopened: true }
+      );
+      return t;
     }
 
     // Create new incident ticket — use alarm.message for descriptive title

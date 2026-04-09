@@ -438,6 +438,14 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const humanEvents = logEvents.filter(e => e.actor_name && e.actor_name !== "System");
   const closureLabel = ticket.closure_code ? CLOSURE_CODES.find(c => c.value === ticket.closure_code)?.label : null;
 
+  // ─── Alarm lifecycle derived state ────────────────────────────────────────
+  const isOpen = !["resolved", "closed"].includes(ticket.status);
+  const alarmClearedEvents = events.filter(e => e.event_type === "alarm_resolved");
+  const showAlarmClearedBanner = isOpen && alarmClearedEvents.length > 0;
+  const reopenedEvents = events.filter(e => e.event_type === "alarm_linked" && e.metadata?.reopened);
+  const wasReopened = reopenedEvents.length > 0;
+  const refireCount = events.filter(e => e.event_type === "alarm_linked" && e.metadata?.refire && !e.metadata?.reopened).length;
+
   // ─── Left rail style helpers ───────────────────────────────────────────────
   const railSelectStyle = {
     width: "100%", padding: "5px 8px", fontSize: 11, borderRadius: 6,
@@ -471,6 +479,13 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             </span>
           )}
 
+          {refireCount > 0 && (
+            <span title={`${refireCount} re-fire${refireCount > 1 ? "s" : ""} since ticket opened`}
+              style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 8px", flexShrink: 0, cursor: "default" }}>
+              ↺ {refireCount}
+            </span>
+          )}
+
           {/* Title — editable, fills remaining space */}
           <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: T.text }}>
             <InlineEdit
@@ -497,6 +512,24 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                 style={{ background:"none", border:"none", fontSize:20, color:T.muted, cursor:"pointer", padding:"2px 6px", lineHeight:1, flexShrink:0 }}>✕</button>
           }
         </div>
+
+        {/* ── ALARM LIFECYCLE BANNERS ─────────────────────────────────────── */}
+        {showAlarmClearedBanner && (
+          <div style={{ padding: "8px 20px", background: "#fffbeb", borderBottom: "1px solid #fcd34d", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <span style={{ fontSize: 14 }}>⚡</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#b45309" }}>
+              Underlying alarm has cleared — this ticket requires manual resolution.
+            </span>
+          </div>
+        )}
+        {wasReopened && (
+          <div style={{ padding: "8px 20px", background: "#fef2f2", borderBottom: "1px solid #fca5a5", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <span style={{ fontSize: 14 }}>🔁</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>
+              Ticket reopened — same alarm re-fired within 2h of being closed.
+            </span>
+          </div>
+        )}
 
         {/* ── BODY ────────────────────────────────────────────────────────── */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
