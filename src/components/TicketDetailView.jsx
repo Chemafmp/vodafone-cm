@@ -406,8 +406,9 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const wsState = ticket.working_state ? WS_MAP[ticket.working_state] : null;
   const notes = events.filter(e => e.event_type === "note");
   const logEvents = events.filter(e => e.event_type !== "note");
-  const systemEvents = logEvents.filter(e => !e.actor_name || e.actor_name === "System");
-  const humanEvents = logEvents.filter(e => e.actor_name && e.actor_name !== "System");
+  const automationEvents = logEvents.filter(e => e.event_type === "automation_note");
+  const systemEvents = logEvents.filter(e => e.event_type !== "automation_note" && (!e.actor_name || e.actor_name === "System"));
+  const humanEvents = logEvents.filter(e => e.event_type !== "automation_note" && e.actor_name && e.actor_name !== "System");
   const closureLabel = ticket.closure_code ? CLOSURE_CODES.find(c => c.value === ticket.closure_code)?.label : null;
 
   // ─── Left rail style helpers ───────────────────────────────────────────────
@@ -743,6 +744,44 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                               <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
                             </div>
                             {ev.content && <div style={{ fontSize: 12, color: T.text, lineHeight: 1.6 }}>{ev.content}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Automated Actions — robots/scripts, prominent + pre-wrap */}
+                {automationEvents.length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: "#0369a1", letterSpacing: "0.7px", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>Automated Actions</span>
+                      <span style={{ flex: 1, height: 1, background: "#bae6fd" }} />
+                    </div>
+                    {automationEvents.map(ev => {
+                      const meta = ev.metadata || {};
+                      return (
+                        <div key={ev.id} style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: "#e0f2fe", border: "1px solid #38bdf8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+                            🤖
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ev.actor_name}</span>
+                              <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
+                            </div>
+                            {ev.content && (
+                              <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderLeft: "4px solid #38bdf8", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: T.text, lineHeight: 1.6, whiteSpace: "pre-wrap", fontFamily: "'JetBrains Mono','Fira Mono',monospace" }}>
+                                {ev.content}
+                              </div>
+                            )}
+                            {(meta.source || meta.node || meta.workflow_id) && (
+                              <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+                                {meta.source && <span style={{ fontSize: 10, fontWeight: 600, color: "#0369a1", background: "#e0f2fe", border: "1px solid #bae6fd", borderRadius: 4, padding: "2px 7px" }}>{meta.source}</span>}
+                                {meta.node && <span style={{ fontSize: 10, fontWeight: 600, color: "#334155", background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 4, padding: "2px 7px" }}>{meta.node}</span>}
+                                {meta.workflow_id && <span style={{ fontSize: 10, fontWeight: 600, color: "#6b21a8", background: "#faf5ff", border: "1px solid #d8b4fe", borderRadius: 4, padding: "2px 7px" }}>{meta.workflow_id}</span>}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

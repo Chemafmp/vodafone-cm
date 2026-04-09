@@ -111,11 +111,20 @@ async function insertEvent(ticketId, eventType, actorName, actorId, content, met
   return data;
 }
 
+// ─── Auth middleware ──────────────────────────────────────────────────────────
+function requireApiKey(req, res, next) {
+  const key = req.headers["x-api-key"];
+  // If no key configured in env, allow (dev mode)
+  if (!process.env.AUTOMATION_API_KEY) return next();
+  if (key === process.env.AUTOMATION_API_KEY) return next();
+  return res.status(401).json({ error: "Unauthorized — x-api-key header required" });
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 const router = Router();
 
 // ── POST /api/tickets ─────────────────────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", requireApiKey, async (req, res) => {
   try {
     const db = getDb();
     const {
@@ -284,7 +293,7 @@ router.get("/:id/children", async (req, res) => {
 });
 
 // ── PATCH /api/tickets/:id ────────────────────────────────────────────────────
-router.patch("/:id", async (req, res) => {
+router.patch("/:id", requireApiKey, async (req, res) => {
   try {
     const db = getDb();
     const { id } = req.params;
@@ -351,7 +360,7 @@ router.patch("/:id", async (req, res) => {
 });
 
 // ── POST /api/tickets/:id/events ──────────────────────────────────────────────
-router.post("/:id/events", async (req, res) => {
+router.post("/:id/events", requireApiKey, async (req, res) => {
   try {
     const db = getDb();
     const { event_type, content, actor_name, actor_id, metadata } = req.body;
@@ -372,7 +381,7 @@ router.post("/:id/events", async (req, res) => {
 });
 
 // ── POST /api/tickets/:id/evidence ────────────────────────────────────────────
-router.post("/:id/evidence", async (req, res) => {
+router.post("/:id/evidence", requireApiKey, async (req, res) => {
   try {
     const db = getDb();
     const { type, label, url, metadata, uploaded_by } = req.body;
@@ -389,6 +398,26 @@ router.post("/:id/evidence", async (req, res) => {
     // Add timeline event
     await insertEvent(req.params.id, "evidence_added", uploaded_by || "System", null, `Evidence added: ${label} (${type})`);
 
+    res.status(201).json(data);
+  } catch (e) {
+    if (e.message.includes("not configured")) return res.status(503).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/tickets/:id/notes — automation-friendly alias ──────────────────
+router.post("/:id/notes", requireApiKey, async (req, res) => {
+  try {
+    const { content, source, metadata } = req.body;
+    if (!content) return res.status(400).json({ error: "content is required" });
+    const data = await insertEvent(
+      req.params.id,
+      "automation_note",
+      source || "Automation",
+      null,
+      content,
+      { source, ...metadata }
+    );
     res.status(201).json(data);
   } catch (e) {
     if (e.message.includes("not configured")) return res.status(503).json({ error: e.message });
