@@ -649,7 +649,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
             {activeTab === "work" && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-                {/* Alarm-cleared banner — SEV1/SEV2 only, shown when alarm resolved but ticket still open */}
+                {/* Alarm-cleared banner — SEV1/SEV2 only */}
                 {(() => {
                   const alarmClearedEv = [...events].reverse().find(e => e.event_type === "alarm_resolved");
                   const needsVerification = alarmClearedEv && !["resolved","closed"].includes(ticket.status) && ["sev1","sev2"].includes(ticket.severity);
@@ -660,6 +660,23 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                       <div style={{ flex: 1 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Alarm cleared — operator verification required </span>
                         <span style={{ fontSize: 11, color: "#b45309" }}>The triggering alarm has resolved but this ticket must be closed manually after verifying service is stable.</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Reopened banner — shown when ticket was reopened due to alarm re-firing within 2h */}
+                {(() => {
+                  const reopenedEv = [...events].reverse().find(e =>
+                    e.event_type === "alarm_linked" && e.content?.includes("Ticket reopened")
+                  );
+                  if (!reopenedEv || ["resolved","closed"].includes(ticket.status)) return null;
+                  return (
+                    <div style={{ background: "#fef2f2", borderBottom: `2px solid #f87171`, padding: "10px 22px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <span style={{ fontSize: 16 }}>🔁</span>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#991b1b" }}>Ticket reopened — alarm re-fired within 2h window </span>
+                        <span style={{ fontSize: 11, color: "#b91c1c" }}>This ticket was automatically reopened because the same alarm triggered again shortly after being resolved. Investigate for recurring or intermittent fault.</span>
                       </div>
                     </div>
                   );

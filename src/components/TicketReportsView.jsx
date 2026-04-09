@@ -77,6 +77,8 @@ export default function TicketReportsView() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState(30);
+  const [teamFilter, setTeamFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
 
   useEffect(() => {
     fetchTickets({}).then(data => {
@@ -85,12 +87,21 @@ export default function TicketReportsView() {
     }).catch(() => setLoading(false));
   }, []);
 
-  // Apply time range filter
+  // Derived filter options from all tickets (not scoped — so dropdown always shows full list)
+  const allTeams = useMemo(() => [...new Set(tickets.map(t => t.team).filter(Boolean))].sort(), [tickets]);
+  const allOwners = useMemo(() => [...new Set(tickets.map(t => t.owner_name).filter(Boolean))].sort(), [tickets]);
+
+  // Apply time range + team + owner filters
   const scoped = useMemo(() => {
-    if (!range) return tickets;
-    const cutoff = Date.now() - range * 86400000;
-    return tickets.filter(t => new Date(t.created_at).getTime() >= cutoff);
-  }, [tickets, range]);
+    let result = tickets;
+    if (range) {
+      const cutoff = Date.now() - range * 86400000;
+      result = result.filter(t => new Date(t.created_at).getTime() >= cutoff);
+    }
+    if (teamFilter !== "all") result = result.filter(t => t.team === teamFilter);
+    if (ownerFilter !== "all") result = result.filter(t => t.owner_name === ownerFilter);
+    return result;
+  }, [tickets, range, teamFilter, ownerFilter]);
 
   // ── Aggregations ────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -158,13 +169,33 @@ export default function TicketReportsView() {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
 
-      {/* Header + range selector */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+      {/* Header + filters */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Ticket Reports</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{scoped.length} tickets in selected range</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{scoped.length} ticket{scoped.length !== 1 ? "s" : ""} match filters</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {/* Team filter */}
+          <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
+            style={{ padding: "5px 10px", fontSize: 11, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.border}`, background: teamFilter !== "all" ? "#eff6ff" : T.bg, color: T.text, cursor: "pointer" }}>
+            <option value="all">All Teams</option>
+            {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {/* Owner filter */}
+          <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}
+            style={{ padding: "5px 10px", fontSize: 11, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.border}`, background: ownerFilter !== "all" ? "#eff6ff" : T.bg, color: T.text, cursor: "pointer" }}>
+            <option value="all">All People</option>
+            {allOwners.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          {(teamFilter !== "all" || ownerFilter !== "all") && (
+            <button onClick={() => { setTeamFilter("all"); setOwnerFilter("all"); }}
+              style={{ padding: "5px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}>
+              Clear
+            </button>
+          )}
+          <div style={{ width: 1, height: 20, background: T.border }} />
+          {/* Time range */}
           {RANGES.map(r => {
             const active = range === r.days;
             return (
