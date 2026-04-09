@@ -1,9 +1,10 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { T } from "../data/constants.js";
 import { ALARMS, SERVICES, SITES, COUNTRY_META } from "../data/inventory/index.js";
 import { useNodes } from "../context/NodesContext.jsx";
 import { LAYER_COLORS } from "../data/inventory/sites.js";
 import { Card } from "./ui/index.jsx";
+import { fetchTickets } from "../utils/ticketsDb.js";
 
 /* ─── constants ────────────────────────────────────────────────────────────── */
 const SEV_META = {
@@ -85,9 +86,32 @@ function TreeRow({ depth, label, icon, sub, alarmCounts, isOpen, onToggle, hasCh
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-export default function AlarmsView({ liveAlarms = [], pollerConnected = false }) {
+export default function AlarmsView({ liveAlarms = [], pollerConnected = false, onOpenTicket }) {
   const { nodes: NODES } = useNodes();
   const [expanded, setExpanded] = useState({ FJ:true, HW:true, IB:true }); // country-level open
+  const [ticketMap, setTicketMap] = useState({}); // "nodeId::alarmType" → ticket
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTickets() {
+      try {
+        const tickets = await fetchTickets({ status: "new,assigned,in_progress" });
+        if (cancelled) return;
+        const map = {};
+        for (const t of tickets || []) {
+          if (t.alarm_type && t.impacted_nodes?.length > 0) {
+            for (const nodeId of t.impacted_nodes) {
+              map[`${nodeId}::${t.alarm_type}`] = t;
+            }
+          }
+        }
+        setTicketMap(map);
+      } catch { /* non-fatal */ }
+    }
+    loadTickets();
+    const interval = setInterval(loadTickets, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
   const [expandedSites, setExpandedSites] = useState({});
   const [expandedDevices, setExpandedDevices] = useState({});
   const [selected, setSelected] = useState(null); // alarm id or device id
@@ -379,12 +403,22 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false })
 
         {/* ── Alarm detail ── */}
         {selAlarm && <>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
             <span style={{ fontSize:16 }}>{SEV_META[selAlarm.severity].icon}</span>
             <span style={{ fontSize:14, fontWeight:700, color:SEV_META[selAlarm.severity].text }}>{selAlarm.severity}</span>
             <span style={{ background:STATUS_BG[selAlarm.status].bg, color:STATUS_BG[selAlarm.status].color,
               border:`1px solid ${STATUS_BG[selAlarm.status].border}`,
               borderRadius:4, padding:"2px 8px", fontSize:11, fontWeight:700 }}>{selAlarm.status}</span>
+            {(() => {
+              const ticket = ticketMap[`${selAlarm.nodeId}::${selAlarm.type}`];
+              if (!ticket || !onOpenTicket) return null;
+              return <button onClick={() => onOpenTicket(ticket.id)}
+                style={{ display:"flex", alignItems:"center", gap:4, padding:"3px 10px",
+                  background:"#eff6ff", border:"1px solid #93c5fd", borderRadius:6,
+                  fontSize:11, fontWeight:700, color:"#1d4ed8", cursor:"pointer", fontFamily:"inherit" }}>
+                🎫 {ticket.ticket_number || ticket.id.slice(0,8).toUpperCase()}
+              </button>;
+            })()}
           </div>
 
           <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:8 }}>{selAlarm.message}</div>
@@ -456,12 +490,20 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false })
           {deviceAlarms.map(a => {
             const sm = SEV_META[a.severity];
             const st = STATUS_BG[a.status];
+            const ticket = ticketMap[`${a.nodeId}::${a.type}`];
             return <div key={a.id} onClick={() => { setSelected(a.id); setSelectedType("alarm"); }}
               style={{ background:sm.bg, border:`1px solid ${sm.border}`, borderRadius:8,
                 padding:10, marginBottom:6, cursor:"pointer", borderLeft:`3px solid ${sm.dot}` }}>
               <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                 <span style={{ fontSize:11 }}>{sm.icon}</span>
-                <span style={{ fontSize:12, fontWeight:600, color:T.text }}>{a.message}</span>
+                <span style={{ fontSize:12, fontWeight:600, color:T.text, flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.message}</span>
+                {ticket && onOpenTicket && <button
+                  onClick={e => { e.stopPropagation(); onOpenTicket(ticket.id); }}
+                  style={{ flexShrink:0, display:"flex", alignItems:"center", gap:3, padding:"2px 7px",
+                    background:"#eff6ff", border:"1px solid #93c5fd", borderRadius:5,
+                    fontSize:10, fontWeight:700, color:"#1d4ed8", cursor:"pointer", fontFamily:"inherit" }}>
+                  🎫 {ticket.ticket_number || ticket.id.slice(0,8).toUpperCase()}
+                </button>}
               </div>
               <div style={{ display:"flex", gap:6, fontSize:10, color:T.muted }}>
                 <span style={{ background:TYPE_COLORS[a.type]+"15", color:TYPE_COLORS[a.type],
