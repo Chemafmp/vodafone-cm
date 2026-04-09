@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { T } from "../data/constants.js";
 import { TICKET_TEAMS, TICKET_COLORS, createTicket } from "../utils/ticketsDb.js";
+import { useNodes } from "../context/NodesContext.jsx";
 
 const TICKET_TYPES = [
   { value: "incident", icon: "🚨", label: "Incident", desc: "Service disruption or degradation requiring immediate action" },
@@ -18,12 +19,13 @@ const SEV_COLORS = {
 };
 
 export default function CreateTicketModal({ currentUser, onClose, onCreated, prefill = {} }) {
+  const { nodes: inventoryNodes } = useNodes();
   const [type, setType] = useState(prefill.type || "incident");
   const [title, setTitle] = useState(prefill.title || "");
   const [severity, setSeverity] = useState(prefill.severity || "sev3");
   const [ownerName, setOwnerName] = useState(prefill.owner_name || currentUser?.name || "");
   const [team, setTeam] = useState(prefill.team || currentUser?.team || "Core Transport");
-  const [nodes, setNodes] = useState((prefill.impacted_nodes || []).join(", "));
+  const [selectedNodes, setSelectedNodes] = useState(prefill.impacted_nodes || []);
   const [description, setDescription] = useState(prefill.description || "");
   const [tags, setTags] = useState((prefill.tags || []).join(", "));
   const [saving, setSaving] = useState(false);
@@ -42,7 +44,7 @@ export default function CreateTicketModal({ currentUser, onClose, onCreated, pre
         owner_name: ownerName || undefined,
         team,
         description: description || undefined,
-        impacted_nodes: nodes ? nodes.split(",").map(s => s.trim()).filter(Boolean) : [],
+        impacted_nodes: selectedNodes,
         tags: tags ? tags.split(",").map(s => s.trim()).filter(Boolean) : [],
         actor_name: currentUser?.name || "System",
       });
@@ -166,16 +168,44 @@ export default function CreateTicketModal({ currentUser, onClose, onCreated, pre
 
             {/* Impacted Nodes */}
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 5, letterSpacing: "0.5px", textTransform: "uppercase" }}>Impacted Nodes</label>
-              <input
-                value={nodes} onChange={e => setNodes(e.target.value)}
-                placeholder="fj-suva-cr-01, hw-hnl1-pe-01 (comma-separated)"
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 5, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                Impacted Nodes <span style={{ fontWeight: 400, color: T.muted }}>(optional)</span>
+              </label>
+              <select
+                value=""
+                onChange={e => {
+                  const id = e.target.value;
+                  if (id && !selectedNodes.includes(id)) setSelectedNodes(n => [...n, id]);
+                }}
                 style={{
                   width: "100%", padding: "8px 10px", fontSize: 12, fontFamily: "monospace",
-                  background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text,
-                  outline: "none", boxSizing: "border-box",
-                }}
-              />
+                  background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, color: selectedNodes.length === 0 ? T.muted : T.text,
+                  outline: "none", cursor: "pointer",
+                }}>
+                <option value="">— Select a node to add —</option>
+                {inventoryNodes
+                  .filter(n => !selectedNodes.includes(n.id))
+                  .sort((a, b) => a.id.localeCompare(b.id))
+                  .map(n => <option key={n.id} value={n.id}>{n.id}{n.site ? ` · ${n.site}` : ""}</option>)
+                }
+              </select>
+              {selectedNodes.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {selectedNodes.map(id => (
+                    <span key={id} style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5,
+                      padding: "3px 8px", fontSize: 11, fontFamily: "monospace", color: "#1d4ed8", fontWeight: 600,
+                    }}>
+                      {id}
+                      <button type="button" onClick={() => setSelectedNodes(n => n.filter(x => x !== id))}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#93c5fd", fontSize: 13, lineHeight: 1, display: "flex" }}>
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Description */}

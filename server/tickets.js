@@ -484,7 +484,9 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
     }
 
     // Create new incident ticket
-    const title = `${alarmType.replace(/_/g, " ")} — ${nodeId}`;
+    const title = alarm.message
+      ? `${alarm.message.replace(/\s*\(threshold:[^)]+\)/g, "").replace(/\s*within \d+ms/, "")} — ${nodeId}`
+      : `${alarmType.replace(/_/g, " ")} — ${nodeId}`;
     const id = await generateTicketId("incident");
 
     const { data: ticket, error } = await db
@@ -493,6 +495,7 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
         id, type: "incident", title, severity, status: "new",
         team: "Core Transport",
         country: nodeMeta?.country || null,
+        description: alarm.message || null,
         impacted_nodes: [nodeId],
         impacted_services: alarm.affectedServices || [],
         alarm_id: alarm.id,

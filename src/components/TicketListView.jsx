@@ -100,7 +100,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
   useEffect(() => {
     setLoading(true);
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 15000); // silent background refresh every 15s
     return () => clearInterval(t);
   }, [load]);
 
