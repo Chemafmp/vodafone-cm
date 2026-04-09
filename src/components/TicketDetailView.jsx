@@ -5,6 +5,7 @@ import {
   fetchTicket, updateTicket, addTicketEvent, addTicketEvidence,
   slaCountdown,
 } from "../utils/ticketsDb.js";
+import { uploadEvidenceFile } from "../utils/db.js";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
@@ -278,6 +279,10 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
   const [addingLink, setAddingLink] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
   const [copying, setCopying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
@@ -372,6 +377,30 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
       console.error("add link failed:", e.message);
     } finally {
       setAddingLink(false);
+    }
+  }
+
+  async function handleFileUpload(files) {
+    if (!files || files.length === 0) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const publicUrl = await uploadEvidenceFile(ticket.id, file);
+        await addTicketEvidence(ticket.id, {
+          type: "attachment",
+          label: file.name,
+          url: publicUrl,
+          metadata: { size: file.size, mime: file.type },
+          uploaded_by: currentUser?.name,
+        });
+      }
+      await refresh();
+    } catch (e) {
+      setUploadError(e.message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -777,12 +806,41 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                           ? <a href={ev.url} target="_blank" rel="noopener noreferrer" style={{ color: T.primary, textDecoration: "none" }}>{ev.label}</a>
                           : ev.label}
                       </div>
-                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{ev.type} · {ev.uploaded_by || "System"} · {timeAgo(ev.created_at)}</div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{ev.type}{ev.metadata?.size ? ` · ${(ev.metadata.size / 1024).toFixed(0)} KB` : ""} · {ev.uploaded_by || "System"} · {timeAgo(ev.created_at)}</div>
                     </div>
                   </div>
                 ))}
 
-                <div style={{ marginTop: 20, padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+                {/* ── File upload zone ── */}
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setDragOver(false); handleFileUpload(e.dataTransfer.files); }}
+                  onClick={() => !uploading && fileInputRef.current?.click()}
+                  style={{
+                    marginTop: 20, padding: "22px 18px", textAlign: "center", cursor: uploading ? "wait" : "pointer",
+                    background: dragOver ? `${T.primary}10` : T.surface,
+                    border: `2px dashed ${dragOver ? T.primary : T.border}`,
+                    borderRadius: 10, transition: "all 0.15s",
+                  }}
+                >
+                  <input ref={fileInputRef} type="file" multiple hidden
+                    onChange={e => handleFileUpload(e.target.files)}
+                  />
+                  <div style={{ fontSize: 22, marginBottom: 6 }}>{uploading ? "⏳" : "📁"}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: uploading ? T.muted : T.text }}>
+                    {uploading ? "Uploading…" : "Drop files here or click to upload"}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
+                    PDF, images, text, CSV, JSON, XLSX, DOCX, ZIP · Max 10 MB
+                  </div>
+                  {uploadError && (
+                    <div style={{ fontSize: 11, color: "#dc2626", marginTop: 8, fontWeight: 600 }}>{uploadError}</div>
+                  )}
+                </div>
+
+                {/* ── Add link ── */}
+                <div style={{ marginTop: 12, padding: "16px 18px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 12 }}>Add link</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://…"

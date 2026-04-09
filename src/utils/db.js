@@ -115,6 +115,46 @@ export async function syncPeaks(peaks) {
   saveCache(CACHE_PEAKS, peaks);
 }
 
+// ─── FILE UPLOAD (Supabase Storage) ────────────────────────────────────────
+
+const EVIDENCE_BUCKET = "ticket-evidence";
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_TYPES = [
+  "application/pdf",
+  "image/png", "image/jpeg", "image/gif", "image/webp",
+  "text/plain", "text/csv",
+  "application/json",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",   // xlsx
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
+  "application/zip",
+];
+
+/**
+ * Upload a file to Supabase Storage and return the public URL.
+ * Path: ticket-evidence/<ticketId>/<timestamp>_<filename>
+ */
+export async function uploadEvidenceFile(ticketId, file) {
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is 10 MB.`);
+  }
+  if (ALLOWED_TYPES.length && !ALLOWED_TYPES.includes(file.type) && file.type !== "") {
+    throw new Error(`File type "${file.type}" not allowed. Accepted: PDF, images, text, CSV, JSON, XLSX, DOCX, ZIP.`);
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${ticketId}/${Date.now()}_${safeName}`;
+
+  const { error } = await supabase.storage
+    .from(EVIDENCE_BUCKET)
+    .upload(path, file, { cacheControl: "3600", upsert: false });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+
+  const { data: urlData } = supabase.storage
+    .from(EVIDENCE_BUCKET)
+    .getPublicUrl(path);
+  return urlData.publicUrl;
+}
+
 // ─── SEED HELPERS ──────────────────────────────────────────────────────────────
 
 /** Wipe all changes and freeze periods, then write seed data only. */
