@@ -20,6 +20,11 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function fmtTs(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 function slaLabel(ticket) {
   if (!ticket.severity || !SLA_RESOLVE[ticket.severity]) return null;
   const createdMs = new Date(ticket.created_at).getTime();
@@ -372,7 +377,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
                         </div>
                       </td>
                       <td style={{ padding: "10px 14px" }}>
-                        <div style={{ fontSize: 11, color: T.muted }}>{timeAgo(t.created_at)}</div>
+                        <div style={{ fontSize: 11, color: T.muted }}>{fmtTs(t.created_at)}</div>
                       </td>
                       <td style={{ padding: "10px 14px" }}>
                         {sla ? (
