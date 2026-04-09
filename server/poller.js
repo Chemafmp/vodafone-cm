@@ -86,6 +86,15 @@ app.use((req, res, next) => {
 // ─── Tickets router ──────────────────────────────────────────────────────────
 app.use("/api/tickets", ticketsRouter);
 
+// ─── Auto-ticket toggle ───────────────────────────────────────────────────────
+let autoTicketsEnabled = true;
+app.get("/api/control/auto-tickets", (_req, res) => res.json({ enabled: autoTicketsEnabled }));
+app.post("/api/control/auto-tickets", (req, res) => {
+  autoTicketsEnabled = req.body.enabled !== false;
+  log(chalk.cyan(`[tickets] auto-create ${autoTicketsEnabled ? "ENABLED" : "DISABLED"}`));
+  res.json({ enabled: autoTicketsEnabled });
+});
+
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {
   const fleetRunning = [...fleetMap.values()].filter(n => n.status === "running").length;
@@ -204,12 +213,14 @@ async function runPollCycle() {
       allNewEvents.push(event);
       allNewAlarms.push(alarm);
 
-      // Auto-create or link ticket for new alarm
-      const nodeEntry = fleetMap.get(alarm.nodeId);
-      const nodeMeta = nodeEntry ? { country: nodeEntry.def.country } : null;
-      autoCreateTicketFromAlarm(alarm, nodeMeta).catch(e =>
-        log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`))
-      );
+      // Auto-create or link ticket for new alarm (if enabled)
+      if (autoTicketsEnabled) {
+        const nodeEntry = fleetMap.get(alarm.nodeId);
+        const nodeMeta = nodeEntry ? { country: nodeEntry.def.country } : null;
+        autoCreateTicketFromAlarm(alarm, nodeMeta).catch(e =>
+          log(chalk.yellow(`[tickets] auto-create failed: ${e.message}`))
+        );
+      }
     }
     for (const alarm of resolvedAlarms) {
       const event = eventFromResolution(alarm);

@@ -325,6 +325,7 @@ export default function App(){
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <TicketListView
               currentUser={user}
+              users={USERS}
               defaultType={view==="tickets_incidents"?"incident":view==="tickets_problems"?"problem":view==="tickets_projects"?"project":undefined}
               defaultMine={view==="tickets_my"}
               defaultSlaWatch={view==="tickets_sla"}

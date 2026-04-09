@@ -57,7 +57,7 @@ function rowBg(ticket) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function TicketListView({ currentUser, defaultType, defaultMine, defaultSlaWatch, deepLinkTicketId, onDeepLinkConsumed, onSelectTicket }) {
+export default function TicketListView({ currentUser, users = [], defaultType, defaultMine, defaultSlaWatch, deepLinkTicketId, onDeepLinkConsumed, onSelectTicket }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -72,6 +72,24 @@ export default function TicketListView({ currentUser, defaultType, defaultMine, 
   const [teamFilter, setTeamFilter] = useState("all");
   const [ownerFilter] = useState(defaultMine ? currentUser?.name : "all");
   const [search, setSearch] = useState("");
+  const [autoTickets, setAutoTickets] = useState(true);
+
+  // Auto-ticket toggle helpers
+  function apiBase() {
+    const ws = import.meta.env.VITE_POLLER_WS || "ws://localhost:4000";
+    return ws.startsWith("wss://") ? ws.replace(/^wss:\/\//, "https://") : ws.replace(/^ws:\/\//, "http://");
+  }
+  useEffect(() => {
+    fetch(`${apiBase()}/api/control/auto-tickets`)
+      .then(r => r.json()).then(d => setAutoTickets(d.enabled)).catch(() => {});
+  }, []);
+  async function toggleAutoTickets() {
+    const next = !autoTickets;
+    setAutoTickets(next);
+    try {
+      await fetch(`${apiBase()}/api/control/auto-tickets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: next }) });
+    } catch { setAutoTickets(!next); }
+  }
 
   // Tick for SLA countdown
   useEffect(() => {
@@ -167,7 +185,19 @@ export default function TicketListView({ currentUser, defaultType, defaultMine, 
             {slaAtRisk > 0 && <span style={{ color: "#b45309", fontWeight: 700 }}> · {slaAtRisk} SLA at risk</span>}
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          {/* Auto-ticket toggle */}
+          <button onClick={toggleAutoTickets} title={autoTickets ? "Disable auto-ticket creation from alarms" : "Enable auto-ticket creation from alarms"}
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 8, border: `1px solid ${autoTickets ? "rgba(34,197,94,0.4)" : T.border}`, background: autoTickets ? "rgba(34,197,94,0.08)" : T.bg, cursor: "pointer", fontFamily: "inherit" }}>
+            {/* Toggle track */}
+            <div style={{ width: 32, height: 18, borderRadius: 9, background: autoTickets ? "#22c55e" : "#94a3b8", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 2, left: autoTickets ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: autoTickets ? "#15803d" : T.muted, whiteSpace: "nowrap" }}>
+              Auto-tickets {autoTickets ? "ON" : "OFF"}
+            </span>
+          </button>
+
           <button onClick={() => setCreating(true)}
             style={{
               padding: "9px 18px", fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: "pointer",
@@ -424,6 +454,7 @@ export default function TicketListView({ currentUser, defaultType, defaultMine, 
         <TicketDetailView
           ticket={selectedTicket}
           currentUser={currentUser}
+          users={users}
           onClose={() => setSelectedTicket(null)}
           onUpdated={updated => {
             setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
