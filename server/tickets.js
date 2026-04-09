@@ -222,7 +222,7 @@ router.get("/sla", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const db = getDb();
-    const { type, status, severity, country, node, owner_name, team, sla_at_risk } = req.query;
+    const { type, status, severity, country, node, owner_name, team, sla_at_risk, alarm_type } = req.query;
 
     let query = db.from("tickets").select("*").order("created_at", { ascending: false });
 
@@ -231,6 +231,7 @@ router.get("/", async (req, res) => {
     if (country) query = query.eq("country", country);
     if (owner_name) query = query.eq("owner_name", owner_name);
     if (team) query = query.eq("team", team);
+    if (alarm_type) query = query.eq("alarm_type", alarm_type);
 
     // Status can be comma-separated
     if (status) {

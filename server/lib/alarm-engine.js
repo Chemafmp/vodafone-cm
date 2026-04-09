@@ -145,6 +145,7 @@ export function getActiveAlarmCount() {
 function checkThreshold({ nodeId, metric, value, majorThreshold, criticalThreshold, type, label, newAlarms, resolvedAlarms }) {
   const majorKey = `${nodeId}:${type}:${metric}:major`;
   const critKey = `${nodeId}:${type}:${metric}:critical`;
+  const unit = metric === "temp" ? "°C" : "%";
 
   if (value >= criticalThreshold) {
     // Upgrade: resolve major if exists, create critical
@@ -154,7 +155,7 @@ function checkThreshold({ nodeId, metric, value, majorThreshold, criticalThresho
     }
     if (!activeAlarms.has(critKey)) {
       const alarm = createAlarm(nodeId, type, "Critical",
-        `${label} critical: ${value}% (threshold: ${criticalThreshold}%)`, critKey);
+        `${label} critical: ${value}${unit} (threshold: ${criticalThreshold}${unit})`, critKey);
       activeAlarms.set(critKey, alarm);
       newAlarms.push(alarm);
     }
@@ -166,7 +167,7 @@ function checkThreshold({ nodeId, metric, value, majorThreshold, criticalThresho
     }
     if (!activeAlarms.has(majorKey)) {
       const alarm = createAlarm(nodeId, type, "Major",
-        `${label} high: ${value}% (threshold: ${majorThreshold}%)`, majorKey);
+        `${label} high: ${value}${unit} (threshold: ${majorThreshold}${unit})`, majorKey);
       activeAlarms.set(majorKey, alarm);
       newAlarms.push(alarm);
     }
