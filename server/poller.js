@@ -28,6 +28,8 @@ import { selectNodes } from "./lib/node-pool.js";
 import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
 import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
 import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas.js";
+import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bgp-visibility.js";
+import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -143,9 +145,32 @@ app.get("/api/service-status", (req, res) => {
   res.json(getServiceStatus());
 });
 
-// GET /api/network-health — RIPE Atlas latency/loss per Vodafone market
+// GET /api/network-health — RIPE Atlas latency/loss + BGP visibility + DNS RTT per Vodafone market
 app.get("/api/network-health", (req, res) => {
-  res.json(getNetworkHealth());
+  const atlas  = getNetworkHealth();
+  const bgp    = getBgpVisibility();
+  const dns    = getDnsMeasurements();
+  const bgpMap = Object.fromEntries(bgp.map(b => [b.id, b]));
+  const dnsMap = Object.fromEntries(dns.map(d => [d.id, d]));
+  res.json(atlas.map(m => ({
+    ...m,
+    bgp: bgpMap[m.id] ? {
+      current:  bgpMap[m.id].current,
+      history:  bgpMap[m.id].history,
+      status:   bgpMap[m.id].status,
+      ok:       bgpMap[m.id].ok,
+      error:    bgpMap[m.id].error,
+    } : null,
+    dns: dnsMap[m.id] ? {
+      current:      dnsMap[m.id].current,
+      history:      dnsMap[m.id].history,
+      baseline_rtt: dnsMap[m.id].baseline_rtt,
+      ratio:        dnsMap[m.id].ratio,
+      status:       dnsMap[m.id].status,
+      ok:           dnsMap[m.id].ok,
+      error:        dnsMap[m.id].error,
+    } : null,
+  })));
 });
 
 const server = http.createServer(app);
@@ -518,6 +543,24 @@ server.listen(PORT, BIND_HOST, () => {
     // First tick after 10s to let other init settle
     setTimeout(() => tickRipeAtlas(log).catch(e => log(chalk.yellow(`[ripe] first tick error: ${e.message}`))), 10_000);
   }).catch(e => log(chalk.yellow(`[ripe] init error: ${e.message}`)));
+
+  // BGP visibility — tick every 5 min, staggered 15s after RIPE Atlas
+  initBgpVisibility(log).then(() => {
+    log(chalk.cyan(`[bgp] BGP visibility polling started (every ${RIPE_INTERVAL / 60000} min)`));
+    setInterval(() => {
+      tickBgpVisibility(log).catch(e => log(chalk.yellow(`[bgp] tick error: ${e.message}`)));
+    }, RIPE_INTERVAL);
+    setTimeout(() => tickBgpVisibility(log).catch(e => log(chalk.yellow(`[bgp] first tick error: ${e.message}`))), 15_000);
+  }).catch(e => log(chalk.yellow(`[bgp] init error: ${e.message}`)));
+
+  // DNS measurements — tick every 5 min, staggered 20s after RIPE Atlas
+  initDnsMeasurements(log).then(() => {
+    log(chalk.cyan(`[dns] DNS measurement polling started (every ${RIPE_INTERVAL / 60000} min)`));
+    setInterval(() => {
+      tickDnsMeasurements(log).catch(e => log(chalk.yellow(`[dns] tick error: ${e.message}`)));
+    }, RIPE_INTERVAL);
+    setTimeout(() => tickDnsMeasurements(log).catch(e => log(chalk.yellow(`[dns] first tick error: ${e.message}`))), 20_000);
+  }).catch(e => log(chalk.yellow(`[dns] init error: ${e.message}`)));
 });
 
 function log(msg) {

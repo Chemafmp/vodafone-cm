@@ -327,6 +327,8 @@ function MetricsGlossary() {
               { icon: "📊", title: "P95 Latency",   body: "95th percentile RTT. If avg is 15ms but P95 is 80ms, 1-in-20 pings hit very high latency — users feel it even if the average looks fine. Detects bursty congestion the mean hides." },
               { icon: "📦", title: "Packet Loss",   body: "% of ICMP pings with no reply: (sent−received)/sent×100, aggregated over all probes. 0% is normal. >1% signals degradation. >5% indicates a serious connectivity problem." },
               { icon: "🔬", title: "Active Probes", body: "Physical RIPE Atlas devices inside Vodafone's AS reporting in the last 15 min. A sudden drop may indicate widespread access failure — or just few probes in that country (fewer = lower statistical confidence)." },
+              { icon: "🔗", title: "BGP Visibility", body: "% of RIPE RIS (Routing Information Service) BGP peers globally that can see Vodafone's IP prefixes. Near 100% is normal. A drop signals prefix withdrawal, route leak, or BGP session failure — meaning parts of the Internet can no longer reach Vodafone customers. This is the earliest warning of a routing incident, often visible before latency degrades." },
+              { icon: "🔍", title: "DNS RTT (msm #10001)", body: "Round-trip time for a DNS SOA query to k.root-servers.net, measured from the same Vodafone probes. Unlike the ICMP ping (which tests raw IP reachability), this tests the full DNS query path including Vodafone's local resolver. If DNS RTT >> ICMP RTT, Vodafone's resolver is slow or overloaded — customers experience slow page loads even if the network path is healthy." },
             ].map(m => (
               <div key={m.title} style={{
                 padding: "9px 11px", background: T.bg,
@@ -648,25 +650,55 @@ function DetailPanel({ market, onClose }) {
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;
 
-  // Per-metric config
+  // Per-metric config — 6 charts in 3×2 grid
   const charts = [
     {
       key: "avg_rtt",     label: "Avg Latency",   unit: " ms",   color: "#3b82f6",
       baseline: bl,       warnLevel: bl ? bl * 2 : null,         critLevel: bl ? bl * 4.5 : null,
-    },
-    {
-      key: "p95_rtt",     label: "P95 Latency",   unit: " ms",   color: "#8b5cf6",
-      baseline: null,     warnLevel: null,                        critLevel: null,
+      dataSource: "main",
     },
     {
       key: "loss_pct",    label: "Packet Loss",   unit: "%",     color: "#ef4444",
       baseline: null,     warnLevel: 1,                           critLevel: 5,
+      dataSource: "main",
+    },
+    {
+      key: "bgp_visibility", label: "BGP Visibility", unit: "%", color: "#16a34a",
+      baseline: null,     warnLevel: null,                        critLevel: null,
+      dataSource: "bgp",
+    },
+    {
+      key: "p95_rtt",     label: "P95 Latency",   unit: " ms",   color: "#8b5cf6",
+      baseline: null,     warnLevel: null,                        critLevel: null,
+      dataSource: "main",
+    },
+    {
+      key: "dns_rtt",     label: "DNS RTT",        unit: " ms",  color: "#8b5cf6",
+      baseline: market.dns?.baseline_rtt ?? null,
+      warnLevel: market.dns?.baseline_rtt ? market.dns.baseline_rtt * 2   : null,
+      critLevel: market.dns?.baseline_rtt ? market.dns.baseline_rtt * 4.5 : null,
+      dataSource: "dns",
     },
     {
       key: "probe_count", label: "Active Probes", unit: "",      color: "#0891b2",
       baseline: null,     warnLevel: null,                        critLevel: null,
+      dataSource: "main",
     },
   ];
+
+  // Return the right data array for each chart
+  function dataFor(cfg) {
+    if (cfg.dataSource === "bgp") {
+      return applyZoom(
+        (market.bgp?.history || []).map(h => ({ ...h, bgp_visibility: h.visibility_pct })),
+        zoom
+      );
+    }
+    if (cfg.dataSource === "dns") {
+      return applyZoom(market.dns?.history || [], zoom);
+    }
+    return data;
+  }
 
   return (
     <div style={{
@@ -714,17 +746,37 @@ function DetailPanel({ market, onClose }) {
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
 
-          {/* Current values row */}
+          {/* Current values row — 3×2 grid */}
           {cur && (
             <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+              display: "grid", gridTemplateColumns: "repeat(3,1fr)",
               gap: 8, marginBottom: 16,
             }}>
               {[
-                { label: "AVG RTT",      value: cur.avg_rtt,     unit: " ms", color: "#3b82f6" },
-                { label: "P95 RTT",      value: cur.p95_rtt,     unit: " ms", color: "#8b5cf6" },
-                { label: "PACKET LOSS",  value: cur.loss_pct,    unit: "%",   color: "#ef4444" },
-                { label: "PROBES",       value: cur.probe_count, unit: "",    color: "#0891b2" },
+                { label: "AVG RTT",     value: cur.avg_rtt,     unit: " ms", color: "#3b82f6" },
+                { label: "P95 RTT",     value: cur.p95_rtt,     unit: " ms", color: "#8b5cf6" },
+                { label: "PACKET LOSS", value: cur.loss_pct,    unit: "%",   color: "#ef4444" },
+                {
+                  label: "BGP VIS",
+                  value: market.bgp?.current?.visibility_pct != null
+                    ? market.bgp.current.visibility_pct : null,
+                  unit: "%",
+                  color: market.bgp?.status === "ok"      ? "#16a34a"
+                       : market.bgp?.status === "warning" ? "#b45309"
+                       : market.bgp?.status === "outage"  ? "#dc2626"
+                       : "#9ca3af",
+                },
+                {
+                  label: "DNS RTT",
+                  value: market.dns?.current?.dns_rtt != null
+                    ? market.dns.current.dns_rtt : null,
+                  unit: " ms",
+                  color: market.dns?.status === "ok"      ? "#8b5cf6"
+                       : market.dns?.status === "warning" ? "#b45309"
+                       : market.dns?.status === "outage"  ? "#dc2626"
+                       : "#9ca3af",
+                },
+                { label: "PROBES",      value: cur.probe_count, unit: "",    color: "#0891b2" },
               ].map(m2 => (
                 <div key={m2.label} style={{
                   padding: "9px 11px", background: T.bg,
@@ -737,8 +789,9 @@ function DetailPanel({ market, onClose }) {
                     fontSize: 20, fontWeight: 800, fontFamily: "monospace",
                     color: m2.color, lineHeight: 1,
                   }}>
-                    {m2.value}
-                    <span style={{ fontSize: 10, fontWeight: 600 }}>{m2.unit}</span>
+                    {m2.value != null
+                      ? <>{m2.value}<span style={{ fontSize: 10, fontWeight: 600 }}>{m2.unit}</span></>
+                      : <span style={{ fontSize: 14, color: "#9ca3af" }}>—</span>}
                   </div>
                   {m2.label === "AVG RTT" && bl && (
                     <div style={{ fontSize: 9, color: T.muted, marginTop: 1 }}>
@@ -771,14 +824,14 @@ function DetailPanel({ market, onClose }) {
             <ZoomSelector value={zoom} onChange={setZoom} />
           </div>
 
-          {/* 4 metric charts in 2×2 grid */}
+          {/* 6 metric charts in 3×2 grid */}
           <div style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px",
+            display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "18px 16px",
           }}>
             {charts.map(cfg => (
               <MetricChart
                 key={cfg.key}
-                data={data}
+                data={dataFor(cfg)}
                 valueKey={cfg.key}
                 label={cfg.label}
                 unit={cfg.unit}
@@ -786,8 +839,8 @@ function DetailPanel({ market, onClose }) {
                 baseline={cfg.baseline}
                 warnLevel={cfg.warnLevel}
                 critLevel={cfg.critLevel}
-                width={268}
-                height={72}
+                width={170}
+                height={60}
               />
             ))}
           </div>
@@ -961,17 +1014,18 @@ function MarketCard({ market, onClick }) {
       {/* Metrics */}
       {cur ? (
         <div style={{
-          display: "grid", gridTemplateColumns: "1fr 1fr",
-          gap: "5px 12px", marginBottom: 10,
+          display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "5px 10px", marginBottom: 10,
         }}>
+          {/* Row 1: AVG LATENCY | PACKET LOSS | BGP VISIBLE */}
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>AVG LATENCY</div>
             <div style={{
-              fontSize: 20, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
+              fontSize: 18, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
               color: market.status === "ok"     ? "#16a34a"
                 : market.status === "warning" ? "#b45309" : "#dc2626",
             }}>
-              {cur.avg_rtt}<span style={{ fontSize: 11, fontWeight: 600 }}> ms</span>
+              {cur.avg_rtt}<span style={{ fontSize: 10, fontWeight: 600 }}> ms</span>
             </div>
             {market.baseline_rtt && (
               <div style={{ fontSize: 9, color: T.muted }}>base {market.baseline_rtt} ms</div>
@@ -980,16 +1034,45 @@ function MarketCard({ market, onClick }) {
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>PACKET LOSS</div>
             <div style={{
-              fontSize: 20, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
+              fontSize: 18, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
               color: cur.loss_pct === 0 ? "#16a34a" : cur.loss_pct < 1 ? "#b45309" : "#dc2626",
             }}>
-              {cur.loss_pct}<span style={{ fontSize: 11, fontWeight: 600 }}> %</span>
+              {cur.loss_pct}<span style={{ fontSize: 10, fontWeight: 600 }}> %</span>
             </div>
           </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>BGP VISIBLE</div>
+            <div style={{
+              fontSize: 18, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
+              color: market.bgp?.current?.visibility_pct != null
+                ? (market.bgp.status === "ok"      ? "#16a34a"
+                  : market.bgp.status === "warning" ? "#b45309" : "#dc2626")
+                : "#9ca3af",
+            }}>
+              {market.bgp?.current?.visibility_pct != null
+                ? <>{market.bgp.current.visibility_pct}<span style={{ fontSize: 10, fontWeight: 600 }}>%</span></>
+                : <span style={{ fontSize: 13 }}>—</span>}
+            </div>
+          </div>
+          {/* Row 2: P95 LATENCY | DNS RTT | ACTIVE PROBES */}
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>P95 LATENCY</div>
             <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: T.text }}>
               {cur.p95_rtt} ms
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>DNS RTT</div>
+            <div style={{
+              fontSize: 13, fontWeight: 700, fontFamily: "monospace",
+              color: market.dns?.current?.dns_rtt != null
+                ? (market.dns.status === "ok"      ? "#8b5cf6"
+                  : market.dns.status === "warning" ? "#b45309" : "#dc2626")
+                : "#9ca3af",
+            }}>
+              {market.dns?.current?.dns_rtt != null
+                ? `${market.dns.current.dns_rtt} ms`
+                : "—"}
             </div>
           </div>
           <div>
