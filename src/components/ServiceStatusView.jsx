@@ -14,6 +14,47 @@ async function fetchServiceStatus() {
   return r.json();
 }
 
+// ─── Client-side demo data (shown when backend unreachable) ──────────────────
+const DEMO_MARKETS = [
+  { id:"es", name:"Spain",       flag:"🇪🇸", baseline:45 },
+  { id:"uk", name:"UK",          flag:"🇬🇧", baseline:60 },
+  { id:"de", name:"Germany",     flag:"🇩🇪", baseline:50 },
+  { id:"it", name:"Italy",       flag:"🇮🇹", baseline:40 },
+  { id:"pt", name:"Portugal",    flag:"🇵🇹", baseline:20 },
+  { id:"nl", name:"Netherlands", flag:"🇳🇱", baseline:25 },
+  { id:"ie", name:"Ireland",     flag:"🇮🇪", baseline:15 },
+  { id:"gr", name:"Greece",      flag:"🇬🇷", baseline:20 },
+  { id:"ro", name:"Romania",     flag:"🇷🇴", baseline:30 },
+  { id:"tr", name:"Turkey",      flag:"🇹🇷", baseline:35 },
+];
+
+// Predefined demo scenarios so it's visually interesting
+const DEMO_RATIOS = { es:5.2, uk:1.1, de:2.8, it:1.3, pt:0.9, nl:3.6, ie:0.8, gr:1.0, ro:1.2, tr:4.9 };
+
+function makeDemoData() {
+  const r = (min, max) => min + Math.random() * (max - min);
+  return DEMO_MARKETS.map(m => {
+    const ratio = DEMO_RATIOS[m.id] * r(0.9, 1.1);
+    const complaints = Math.round(m.baseline * ratio);
+    const status = ratio >= 4.5 ? "outage" : ratio >= 2.0 ? "warning" : "ok";
+    // Generate a plausible trend (20 points)
+    const trend = Array.from({ length: 20 }, (_, i) => {
+      const t = i / 19;
+      return Math.round(m.baseline * (ratio * t + r(0.7, 1.1) * (1 - t)));
+    });
+    trend[19] = complaints;
+    const svcWeights = { mobile_data:0.40, mobile_voice:0.20, fixed_bb:0.28, tv:0.12 };
+    const services = Object.fromEntries(
+      Object.entries(svcWeights).map(([id, w]) => {
+        const sc = Math.round(complaints * w * r(0.8, 1.2));
+        const sr = sc / (m.baseline * w || 1);
+        return [id, { complaints: sc, ratio: Math.round(sr * 10) / 10, status: sr >= 4.5 ? "outage" : sr >= 2.0 ? "warning" : "ok" }];
+      })
+    );
+    return { ...m, complaints, ratio: Math.round(ratio * 10) / 10, status, prevStatus: "ok", trend, ticketId: null, lastUpdate: Date.now(), services };
+  });
+}
+
 // ─── Status palette ────────────────────────────────────────────────────────────
 const STATUS_META = {
   ok:      { label: "OK",      color: "#15803d", bg: "#f0fdf4", border: "#86efac", dot: "#22c55e" },
@@ -266,11 +307,12 @@ function DetailPanel({ market, onClose }) {
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 export default function ServiceStatusView() {
-  const [markets, setMarkets]       = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  const [selected, setSelected]     = useState(null);
-  const [filter, setFilter]         = useState("all"); // all | outage | warning
+  const [markets, setMarkets]         = useState(() => makeDemoData());
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
+  const [usingDemo, setUsingDemo]     = useState(false);
+  const [selected, setSelected]       = useState(null);
+  const [filter, setFilter]           = useState("all"); // all | outage | warning
   const [lastRefresh, setLastRefresh] = useState(null);
   const intervalRef = useRef(null);
 
@@ -280,8 +322,13 @@ export default function ServiceStatusView() {
       setMarkets(data);
       setLastRefresh(new Date());
       setError(null);
+      setUsingDemo(false);
     } catch (e) {
+      // Backend unreachable — keep showing demo data so the UI isn't blank
       setError(e.message);
+      setUsingDemo(true);
+      setMarkets(prev => prev.length > 0 ? prev : makeDemoData());
+      setLastRefresh(new Date());
     } finally {
       setLoading(false);
     }
@@ -358,8 +405,16 @@ export default function ServiceStatusView() {
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {error && <span style={{ fontSize: 11, color: "#dc2626" }}>⚠ {error}</span>}
-            {lastRefresh && !error && (
+            {usingDemo && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "#b45309",
+                background: "#fffbeb", border: "1px solid #fcd34d",
+                borderRadius: 5, padding: "2px 8px", letterSpacing: "0.3px",
+              }}>
+                DEMO — backend offline
+              </span>
+            )}
+            {lastRefresh && (
               <span style={{ fontSize: 10, color: T.muted }}>
                 Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </span>
