@@ -288,7 +288,7 @@ function MetricsGlossary() {
   return (
     <div style={{
       border: `1px solid ${T.border}`, borderRadius: 10,
-      background: T.surface, marginTop: 20, overflow: "hidden",
+      background: T.surface, marginTop: 20, marginBottom: 24,
     }}>
       <button
         onClick={() => setOpen(o => !o)}
@@ -612,23 +612,53 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
                 );
               })}
 
-              {/* Inference + legend note */}
+              {/* Chart legend */}
               <div style={{
-                marginTop: 10, padding: "9px 12px", background: "#f8faff",
-                border: "1px solid #dbeafe", borderRadius: 7,
-                fontSize: 11, color: "#1e40af", lineHeight: 1.5,
+                marginTop: 10, padding: "10px 14px", background: T.bg,
+                border: `1px solid ${T.border}`, borderRadius: 7,
               }}>
-                <strong>⚡ Anycast routing inference</strong> — k-root uses anycast, so each probe
-                hits its nearest instance. Probes with avg RTT &gt;1.5× market median
-                ({median !== null ? `${Math.round(median)}ms` : "—"}) likely route to a farther
-                node ({nearby[1]?.city || "unknown"}).
-                Bar shows <em>min–avg–max</em> range from the last 15-min window.
-                <span style={{ display: "block", marginTop: 4 }}>
-                  <a href="https://atlas.ripe.net/measurements/1001/"
-                    target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
-                    View measurement on RIPE Atlas →
-                  </a>
-                </span>
+                <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 8 }}>
+                  How to read the bars
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {/* Bar anatomy */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {/* Mini bar example */}
+                    <svg width={120} height={20} style={{ flexShrink: 0, overflow: "visible" }}>
+                      <rect x={0} y={8} width={120} height={4} rx={2} fill={T.border} />
+                      <rect x={20} y={7} width={70} height={6} rx={2} fill="#3b82f6" opacity={0.22} />
+                      <rect x={52} y={5} width={4} height={10} rx={2} fill="#3b82f6" />
+                      {/* min label */}
+                      <line x1={20} y1={4} x2={20} y2={16} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,1"/>
+                      <text x={21} y={3} fontSize={7} fill="#94a3b8">min</text>
+                      {/* max label */}
+                      <line x1={90} y1={4} x2={90} y2={16} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,1"/>
+                      <text x={91} y={3} fontSize={7} fill="#94a3b8">max</text>
+                      {/* avg label */}
+                      <text x={57} y={3} fontSize={7} fill="#3b82f6" fontWeight={700}>avg</text>
+                    </svg>
+                    <span style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
+                      <strong style={{ color: T.text }}>Shaded band</strong> = min–max spread
+                      across all pings in the 15-min window (each probe sends ~3 pings every 4 min ≈ 12 samples).
+                      A wide band means <em>jitter</em> — latency is inconsistent.
+                      The <strong style={{ color: T.text }}>solid marker</strong> is the avg (or P95 when viewing P95).
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
+                    <span style={{
+                      display: "inline-block", width: 10, height: 10,
+                      background: "#f59e0b", borderRadius: 2, marginRight: 5, verticalAlign: "middle",
+                    }} />
+                    <strong style={{ color: "#b45309" }}>Amber bar</strong> = probe RTT is &gt;1.5× above
+                    the market median ({median !== null ? `${Math.round(median)}ms` : "—"}ms) — it likely
+                    connects to a farther k-root anycast node
+                    {nearby[1] ? ` (e.g. ${nearby[1].city} via ${nearby[1].ix})` : ""}.
+                    {" "}<a href="https://atlas.ripe.net/measurements/1001/"
+                      target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
+                      View on RIPE Atlas →
+                    </a>
+                  </div>
+                </div>
               </div>
             </>
           )}
