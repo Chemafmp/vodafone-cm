@@ -78,6 +78,12 @@ export default function App(){
   function handleLogout() { sessionStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
   const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
   const [view,setView]=useState("changes");
+
+  // ── PWA view state (null = landing, "service_monitor" | "network_health") ────
+  const [pwaView, setPwaView] = useState(() => {
+    const m = window.location.hash.match(/[#&]standalone=([^&]+)/);
+    return m ? decodeURIComponent(m[1]) : null; // hash deep-link still works
+  });
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
   const [chaosOpen,setChaosOpen]=useState(false);
 
@@ -166,19 +172,41 @@ export default function App(){
   const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",network_health:"Network Health",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
-  // ── Standalone PWA mode: hash param OR running as installed PWA ──
-  // iOS strips the hash from start_url, so we also detect via navigator.standalone
-  const standaloneView = (() => {
-    const m = window.location.hash.match(/[#&]standalone=([^&]+)/);
-    if (m) return decodeURIComponent(m[1]);
-    // Detect installed PWA: iOS (navigator.standalone) or Android/Chrome (display-mode)
-    const isPWA = window.navigator.standalone === true ||
-      window.matchMedia("(display-mode: standalone)").matches;
-    if (isPWA) return "service_monitor";
-    return null;
-  })();
-  if (standaloneView === "service_monitor") {
-    return (
+  // ── Standalone PWA mode (iOS navigator.standalone or Chrome display-mode) ──────
+  const isPWA = window.navigator.standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.location.hash.includes("standalone=");
+
+  if (isPWA) {
+    const pwaTopbar = (subtitle, onBack) => (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "10px 16px", background: "#e40000", flexShrink: 0,
+      }}>
+        {onBack && (
+          <button onClick={onBack} style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: "#fff", fontSize: 20, lineHeight: 1, padding: "0 6px 0 0",
+          }}>←</button>
+        )}
+        <div style={{
+          width: 28, height: 28, borderRadius: 7,
+          background: "linear-gradient(135deg,#fff,#ffd0d0)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14, fontWeight: 900, color: "#e40000", flexShrink: 0,
+        }}>N</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", lineHeight: 1.2 }}>
+            Chema NOC
+          </div>
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.65)", fontWeight: 500 }}>
+            {subtitle}
+          </div>
+        </div>
+      </div>
+    );
+
+    const pwaShell = (subtitle, onBack, children) => (
       <div style={{
         display: "flex", flexDirection: "column", height: "100vh",
         background: T.bg, color: T.text, fontFamily: "'Inter','Segoe UI',sans-serif",
@@ -186,29 +214,123 @@ export default function App(){
         paddingTop: "env(safe-area-inset-top)",
         paddingBottom: "env(safe-area-inset-bottom)",
       }}>
-        {/* Minimal topbar */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 10,
-          padding: "10px 16px", background: "#e60000", flexShrink: 0,
-        }}>
-          <span style={{ fontSize: 18 }}>🔴</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", letterSpacing: "0.3px", lineHeight: 1.2 }}>
-              Chema NOC
-            </div>
-            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.65)", fontWeight: 500, letterSpacing: "0.2px" }}>
-              Powered by Downdetector [COMMUNITY DATA]
-            </div>
+        {pwaTopbar(subtitle, onBack)}
+        <Suspense fallback={
+          <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:T.muted }}>
+            Loading…
           </div>
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", fontWeight: 600, flexShrink: 0 }}>
-            Service Status
-          </span>
-        </div>
-        <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted}}>Loading…</div>}>
-          <ServiceStatusView mobile hideTickets />
+        }>
+          {children}
         </Suspense>
       </div>
     );
+
+    // ── Landing ──────────────────────────────────────────────────────────────
+    if (!pwaView) {
+      return (
+        <div style={{
+          display: "flex", flexDirection: "column", height: "100vh",
+          background: "#0f172a", fontFamily: "'Inter','Segoe UI',sans-serif",
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}>
+          {/* Header */}
+          <div style={{ padding: "20px 20px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10,
+                background: "linear-gradient(135deg,#e40000,#9b0000)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 20, fontWeight: 900, color: "#fff",
+              }}>N</div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 20, color: "#fff" }}>Chema NOC</div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>Network Operations Centre</div>
+              </div>
+            </div>
+            <div style={{ height: 1, background: "#1e293b", marginTop: 16 }} />
+          </div>
+
+          {/* Tiles */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 20px", gap: 14 }}>
+            {[
+              {
+                key: "service_monitor",
+                icon: "🌐",
+                title: "Service Monitor",
+                subtitle: "Downdetector · Community outage reports",
+                detail: "15 services · Spain, UK, Germany…",
+                accent: "#0ea5e9",
+                bg: "linear-gradient(135deg,#0c2d4a,#0f172a)",
+                border: "#1e3a5f",
+              },
+              {
+                key: "network_health",
+                icon: "📡",
+                title: "Network Health",
+                subtitle: "RIPE Atlas · RTT, loss, BGP visibility",
+                detail: "9 Vodafone markets · msm #1001",
+                accent: "#10b981",
+                bg: "linear-gradient(135deg,#0c2d2a,#0f172a)",
+                border: "#1e3d38",
+              },
+            ].map(tile => (
+              <button
+                key={tile.key}
+                onClick={() => setPwaView(tile.key)}
+                style={{
+                  background: tile.bg, border: `1px solid ${tile.border}`,
+                  borderRadius: 18, padding: "22px 20px",
+                  textAlign: "left", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 16,
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+                }}
+              >
+                <div style={{
+                  width: 56, height: 56, borderRadius: 14, flexShrink: 0,
+                  background: `${tile.accent}22`, border: `1px solid ${tile.accent}44`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 28,
+                }}>{tile.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: "#f1f5f9", marginBottom: 3 }}>
+                    {tile.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 2 }}>{tile.subtitle}</div>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>{tile.detail}</div>
+                </div>
+                <div style={{ fontSize: 18, color: tile.accent, opacity: 0.7 }}>›</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div style={{ padding: "0 20px 16px", textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: "#334155" }}>
+              Bodaphone Lab · Real-time network intelligence
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Service Monitor ───────────────────────────────────────────────────────
+    if (pwaView === "service_monitor") {
+      return pwaShell(
+        "Service Monitor · Downdetector [COMMUNITY DATA]",
+        () => setPwaView(null),
+        <ServiceStatusView mobile hideTickets />
+      );
+    }
+
+    // ── Network Health ────────────────────────────────────────────────────────
+    if (pwaView === "network_health") {
+      return pwaShell(
+        "Network Health · RIPE Atlas",
+        () => setPwaView(null),
+        <NetworkHealthView />
+      );
+    }
   }
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
