@@ -43,18 +43,21 @@ function initState() {
     const baseline = m.baseline;
     state.set(m.id, {
       ...m,
-      complaints:      Math.round(baseline),
-      ratio:           1.0,
-      status:          "ok",
-      prevStatus:      "ok",
-      trend:           Array(HISTORY_LEN).fill(Math.round(baseline)),
-      ticketId:        null,
-      spikeRemaining:  0,
-      spikeMult:       1,
-      spikeService:    null,
-      lastUpdate:      Date.now(),
-      dataSource:      "simulated",
-      services:        Object.fromEntries(
+      complaints:       Math.round(baseline),
+      ratio:            1.0,
+      status:           "ok",
+      prevStatus:       "ok",
+      trend:            Array(HISTORY_LEN).fill(Math.round(baseline)),
+      ticketId:         null,
+      spikeRemaining:   0,
+      spikeMult:        1,
+      spikeService:     null,
+      lastUpdate:       Date.now(),
+      dataSource:       "simulated",
+      baselineAuto:     false,   // true once enough history to compute dynamically
+      baselineOriginal: baseline, // original hardcoded value, kept for cap/reference
+      tickCount:        0,
+      services:         Object.fromEntries(
         SERVICES.map(s => [s.id, { complaints: Math.round(baseline * s.weight), ratio: 1.0, status: "ok" }])
       ),
     });
@@ -78,6 +81,32 @@ function statusForRatio(ratio) {
   if (ratio >= 4.5) return "outage";
   if (ratio >= 2.0) return "warning";
   return "ok";
+}
+
+// ─── Dynamic baseline ─────────────────────────────────────────────────────────
+/**
+ * Recalculates the market baseline from its trend ring buffer.
+ * Uses the 25th percentile of non-padding values — captures "normal quiet"
+ * traffic, robust to spikes and incident periods.
+ * Called every 10 ticks. Needs ≥120 real data points (≥1h of history).
+ * Capped at 2× the original value to prevent runaway drift during sustained outages.
+ */
+function recomputeBaseline(m) {
+  m.tickCount = (m.tickCount || 0) + 1;
+  if (m.tickCount % 10 !== 0) return; // only every 10 ticks
+
+  // Exclude padding (values equal to original baseline fill from initState)
+  // Use all values once we have real history from DB restore or live ticks
+  const values = m.trend.filter(v => v > 0).sort((a, b) => a - b);
+  if (values.length < 120) return; // need ≥1h
+
+  const p25 = values[Math.floor(values.length * 0.25)];
+  if (!p25 || p25 <= 0) return;
+
+  // Cap: don't let auto-baseline exceed 2× original (sustained outage protection)
+  const cap = m.baselineOriginal * 2;
+  m.baseline    = Math.round(Math.min(p25, cap));
+  m.baselineAuto = true;
 }
 
 // ─── Supabase persistence ─────────────────────────────────────────────────────
@@ -140,6 +169,7 @@ async function tickFromScraper(port, log) {
     m.dataSource  = "downdetector";
     m.trend       = r.trend ? r.trend : [...m.trend.slice(1), complaints];
 
+    recomputeBaseline(m);
     persistTick(m);
     await handleStatusTransition(m, port);
   }
@@ -190,6 +220,7 @@ async function tickOneSimulated(m, port) {
   m.lastUpdate = Date.now();
   m.dataSource = "simulated";
   m.trend      = [...m.trend.slice(1), complaints];
+  recomputeBaseline(m);
   persistTick(m);
   await handleStatusTransition(m, port);
 }
@@ -262,10 +293,11 @@ export function getServiceStatus() {
       status:      s.status,
       prevStatus:  s.prevStatus,
       trend:       s.trend,
-      ticketId:    s.ticketId,
-      lastUpdate:  s.lastUpdate,
-      services:    s.services,
-      dataSource:  s.dataSource ?? (USE_SCRAPER ? "downdetector" : "simulated"),
+      ticketId:      s.ticketId,
+      lastUpdate:    s.lastUpdate,
+      services:      s.services,
+      dataSource:    s.dataSource ?? (USE_SCRAPER ? "downdetector" : "simulated"),
+      baselineAuto:  s.baselineAuto ?? false,
     };
   });
 }

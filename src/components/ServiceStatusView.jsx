@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { T } from "../data/constants.js";
 
 // ─── API base (mirrors ticketsDb.js pattern) ──────────────────────────────────
@@ -201,60 +201,80 @@ function MarketCard({ market, trend, selected, onClick }) {
   );
 }
 
-// ─── Detail chart (with baseline + threshold zones) ──────────────────────────
-function DetailChart({ trend, baseline, status, width = 272, height = 80 }) {
+// ─── Detail chart (with baseline + threshold zones + hover tooltip) ───────────
+function DetailChart({ trend, baseline, status, width = 272, height = 80, rangePoints }) {
+  const [hover, setHover] = useState(null); // { x, y, value, idx, ratio }
+  const svgRef = useRef(null);
+
   if (!trend || trend.length < 2) return <div style={{ width, height }} />;
 
-  const warn2x   = baseline * 2.0;
-  const outage45 = baseline * 4.5;
+  const warn2x    = baseline * 2.0;
+  const outage45  = baseline * 4.5;
   const domainMax = Math.max(...trend, outage45 * 1.1, 1);
   const toY = v => height - (v / domainMax) * (height - 4) - 2;
+  const toX = i => (i / (trend.length - 1)) * width;
 
-  const pts = trend.map((v, i) => {
-    const x = (i / (trend.length - 1)) * width;
-    return `${x},${toY(v)}`;
-  });
+  const pts = trend.map((v, i) => `${toX(i)},${toY(v)}`);
 
-  const col    = STATUS_META[status]?.dot || "#22c55e";
-  const baseY  = toY(baseline);
-  const warn2Y = toY(warn2x);
-  const out45Y = toY(outage45);
-  const lastX  = width;
-  const lastV  = trend[trend.length - 1];
-  const lastY  = toY(lastV);
+  const col     = STATUS_META[status]?.dot || "#22c55e";
+  const baseY   = toY(baseline);
+  const warn2Y  = toY(warn2x);
+  const out45Y  = toY(outage45);
+  const lastV   = trend[trend.length - 1];
+  const lastY   = toY(lastV);
+
+  const handleMouseMove = useCallback((e) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = e.clientX - rect.left;
+    const idx = Math.round((mx / width) * (trend.length - 1));
+    const clamped = Math.max(0, Math.min(trend.length - 1, idx));
+    const v = trend[clamped];
+    const ratio = baseline > 0 ? Math.round((v / baseline) * 10) / 10 : "—";
+    setHover({ x: toX(clamped), y: toY(v), value: v, idx: clamped, ratio });
+  }, [trend, baseline, width]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tooltip position — flip to left if near right edge
+  const tipX    = hover ? (hover.x > width * 0.65 ? hover.x - 72 : hover.x + 8) : 0;
+  const tipY    = hover ? Math.max(2, hover.y - 28) : 0;
+  const hStatus = hover ? (hover.ratio >= 4.5 ? "outage" : hover.ratio >= 2.0 ? "warning" : "ok") : "ok";
+  const hCol    = STATUS_META[hStatus]?.dot || col;
 
   return (
-    <svg width={width} height={height} style={{ display: "block", overflow: "visible" }}>
-      {/* Outage zone (red tint above 4.5×) */}
-      {out45Y > 0 && (
-        <rect x={0} y={0} width={width} height={Math.max(0, out45Y)}
-          fill="rgba(239,68,68,0.06)" />
-      )}
-      {/* Warning zone (amber tint 2×–4.5×) */}
-      <rect x={0} y={Math.max(0, out45Y)} width={width}
-        height={Math.max(0, warn2Y - out45Y)}
-        fill="rgba(245,158,11,0.06)" />
+    <svg ref={svgRef} width={width} height={height}
+      style={{ display: "block", overflow: "visible", cursor: "crosshair" }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setHover(null)}>
+
+      {/* Threshold zones */}
+      {out45Y > 0 && <rect x={0} y={0} width={width} height={Math.max(0, out45Y)} fill="rgba(239,68,68,0.06)" />}
+      <rect x={0} y={Math.max(0, out45Y)} width={width} height={Math.max(0, warn2Y - out45Y)} fill="rgba(245,158,11,0.06)" />
 
       {/* Threshold lines */}
-      <line x1={0} y1={out45Y} x2={width} y2={out45Y}
-        stroke="#ef4444" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
-      <line x1={0} y1={warn2Y} x2={width} y2={warn2Y}
-        stroke="#f59e0b" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
-      {/* Baseline */}
-      <line x1={0} y1={baseY} x2={width} y2={baseY}
-        stroke="#64748b" strokeWidth={1} strokeDasharray="4,2" opacity={0.6} />
+      <line x1={0} y1={out45Y} x2={width} y2={out45Y} stroke="#ef4444" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      <line x1={0} y1={warn2Y} x2={width} y2={warn2Y} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      <line x1={0} y1={baseY}  x2={width} y2={baseY}  stroke="#64748b" strokeWidth={1} strokeDasharray="4,2" opacity={0.6} />
 
-      {/* Labels on right edge */}
+      {/* Labels */}
       <text x={width - 2} y={out45Y - 3} textAnchor="end" fontSize={7} fill="#ef4444" opacity={0.7}>OUTAGE</text>
       <text x={width - 2} y={warn2Y - 3} textAnchor="end" fontSize={7} fill="#f59e0b" opacity={0.7}>WARN</text>
       <text x={width - 2} y={baseY + 9}  textAnchor="end" fontSize={7} fill="#64748b" opacity={0.7}>BASE</text>
 
       {/* Complaint line */}
-      <polyline points={pts.join(" ")} fill="none" stroke={col}
-        strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={pts.join(" ")} fill="none" stroke={col} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
 
-      {/* Last value dot */}
-      <circle cx={lastX} cy={lastY} r={3} fill={col} />
+      {/* Last value dot (hidden when hovering) */}
+      {!hover && <circle cx={toX(trend.length - 1)} cy={lastY} r={3} fill={col} />}
+
+      {/* Hover crosshair + tooltip */}
+      {hover && (<>
+        <line x1={hover.x} y1={0} x2={hover.x} y2={height} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,2" opacity={0.6} />
+        <circle cx={hover.x} cy={hover.y} r={4} fill={hCol} stroke="#fff" strokeWidth={1.5} />
+        {/* Tooltip box */}
+        <rect x={tipX} y={tipY} width={64} height={24} rx={4} fill={T.surface} stroke={T.border} strokeWidth={1} opacity={0.95} />
+        <text x={tipX + 32} y={tipY + 9}  textAnchor="middle" fontSize={9}  fill={T.muted} fontFamily="monospace">{hover.value}/h</text>
+        <text x={tipX + 32} y={tipY + 19} textAnchor="middle" fontSize={8}  fill={hCol}    fontFamily="monospace">{hover.ratio}× baseline</text>
+      </>)}
     </svg>
   );
 }
@@ -276,7 +296,7 @@ function trendDirection(trend) {
 }
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ market, trend, rangeLabel, onClose }) {
+function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
   const sm  = STATUS_META[market.status] || STATUS_META.ok;
   const dir = trendDirection(trend);
   const peak = trend && trend.length > 0 ? Math.max(...trend) : market.complaints;
@@ -345,7 +365,7 @@ function DetailPanel({ market, trend, rangeLabel, onClose }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
           {[
             { label: "Now",      value: `${market.complaints}`, unit: "/h",    color: sm.color },
-            { label: "Baseline", value: `${market.baseline}`,   unit: "/h",    color: T.muted  },
+            { label: market.baselineAuto ? "Baseline ∿" : "Baseline", value: `${market.baseline}`, unit: "/h", color: T.muted },
             { label: "Peak",     value: `${peak}`,              unit: ` (${peakRatio}×)`, color: peak > market.baseline * 2 ? "#b45309" : T.muted },
           ].map(m => (
             <div key={m.label} style={{ padding: "8px 10px", background: T.bg,
@@ -366,7 +386,7 @@ function DetailPanel({ market, trend, rangeLabel, onClose }) {
           </div>
           <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px",
             border: `1px solid ${T.border}` }}>
-            <DetailChart trend={trend} baseline={market.baseline} status={market.status} width={272} height={80} />
+            <DetailChart trend={trend} baseline={market.baseline} status={market.status} width={272} height={80} rangePoints={rangePoints} />
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
               <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
               <span style={{ fontSize: 9, color: T.muted }}>now · {market.complaints}/h</span>
@@ -647,6 +667,7 @@ export default function ServiceStatusView() {
           market={selectedMarket}
           trend={sliceTrend(selectedMarket.trend, timeRange.points)}
           rangeLabel={timeRange.label}
+          rangePoints={timeRange.points}
           onClose={() => setSelected(null)}
         />
       )}
