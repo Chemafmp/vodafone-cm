@@ -188,7 +188,9 @@ async function tryHtmlScrape(m) {
     return { values: [count], url, shape: "html-badge" };
   }
 
-  throw new Error(`could not parse HTML from ${url} (${html.length} bytes)`);
+  // DEBUG: log a slice so we can find the right pattern
+  const snippet = html.replace(/\s+/g, " ").slice(0, 1500);
+  throw new Error(`could not parse HTML from ${url} (${html.length} bytes)\nSNIPPET: ${snippet}`);
 }
 
 // ─── Scrape one market — tries all approaches ─────────────────────────────────
