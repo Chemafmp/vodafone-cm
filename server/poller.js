@@ -494,10 +494,13 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Service status simulation — tick every 30s
   const SERVICE_STATUS_INTERVAL = 30_000;
+  const useScraper = process.env.USE_SCRAPER === "1";
+  log(chalk.cyan(`[service-status] starting — mode: ${useScraper ? chalk.bold("SCRAPER (Downdetector)") : "simulator"} (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
   setInterval(() => {
-    tickServiceStatus(PORT).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
+    tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
   }, SERVICE_STATUS_INTERVAL);
-  log(chalk.cyan(`[service-status] simulator started (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
+  // Fire first tick immediately so logs appear right away
+  setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
 });
 
 function log(msg) {
