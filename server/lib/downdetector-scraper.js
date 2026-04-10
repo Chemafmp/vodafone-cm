@@ -1,115 +1,176 @@
 // ─── Downdetector scraper ────────────────────────────────────────────────────
-// Quick-and-dirty HTML scraper for Vodafone complaint data.
-// WARNING: fragile — for testing only. Replace with official API in production.
+// Tries three approaches in order, from lightest to heaviest:
+//   1. JSON chart-data endpoint  (/status/slug/chart-data/ or /estado/slug/chart-data/)
+//      → returns [{x: epoch_ms, y: count}, ...] or [[epoch, count], ...]
+//      → usually NOT behind Cloudflare (API call, not page load)
+//   2. HTML + Highcharts regex   (the full page — may hit CF 403)
+//   3. HTML + reports-badge      (simple number embedded in page)
 //
-// Downdetector embeds Highcharts data in a <script> tag like:
-//   "data":[[1700000000000,12],[1700003600000,23],...]
-// We extract the last 24h series, use the latest point as "current complaints"
-// and the mean as the "baseline".
+// WARNING: fragile — for testing only. Replace with official Downdetector API.
 
 const MARKETS = [
-  { id:"es", name:"Spain",       flag:"🇪🇸", url:"https://downdetector.es/estado/vodafone/" },
-  { id:"uk", name:"UK",          flag:"🇬🇧", url:"https://downdetector.co.uk/status/vodafone/" },
-  { id:"de", name:"Germany",     flag:"🇩🇪", url:"https://downdetector.de/status/vodafone/" },
-  { id:"it", name:"Italy",       flag:"🇮🇹", url:"https://downdetector.it/status/vodafone/" },
-  { id:"pt", name:"Portugal",    flag:"🇵🇹", url:"https://downdetector.pt/estado/vodafone/" },
-  { id:"nl", name:"Netherlands", flag:"🇳🇱", url:"https://downdetector.nl/status/vodafone/" },
-  { id:"ie", name:"Ireland",     flag:"🇮🇪", url:"https://downdetector.ie/status/vodafone/" },
-  { id:"gr", name:"Greece",      flag:"🇬🇷", url:"https://downdetector.gr/status/vodafone/" },
-  { id:"ro", name:"Romania",     flag:"🇷🇴", url:"https://downdetector.ro/status/vodafone-romania/" },
-  { id:"tr", name:"Turkey",      flag:"🇹🇷", url:"https://downdetector.com.tr/durum/vodafone/" },
+  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"estado" },
+  { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status" },
+  { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status" },
+  { id:"it", name:"Italy",       flag:"🇮🇹", domain:"downdetector.it",     slug:"vodafone",         path:"status" },
+  { id:"pt", name:"Portugal",    flag:"🇵🇹", domain:"downdetector.pt",     slug:"vodafone",         path:"estado" },
+  { id:"nl", name:"Netherlands", flag:"🇳🇱", domain:"downdetector.nl",     slug:"vodafone",         path:"status" },
+  { id:"ie", name:"Ireland",     flag:"🇮🇪", domain:"downdetector.ie",     slug:"vodafone",         path:"status" },
+  { id:"gr", name:"Greece",      flag:"🇬🇷", domain:"downdetector.gr",     slug:"vodafone",         path:"status" },
+  { id:"ro", name:"Romania",     flag:"🇷🇴", domain:"downdetector.ro",     slug:"vodafone-romania", path:"status" },
+  { id:"tr", name:"Turkey",      flag:"🇹🇷", domain:"downdetector.com.tr", slug:"vodafone",         path:"durum"  },
 ];
 
-const FETCH_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+const TIMEOUT_MS = 14_000;
+
+const HTML_HEADERS = {
+  "User-Agent":      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
-  "Cache-Control": "no-cache",
-  "Pragma": "no-cache",
+  "Accept-Encoding": "gzip, deflate, br",
+  "Cache-Control":   "no-cache",
+  "Pragma":          "no-cache",
+  "Sec-Fetch-Dest":  "document",
+  "Sec-Fetch-Mode":  "navigate",
+  "Sec-Fetch-Site":  "none",
 };
 
-const FETCH_TIMEOUT_MS = 12_000;
+const JSON_HEADERS = {
+  "User-Agent":  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept":      "application/json, text/javascript, */*; q=0.01",
+  "X-Requested-With": "XMLHttpRequest",
+  "Referer":     "", // set per-request below
+};
 
-// ─── Parse Highcharts data from HTML ─────────────────────────────────────────
-// Tries three progressively looser patterns to find the chart series.
-function parseHighchartsData(html) {
-  // Pattern 1: standard Highcharts series data embedded as JSON
-  // matches: "data":[[1700000000,23],[1700003600,45],...]
-  const patterns = [
-    /"data"\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}]/,
-    /data\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}]/,
-    /\[\s*(\[\d{10,13},\s*\d+\](?:\s*,\s*\[\d{10,13},\s*\d+\])+)\s*\]/,
+async function timedFetch(url, headers) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { headers, signal: ctrl.signal });
+    return r;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ─── Approach 1: JSON chart-data endpoint ────────────────────────────────────
+// Downdetector loads chart data from a lightweight JSON endpoint.
+// Known patterns (varies by market/version):
+//   /status/vodafone/chart-data/          → [{x, y}, ...]
+//   /estado/vodafone/chart-data/          → same
+//   /status/vodafone/chart.json           → same
+async function tryJsonEndpoint(m) {
+  const base = `https://${m.domain}`;
+  const endpoints = [
+    `${base}/${m.path}/${m.slug}/chart-data/`,
+    `${base}/${m.path}/${m.slug}/chart.json`,
+    `${base}/api/v1/stats/${m.slug}/`,
   ];
 
-  for (const pat of patterns) {
-    const m = html.match(pat);
-    if (!m) continue;
+  for (const url of endpoints) {
     try {
-      // Normalise: wrap in outer [] if pattern 3 (no outer brackets)
-      const raw = pat === patterns[2] ? `[${m[1]}]` : m[1];
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      const r = await timedFetch(url, { ...JSON_HEADERS, Referer: `${base}/${m.path}/${m.slug}/` });
+      if (!r.ok) continue;
+
+      const ct = r.headers.get("content-type") || "";
+      if (!ct.includes("json") && !ct.includes("javascript")) continue;
+
+      const json = await r.json();
+
+      // Shape A: [{x: epochMs, y: count}, ...]
+      if (Array.isArray(json) && json[0]?.y !== undefined) {
+        const values = json.map(p => Math.round(p.y));
+        return { values, url, shape: "A" };
+      }
+      // Shape B: [[epochMs, count], ...]
+      if (Array.isArray(json) && Array.isArray(json[0])) {
+        const values = json.map(p => Math.round(p[1]));
+        return { values, url, shape: "B" };
+      }
+      // Shape C: { data: [...] }
+      if (json.data && Array.isArray(json.data)) {
+        const values = json.data.map(p => Array.isArray(p) ? Math.round(p[1]) : Math.round(p.y ?? p.value ?? 0));
+        if (values.length > 0) return { values, url, shape: "C" };
+      }
     } catch { /* try next */ }
   }
   return null;
 }
 
-// ─── Parse plain "N reports" badge ───────────────────────────────────────────
-// Downdetector sometimes renders <p class="num reports-num">123</p>
-function parseReportsBadge(html) {
-  const m = html.match(/class="[^"]*reports-num[^"]*"[^>]*>\s*(\d+)/);
-  if (m) return parseInt(m[1], 10);
+// ─── Approach 2 & 3: HTML scraping ───────────────────────────────────────────
+async function tryHtmlScrape(m) {
+  const url = `https://${m.domain}/${m.path}/${m.slug}/`;
+  const r = await timedFetch(url, HTML_HEADERS);
+  if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
+  const html = await r.text();
 
-  // Alternative: data-count attribute
-  const m2 = html.match(/data-count="(\d+)"/);
-  if (m2) return parseInt(m2[1], 10);
+  // Highcharts embedded series data
+  const hcPatterns = [
+    /"data"\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}\]]/,
+    /data\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}]/,
+    /\[\s*(\[\d{10,13},\s*\d+\](?:\s*,\s*\[\d{10,13},\s*\d+\]){3,})\s*\]/,
+  ];
+  for (const pat of hcPatterns) {
+    const mm = html.match(pat);
+    if (!mm) continue;
+    try {
+      const raw = pat === hcPatterns[2] ? `[${mm[1]}]` : mm[1];
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length >= 2) {
+        const values = parsed.map(pt => Array.isArray(pt) ? pt[1] : pt);
+        return { values, url, shape: "html-highcharts" };
+      }
+    } catch { /* try next */ }
+  }
 
-  return null;
+  // Badge count fallback
+  const badgeMatch = html.match(/class="[^"]*reports-num[^"]*"[^>]*>\s*(\d+)/) ||
+                     html.match(/data-count="(\d+)"/) ||
+                     html.match(/>(\d+)\s*(?:reports?|denuncias?|meldungen?)<\//) ;
+  if (badgeMatch) {
+    const count = parseInt(badgeMatch[1], 10);
+    return { values: [count], url, shape: "html-badge" };
+  }
+
+  throw new Error(`could not parse HTML from ${url} (${html.length} bytes)`);
 }
 
-// ─── Scrape one market ────────────────────────────────────────────────────────
-async function scrapeMarket(market) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  let html;
+// ─── Scrape one market — tries all approaches ─────────────────────────────────
+async function scrapeMarket(m, log) {
+  // Try JSON endpoint first (faster, less CF)
   try {
-    const r = await fetch(market.url, { headers: FETCH_HEADERS, signal: controller.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    html = await r.text();
-  } finally {
-    clearTimeout(timer);
+    const j = await tryJsonEndpoint(m);
+    if (j) {
+      log?.(`[downdetector] ✓ ${m.id}: JSON ${j.shape} from ${j.url} → ${j.values.length} points`);
+      return buildResult(j.values, `json-${j.shape}`);
+    }
+  } catch (e) {
+    log?.(`[downdetector]   ${m.id} json attempt error: ${e.message}`);
   }
 
-  // Try chart data first (richer: gives trend)
-  const series = parseHighchartsData(html);
-  if (series && series.length >= 2) {
-    const values = series.map(pt => (Array.isArray(pt) ? pt[1] : pt));
-    const current = values[values.length - 1];
-    const mean    = values.reduce((a, b) => a + b, 0) / values.length;
-    const baseline = Math.max(1, Math.round(mean));
-    // Last 20 readings for sparkline (trim to 20 points)
-    const trend = values.length > 20 ? values.slice(-20) : values;
-    return { complaints: current, baseline, trend, source: "highcharts" };
-  }
-
-  // Fallback: badge count only (no trend data)
-  const badge = parseReportsBadge(html);
-  if (badge !== null) {
-    return { complaints: badge, baseline: null, trend: null, source: "badge" };
-  }
-
-  throw new Error("could not parse page — HTML structure may have changed");
+  // Fallback: HTML scrape
+  const h = await tryHtmlScrape(m);
+  log?.(`[downdetector] ✓ ${m.id}: HTML ${h.shape} from ${h.url}`);
+  return buildResult(h.values, h.shape);
 }
 
-// ─── Scrape all markets (staggered, 600ms apart to be polite) ─────────────────
+function buildResult(values, source) {
+  if (!values || values.length === 0) throw new Error("empty values");
+  const current  = values[values.length - 1];
+  const mean     = values.reduce((a, b) => a + b, 0) / values.length;
+  const baseline = Math.max(1, Math.round(mean));
+  const trend    = values.length > 20 ? values.slice(-20) : values;
+  return { complaints: current, baseline, trend, source };
+}
+
+// ─── Scrape all markets ───────────────────────────────────────────────────────
 export async function scrapeAll(log) {
   const results = [];
   for (const m of MARKETS) {
-    await new Promise(r => setTimeout(r, 600)); // polite delay
+    await new Promise(r => setTimeout(r, 800));
     try {
-      const data = await scrapeMarket(m);
-      log?.(`[downdetector] ✓ ${m.id}: ${data.complaints} reports (src: ${data.source})`);
+      const data = await scrapeMarket(m, log);
+      log?.(`[downdetector] ✓ ${m.id}: ${data.complaints} reports (baseline ~${data.baseline}, src: ${data.source})`);
       results.push({ market: m, ...data, ok: true });
     } catch (e) {
       log?.(`[downdetector] ✗ ${m.id}: ${e.message}`);
