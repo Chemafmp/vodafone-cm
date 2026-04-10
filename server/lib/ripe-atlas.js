@@ -193,6 +193,9 @@ function computeProbeDetails(results, probes) {
 
     if (!avgRtts.length) continue;
     const avg_rtt = avgRtts.reduce((a, b) => a + b, 0) / avgRtts.length;
+    // Use individual ping RTTs for P95; fall back to per-result averages if no result array
+    const rttSrc  = allRtts.length ? allRtts : avgRtts;
+    const p95_rtt = percentile(rttSrc, 95);
 
     details.push({
       id,
@@ -201,6 +204,7 @@ function computeProbeDetails(results, probes) {
       lat:         meta?.lat         ?? null,
       lon:         meta?.lon         ?? null,
       avg_rtt:     Math.round(avg_rtt * 10) / 10,
+      p95_rtt:     p95_rtt != null ? Math.round(p95_rtt * 10) / 10 : null,
       min_rtt:     allRtts.length ? Math.round(Math.min(...allRtts) * 10) / 10 : null,
       max_rtt:     allRtts.length ? Math.round(Math.max(...allRtts) * 10) / 10 : null,
       loss_pct:    sent > 0 ? Math.round(((sent - rcvd) / sent) * 1000) / 10 : 0,

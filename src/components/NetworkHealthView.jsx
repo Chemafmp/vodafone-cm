@@ -390,35 +390,79 @@ function ZoomSelector({ value, onChange }) {
   );
 }
 
+// ─── Per-probe bar chart row ──────────────────────────────────────────────────
+// SVG horizontal bar with min–max range band + avg/p95 marker
+function ProbeBar({ value, minVal, maxVal, globalMax, color, isLoss }) {
+  const W = 160, H = 20;
+  if (!value && value !== 0) return <div style={{ width: W }} />;
+
+  const pct    = v => Math.max(0, Math.min(1, v / Math.max(globalMax, 0.001)));
+  const avgX   = pct(value) * W;
+  const minX   = minVal != null ? pct(minVal) * W : avgX;
+  const maxX   = maxVal != null ? pct(maxVal) * W : avgX;
+  const rangeW = Math.max(maxX - minX, 2);
+
+  return (
+    <svg width={W} height={H} style={{ overflow: "visible", display: "block" }}>
+      {/* Track */}
+      <rect x={0} y={8} width={W} height={4} rx={2} fill={T.border} />
+      {/* Min–max range band */}
+      {rangeW > 2 && (
+        <rect x={minX} y={7} width={rangeW} height={6} rx={2}
+          fill={color} opacity={0.22} />
+      )}
+      {/* Avg/P95 marker */}
+      <rect x={Math.max(0, avgX - 2)} y={5} width={4} height={10} rx={2}
+        fill={color} />
+      {/* Value label */}
+      <text x={avgX + 6} y={13} fontSize={9} fontFamily="monospace"
+        fill={color} fontWeight={700}>
+        {isLoss ? `${value}%` : `${value}ms`}
+      </text>
+    </svg>
+  );
+}
+
 // ─── Per-probe breakdown modal ────────────────────────────────────────────────
-// Opens when user clicks a metric chart. Shows individual probe results + k-root inference.
+// Opens when user clicks "🔬 per-probe" on Avg Latency, P95 Latency, or Packet Loss.
 function ProbeBreakdown({ market, metricKey, onClose }) {
-  const probes  = market.probeDetails || [];
-  const nearby  = KROOT_NEARBY[market.id] || [];
+  const probes = market.probeDetails || [];
+  const nearby = KROOT_NEARBY[market.id] || [];
 
-  // Infer which k-root node each probe likely hit based on RTT
-  // We compare each probe's RTT to the market median — clusters suggest different anycast routing
-  const avgRtts  = probes.map(p => p.avg_rtt).filter(Boolean);
-  const median   = avgRtts.length
-    ? [...avgRtts].sort((a, b) => a - b)[Math.floor(avgRtts.length / 2)]
-    : null;
-
-  function inferNode(rtt) {
-    if (!rtt || !nearby.length) return null;
-    if (!median) return nearby[0]?.city;
-    // Probe is significantly faster than median → closer node; slower → farther node
-    if (nearby.length >= 2 && rtt > median * 1.5) return nearby[1];
-    return nearby[0];
-  }
+  // Pick which value to visualise based on the clicked metric
+  const isLoss = metricKey === "loss_pct";
+  const valKey = metricKey === "p95_rtt" ? "p95_rtt" : isLoss ? "loss_pct" : "avg_rtt";
 
   const metaLabel = {
-    avg_rtt:     "Avg Latency",
-    p95_rtt:     "P95 Latency",
-    loss_pct:    "Packet Loss",
-    probe_count: "Active Probes",
-  }[metricKey] || "Results";
+    avg_rtt:  "Avg Latency per probe",
+    p95_rtt:  "P95 Latency per probe",
+    loss_pct: "Packet Loss per probe",
+  }[metricKey] || "Per-probe results";
 
-  const maxRtt = Math.max(...probes.map(p => p.avg_rtt || 0), 1);
+  // Colour per metric
+  const barColor = metricKey === "p95_rtt" ? "#8b5cf6"
+                 : metricKey === "loss_pct" ? "#ef4444"
+                 : "#3b82f6";
+
+  // Sort probes by the selected metric
+  const sorted = [...probes].sort((a, b) => (a[valKey] ?? 999) - (b[valKey] ?? 999));
+
+  // Anycast inference uses avg_rtt regardless of selected metric
+  const allAvg = probes.map(p => p.avg_rtt).filter(Boolean);
+  const median = allAvg.length
+    ? [...allAvg].sort((a, b) => a - b)[Math.floor(allAvg.length / 2)]
+    : null;
+
+  function inferNode(probe) {
+    if (!probe.avg_rtt || !nearby.length) return null;
+    if (!median || nearby.length < 2) return nearby[0] || null;
+    return probe.avg_rtt > median * 1.5 ? nearby[1] : nearby[0];
+  }
+
+  // Global max for bar scaling
+  const globalMax = isLoss
+    ? Math.max(...sorted.map(p => p.loss_pct || 0), 5)
+    : Math.max(...sorted.map(p => p[valKey] || 0), 1);
 
   return (
     <div style={{
@@ -429,8 +473,8 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{
         background: T.surface, border: `1px solid ${T.border}`,
-        borderRadius: 14, width: "100%", maxWidth: 620,
-        maxHeight: "85vh", overflow: "hidden",
+        borderRadius: 14, width: "100%", maxWidth: 660,
+        maxHeight: "88vh", overflow: "hidden",
         display: "flex", flexDirection: "column",
         boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
       }}>
@@ -442,11 +486,11 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
         }}>
           <span style={{ fontSize: 20 }}>🔬</span>
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
-              {market.flag} {market.name} — Per-probe breakdown
-            </span>
+            <div style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
+              {market.flag} {market.name} — {metaLabel}
+            </div>
             <div style={{ fontSize: 11, color: T.muted }}>
-              {metaLabel} · AS{market.asn} · {probes.length} probes reporting
+              AS{market.asn} · {probes.length} probes · msm #1001 · last 15 min window
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -462,115 +506,125 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
             </div>
           ) : (
             <>
-              {/* Probe table */}
-              <div style={{ marginBottom: 14 }}>
-                {probes.map((p, i) => {
-                  const node    = inferNode(p.avg_rtt);
-                  const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
-                  const hasLoss = p.loss_pct > 0;
-                  return (
-                    <div key={p.id} style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 80px 64px 64px auto",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "8px 10px",
-                      background: i % 2 === 0 ? T.bg : T.surface,
-                      borderRadius: 6,
-                      marginBottom: 3,
-                      border: hasLoss ? "1px solid #fca5a5" : `1px solid ${T.border}`,
-                    }}>
-                      {/* Probe info */}
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>
-                          {p.description || `Probe #${p.id}`}
-                          {hasLoss && (
-                            <span style={{
-                              marginLeft: 6, fontSize: 9, fontWeight: 700,
-                              color: "#dc2626", background: "#fef2f2",
-                              border: "1px solid #fca5a5", borderRadius: 3,
-                              padding: "1px 4px",
-                            }}>
-                              {p.loss_pct}% loss
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 9, color: T.muted }}>
-                          #{p.id} · {p.country || "?"}
-                          {p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
-                        </div>
-                      </div>
-
-                      {/* RTT bar */}
-                      <div style={{ position: "relative" }}>
-                        <div style={{
-                          height: 6, borderRadius: 3,
-                          background: T.border, overflow: "hidden",
-                        }}>
-                          <div style={{
-                            width: `${Math.round((p.avg_rtt / maxRtt) * 100)}%`,
-                            height: "100%", borderRadius: 3,
-                            background: isOdd ? "#f59e0b" : "#3b82f6",
-                          }} />
-                        </div>
-                        <div style={{ fontSize: 9, color: T.muted, marginTop: 1 }}>
-                          {p.min_rtt && p.max_rtt ? `${p.min_rtt}–${p.max_rtt}ms` : ""}
-                        </div>
-                      </div>
-
-                      {/* Avg RTT */}
-                      <div style={{
-                        fontFamily: "monospace", fontWeight: 800, fontSize: 13,
-                        color: isOdd ? "#b45309" : "#16a34a", textAlign: "right",
-                      }}>
-                        {p.avg_rtt} ms
-                      </div>
-
-                      {/* Loss */}
-                      <div style={{
-                        fontFamily: "monospace", fontSize: 11, textAlign: "right",
-                        color: hasLoss ? "#dc2626" : T.muted,
-                      }}>
-                        {p.loss_pct}%
-                      </div>
-
-                      {/* Likely k-root node */}
-                      <div style={{ minWidth: 130 }}>
-                        {node && (
-                          <div style={{
-                            fontSize: 9, fontWeight: 700,
-                            color: isOdd ? "#b45309" : "#16a34a",
-                            background: isOdd ? "#fffbeb" : "#f0fdf4",
-                            border: `1px solid ${isOdd ? "#fcd34d" : "#86efac"}`,
-                            borderRadius: 4, padding: "2px 6px",
-                            display: "inline-flex", alignItems: "center", gap: 3,
-                          }}>
-                            <span>{isOdd ? "↗" : "✓"}</span>
-                            <span>{node.city}</span>
-                            <span style={{ fontWeight: 400, opacity: 0.75 }}>
-                              {node.ix}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Column headers */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 180px 72px 72px 130px",
+                gap: 8, padding: "4px 10px 6px",
+                fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.5px",
+              }}>
+                <div>PROBE</div>
+                <div>{metricKey === "loss_pct" ? "LOSS" : "LATENCY (min–avg–max)"}</div>
+                <div style={{ textAlign: "right" }}>
+                  {metricKey === "p95_rtt" ? "P95" : metricKey === "loss_pct" ? "LOSS" : "AVG"}
+                </div>
+                <div style={{ textAlign: "right" }}>LOSS</div>
+                <div>LIKELY K-ROOT</div>
               </div>
 
-              {/* Inference note */}
+              {/* Probe rows */}
+              {sorted.map((p, i) => {
+                const node    = inferNode(p);
+                const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
+                const hasLoss = p.loss_pct > 0;
+                const dispVal = p[valKey] ?? null;
+
+                return (
+                  <div key={p.id} style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 180px 72px 72px 130px",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "8px 10px",
+                    background: i % 2 === 0 ? T.bg : T.surface,
+                    borderRadius: 7,
+                    marginBottom: 3,
+                    border: hasLoss ? "1px solid #fca5a5" : `1px solid transparent`,
+                  }}>
+                    {/* Probe identity */}
+                    <div>
+                      <div style={{
+                        fontSize: 11, fontWeight: 600, color: T.text,
+                        display: "flex", alignItems: "center", gap: 5,
+                      }}>
+                        {p.description || `Probe #${p.id}`}
+                        {hasLoss && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, color: "#dc2626",
+                            background: "#fef2f2", border: "1px solid #fca5a5",
+                            borderRadius: 3, padding: "1px 4px",
+                          }}>loss!</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 9, color: T.muted }}>
+                        #{p.id}
+                        {p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
+                      </div>
+                    </div>
+
+                    {/* Bar chart */}
+                    <ProbeBar
+                      value={isLoss ? p.loss_pct : (metricKey === "p95_rtt" ? p.p95_rtt : p.avg_rtt)}
+                      minVal={isLoss ? null : p.min_rtt}
+                      maxVal={isLoss ? null : p.max_rtt}
+                      globalMax={globalMax}
+                      color={isOdd ? "#f59e0b" : barColor}
+                      isLoss={isLoss}
+                    />
+
+                    {/* Primary value */}
+                    <div style={{
+                      fontFamily: "monospace", fontWeight: 800, fontSize: 13,
+                      color: hasLoss && isLoss ? "#dc2626"
+                           : isOdd && !isLoss ? "#b45309"
+                           : "#16a34a",
+                      textAlign: "right",
+                    }}>
+                      {dispVal != null ? (isLoss ? `${dispVal}%` : `${dispVal}ms`) : "—"}
+                    </div>
+
+                    {/* Loss (always shown as context) */}
+                    <div style={{
+                      fontFamily: "monospace", fontSize: 11, textAlign: "right",
+                      color: hasLoss ? "#dc2626" : T.muted,
+                    }}>
+                      {p.loss_pct}%
+                    </div>
+
+                    {/* Likely k-root node */}
+                    <div>
+                      {node && (
+                        <div style={{
+                          fontSize: 9, fontWeight: 700,
+                          color: isOdd ? "#b45309" : "#16a34a",
+                          background: isOdd ? "#fffbeb" : "#f0fdf4",
+                          border: `1px solid ${isOdd ? "#fcd34d" : "#86efac"}`,
+                          borderRadius: 4, padding: "2px 6px",
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}>
+                          <span>{isOdd ? "↗" : "✓"}</span>
+                          <span>{node.city}</span>
+                          <span style={{ fontWeight: 400, opacity: 0.75 }}>{node.ix}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Inference + legend note */}
               <div style={{
-                padding: "9px 12px", background: "#f8faff",
+                marginTop: 10, padding: "9px 12px", background: "#f8faff",
                 border: "1px solid #dbeafe", borderRadius: 7,
                 fontSize: 11, color: "#1e40af", lineHeight: 1.5,
               }}>
-                <strong>⚡ Anycast routing inference</strong> — k-root uses anycast (193.0.14.129),
-                so each probe connects to its geographically closest node. Probes with RTT
-                significantly above the median ({median !== null ? `${Math.round(median)}ms` : "—"})
-                may be routing to a farther node ({nearby[1]?.city || "unknown"}).
-                This is an estimate — only a traceroute measurement can confirm the actual path.
+                <strong>⚡ Anycast routing inference</strong> — k-root uses anycast, so each probe
+                hits its nearest instance. Probes with avg RTT &gt;1.5× market median
+                ({median !== null ? `${Math.round(median)}ms` : "—"}) likely route to a farther
+                node ({nearby[1]?.city || "unknown"}).
+                Bar shows <em>min–avg–max</em> range from the last 15-min window.
                 <span style={{ display: "block", marginTop: 4 }}>
-                  <a href={`https://atlas.ripe.net/measurements/1001/`}
+                  <a href="https://atlas.ripe.net/measurements/1001/"
                     target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
                     View measurement on RIPE Atlas →
                   </a>
@@ -735,7 +789,8 @@ function DetailPanel({ market, onClose }) {
                   width={268}
                   height={72}
                 />
-                {market.probeDetails && market.probeDetails.length > 0 && (
+                {market.probeDetails && market.probeDetails.length > 0
+                  && cfg.key !== "probe_count" && (
                   <button
                     onClick={() => setDrillMetric(cfg.key)}
                     style={{
