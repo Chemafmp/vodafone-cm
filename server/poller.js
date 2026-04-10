@@ -91,6 +91,17 @@ app.use("/api/tickets", ticketsRouter);
 const autoTicketsEnabled = process.env.AUTO_TICKETS !== "false";
 log(chalk.cyan(`[tickets] auto-create ${autoTicketsEnabled ? "ENABLED" : "DISABLED"} (AUTO_TICKETS=${process.env.AUTO_TICKETS ?? "unset"})`));
 
+// ─── Service-status feed toggle (runtime, via HTTP) ───────────────────────────
+// POST /api/control/service-status/pause   → stops ticking (no new data written)
+// POST /api/control/service-status/resume  → resumes ticking
+// GET  /api/control/service-status         → {"enabled": true|false}
+let serviceStatusEnabled = process.env.SERVICE_STATUS !== "false";
+log(chalk.cyan(`[service-status] feed ${serviceStatusEnabled ? "ENABLED" : "DISABLED"} (SERVICE_STATUS=${process.env.SERVICE_STATUS ?? "unset"})`));
+
+app.get("/api/control/service-status", (_, res) => res.json({ enabled: serviceStatusEnabled }));
+app.post("/api/control/service-status/pause",  (_, res) => { serviceStatusEnabled = false; log(chalk.yellow("[service-status] feed PAUSED via API")); res.json({ enabled: false }); });
+app.post("/api/control/service-status/resume", (_, res) => { serviceStatusEnabled = true;  log(chalk.cyan("[service-status] feed RESUMED via API")); res.json({ enabled: true }); });
+
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {
   const fleetRunning = [...fleetMap.values()].filter(n => n.status === "running").length;
@@ -501,9 +512,13 @@ server.listen(PORT, BIND_HOST, () => {
     .catch(e => log(chalk.yellow(`[service-status] restore error: ${e.message}`)))
     .finally(() => {
       setInterval(() => {
+        if (!serviceStatusEnabled) return;
         tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
       }, SERVICE_STATUS_INTERVAL);
-      setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+      setTimeout(() => {
+        if (!serviceStatusEnabled) return;
+        tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`)));
+      }, 2000);
     });
 
   // Purge rows older than 25h — hourly
