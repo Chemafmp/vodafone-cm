@@ -140,6 +140,8 @@ async function pollMarket(m) {
 
   const metrics = {
     visibility_pct,
+    ris_peers_seeing: v4seeing,
+    total_ris_peers:  v4total,
     announced_prefixes,
     measured_at: new Date().toISOString(),
   };

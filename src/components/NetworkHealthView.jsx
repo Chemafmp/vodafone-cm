@@ -489,24 +489,56 @@ function ProbeBreakdown({ market, onClose }) {
             </div>
           ) : (
             <>
+              {/* BGP market summary */}
+              {market.bgp?.current && (
+                <div style={{
+                  marginBottom: 12, padding: "10px 14px",
+                  background: "#f0fdf4", border: "1px solid #86efac",
+                  borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 14,
+                  alignItems: "center",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 14 }}>🔗</span>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a", letterSpacing: "0.4px" }}>
+                        BGP VISIBILITY — MARKET LEVEL
+                      </div>
+                      <div style={{ fontSize: 11, color: "#166534" }}>
+                        {market.bgp.current.ris_peers_seeing != null
+                          ? `${market.bgp.current.ris_peers_seeing} / ${market.bgp.current.total_ris_peers} RIS peers see AS${market.asn}`
+                          : `${market.bgp.current.visibility_pct}% visible`}
+                        {market.bgp.current.announced_prefixes > 0 &&
+                          ` · ${market.bgp.current.announced_prefixes} prefixes announced`}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#166534", opacity: 0.8, fontStyle: "italic", flex: 1, minWidth: 180 }}>
+                    RIPE RIS external observers checking if the Internet can reach Vodafone&apos;s AS.
+                    ~100% is normal. A drop = routing incident visible to all of Internet.
+                  </div>
+                </div>
+              )}
+
               {/* Column headers */}
               <div style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 200px 52px 52px 120px",
+                gridTemplateColumns: "1fr 180px 50px 50px 60px 80px",
                 gap: 8, padding: "4px 10px 6px",
                 fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.5px",
               }}>
                 <div>PROBE</div>
-                <div>LATENCY — min / avg / max</div>
+                <div>LATENCY (ICMP) — min / avg / max</div>
                 <div style={{ textAlign: "right" }}>P95</div>
                 <div style={{ textAlign: "right" }}>LOSS</div>
-                <div>LIKELY K-ROOT</div>
+                <div style={{ textAlign: "right" }}>DNS RTT</div>
+                <div>K-ROOT</div>
               </div>
 
               {/* Probe rows */}
               {sorted.map((p, i) => {
                 const node    = inferNode(p);
                 const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
+                const dnsProbe = (market.dns?.probeDetails || []).find(d => d.id === p.id);
                 const hasLoss = p.loss_pct > 0;
                 const barColor = isOdd ? "#f59e0b" : "#3b82f6";
 
@@ -520,7 +552,7 @@ function ProbeBreakdown({ market, onClose }) {
                 return (
                   <div key={p.id} style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 200px 52px 52px 120px",
+                    gridTemplateColumns: "1fr 180px 50px 50px 60px 80px",
                     alignItems: "center",
                     gap: 8,
                     padding: "10px 10px",
@@ -590,6 +622,17 @@ function ProbeBreakdown({ market, onClose }) {
                       {p.loss_pct}%
                     </div>
 
+                    {/* DNS RTT */}
+                    <div style={{
+                      fontFamily: "monospace", fontSize: 11, fontWeight: 600,
+                      textAlign: "right",
+                      color: dnsProbe?.avg_dns_rtt != null
+                        ? (dnsProbe.avg_dns_rtt > (p.avg_rtt || 0) * 2 ? "#b45309" : "#8b5cf6")
+                        : "#9ca3af",
+                    }}>
+                      {dnsProbe?.avg_dns_rtt != null ? `${dnsProbe.avg_dns_rtt}ms` : "—"}
+                    </div>
+
                     {/* Likely k-root */}
                     <div>
                       {node && (
@@ -625,6 +668,10 @@ function ProbeBreakdown({ market, onClose }) {
                 <span>
                   <span style={{ color: "#f59e0b", fontWeight: 700 }}>■ amber</span>
                   {" "}= RTT &gt;1.5× median → likely farther k-root node
+                </span>
+                <span>
+                  <span style={{ color: "#8b5cf6", fontWeight: 700 }}>■ purple</span>
+                  {" "}= DNS RTT (msm #10001) · orange = DNS RTT &gt;2× ICMP latency
                 </span>
                 <a href="https://atlas.ripe.net/measurements/1001/"
                   target="_blank" rel="noreferrer"
@@ -1126,16 +1173,22 @@ function MarketCard({ market, onClick }) {
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>BGP VISIBLE</div>
             <div style={{
-              fontSize: 18, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
-              color: market.bgp?.current?.visibility_pct != null
-                ? (market.bgp.status === "ok"      ? "#16a34a"
-                  : market.bgp.status === "warning" ? "#b45309" : "#dc2626")
-                : "#9ca3af",
+              fontSize: 15, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
+              color: market.bgp?.status === "ok"      ? "#16a34a"
+                   : market.bgp?.status === "warning" ? "#b45309"
+                   : market.bgp?.status === "outage"  ? "#dc2626" : "#9ca3af",
             }}>
-              {market.bgp?.current?.visibility_pct != null
-                ? <>{market.bgp.current.visibility_pct}<span style={{ fontSize: 10, fontWeight: 600 }}>%</span></>
-                : <span style={{ fontSize: 13 }}>—</span>}
+              {market.bgp?.current?.ris_peers_seeing != null
+                ? `${market.bgp.current.ris_peers_seeing}/${market.bgp.current.total_ris_peers}`
+                : market.bgp?.current?.visibility_pct != null
+                ? `${market.bgp.current.visibility_pct}%`
+                : "—"}
             </div>
+            {market.bgp?.current?.visibility_pct != null && (
+              <div style={{ fontSize: 9, color: T.muted }}>
+                {market.bgp.current.visibility_pct}% visible
+              </div>
+            )}
           </div>
           {/* Row 2: P95 LATENCY | DNS RTT | ACTIVE PROBES */}
           <div>

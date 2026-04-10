@@ -169,6 +169,7 @@ app.get("/api/network-health", (req, res) => {
       status:       dnsMap[m.id].status,
       ok:           dnsMap[m.id].ok,
       error:        dnsMap[m.id].error,
+      probeDetails: dnsMap[m.id].probeDetails || [],
     } : null,
   })));
 });

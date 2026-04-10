@@ -43,6 +43,7 @@ function initState() {
       probesFetchedAt: 0,
       current:         null,
       history:         [],
+      probeDetails:    [],   // NEW: per-probe DNS RTT breakdown
       baseline_rtt:    null,
       ratio:           null,
       status:          "unknown",
@@ -139,6 +140,49 @@ function computeMetrics(results) {
   };
 }
 
+// ─── Per-probe DNS breakdown ──────────────────────────────────────────────────
+// Groups DNS results by probe ID. Returns per-probe avg/p95 DNS RTT.
+function computeDnsProbeDetails(results, probes) {
+  const byProbe = new Map();
+  for (const r of results) {
+    const id = r.prb_id;
+    if (!id) continue;
+    if (!byProbe.has(id)) byProbe.set(id, []);
+    byProbe.get(id).push(r);
+  }
+
+  const details = [];
+  for (const [id, pResults] of byProbe) {
+    const meta = probes.find(p => p.id === id);
+    const rtts = pResults
+      .map(r => r.result?.rt)
+      .filter(v => typeof v === "number" && v > 0);
+
+    if (!rtts.length) continue;
+    const avg_dns_rtt = rtts.reduce((a, b) => a + b, 0) / rtts.length;
+    const p95_dns_rtt = percentile(rtts, 95);
+
+    // Collect rcodes to detect DNS errors
+    const rcodes = pResults
+      .map(r => r.result?.rcode)
+      .filter(Boolean);
+    const errorCount = rcodes.filter(rc => rc !== "NOERROR" && rc !== "NXDOMAIN").length;
+
+    details.push({
+      id,
+      description: meta?.description || null,
+      lat:         meta?.lat         ?? null,
+      lon:         meta?.lon         ?? null,
+      avg_dns_rtt: Math.round(avg_dns_rtt * 10) / 10,
+      p95_dns_rtt: p95_dns_rtt != null ? Math.round(p95_dns_rtt * 10) / 10 : null,
+      error_count: errorCount,
+      sample_count: pResults.length,
+    });
+  }
+
+  return details.sort((a, b) => (a.avg_dns_rtt ?? 999) - (b.avg_dns_rtt ?? 999));
+}
+
 // ─── Ratio → status ───────────────────────────────────────────────────────────
 function statusForRatio(ratio) {
   if (ratio >= 4.5) return "outage";
@@ -230,6 +274,7 @@ async function pollMarket(m, log) {
   s.ratio      = Math.round((metrics.dns_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
   s.status     = statusForRatio(s.ratio);
   s.current    = metrics;
+  s.probeDetails = computeDnsProbeDetails(results, s.probes);
   s.ok         = true;
   s.error      = null;
   s.lastUpdate = Date.now();
@@ -279,6 +324,7 @@ export function getDnsMeasurements() {
       ok:           s.ok,
       error:        s.error,
       lastUpdate:   s.lastUpdate,
+      probeDetails: s.probeDetails,  // NEW
     };
   });
 }
