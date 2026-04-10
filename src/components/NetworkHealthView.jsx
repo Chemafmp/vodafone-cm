@@ -390,11 +390,206 @@ function ZoomSelector({ value, onChange }) {
   );
 }
 
+// ─── Per-probe breakdown modal ────────────────────────────────────────────────
+// Opens when user clicks a metric chart. Shows individual probe results + k-root inference.
+function ProbeBreakdown({ market, metricKey, onClose }) {
+  const probes  = market.probeDetails || [];
+  const nearby  = KROOT_NEARBY[market.id] || [];
+
+  // Infer which k-root node each probe likely hit based on RTT
+  // We compare each probe's RTT to the market median — clusters suggest different anycast routing
+  const avgRtts  = probes.map(p => p.avg_rtt).filter(Boolean);
+  const median   = avgRtts.length
+    ? [...avgRtts].sort((a, b) => a - b)[Math.floor(avgRtts.length / 2)]
+    : null;
+
+  function inferNode(rtt) {
+    if (!rtt || !nearby.length) return null;
+    if (!median) return nearby[0]?.city;
+    // Probe is significantly faster than median → closer node; slower → farther node
+    if (nearby.length >= 2 && rtt > median * 1.5) return nearby[1];
+    return nearby[0];
+  }
+
+  const metaLabel = {
+    avg_rtt:     "Avg Latency",
+    p95_rtt:     "P95 Latency",
+    loss_pct:    "Packet Loss",
+    probe_count: "Active Probes",
+  }[metricKey] || "Results";
+
+  const maxRtt = Math.max(...probes.map(p => p.avg_rtt || 0), 1);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 300,
+      background: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "20px 16px",
+    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: 14, width: "100%", maxWidth: 620,
+        maxHeight: "85vh", overflow: "hidden",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: "13px 18px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
+          background: "#f0f9ff",
+        }}>
+          <span style={{ fontSize: 20 }}>🔬</span>
+          <div style={{ flex: 1 }}>
+            <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
+              {market.flag} {market.name} — Per-probe breakdown
+            </span>
+            <div style={{ fontSize: 11, color: T.muted }}>
+              {metaLabel} · AS{market.asn} · {probes.length} probes reporting
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            border: "none", background: "none", cursor: "pointer",
+            fontSize: 18, color: T.muted, padding: "2px 6px",
+          }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
+          {probes.length === 0 ? (
+            <div style={{ textAlign: "center", color: T.muted, fontSize: 12, padding: 24 }}>
+              Per-probe data not yet available. Will appear after the next poll cycle.
+            </div>
+          ) : (
+            <>
+              {/* Probe table */}
+              <div style={{ marginBottom: 14 }}>
+                {probes.map((p, i) => {
+                  const node    = inferNode(p.avg_rtt);
+                  const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
+                  const hasLoss = p.loss_pct > 0;
+                  return (
+                    <div key={p.id} style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 80px 64px 64px auto",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 10px",
+                      background: i % 2 === 0 ? T.bg : T.surface,
+                      borderRadius: 6,
+                      marginBottom: 3,
+                      border: hasLoss ? "1px solid #fca5a5" : `1px solid ${T.border}`,
+                    }}>
+                      {/* Probe info */}
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>
+                          {p.description || `Probe #${p.id}`}
+                          {hasLoss && (
+                            <span style={{
+                              marginLeft: 6, fontSize: 9, fontWeight: 700,
+                              color: "#dc2626", background: "#fef2f2",
+                              border: "1px solid #fca5a5", borderRadius: 3,
+                              padding: "1px 4px",
+                            }}>
+                              {p.loss_pct}% loss
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 9, color: T.muted }}>
+                          #{p.id} · {p.country || "?"}
+                          {p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
+                        </div>
+                      </div>
+
+                      {/* RTT bar */}
+                      <div style={{ position: "relative" }}>
+                        <div style={{
+                          height: 6, borderRadius: 3,
+                          background: T.border, overflow: "hidden",
+                        }}>
+                          <div style={{
+                            width: `${Math.round((p.avg_rtt / maxRtt) * 100)}%`,
+                            height: "100%", borderRadius: 3,
+                            background: isOdd ? "#f59e0b" : "#3b82f6",
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 1 }}>
+                          {p.min_rtt && p.max_rtt ? `${p.min_rtt}–${p.max_rtt}ms` : ""}
+                        </div>
+                      </div>
+
+                      {/* Avg RTT */}
+                      <div style={{
+                        fontFamily: "monospace", fontWeight: 800, fontSize: 13,
+                        color: isOdd ? "#b45309" : "#16a34a", textAlign: "right",
+                      }}>
+                        {p.avg_rtt} ms
+                      </div>
+
+                      {/* Loss */}
+                      <div style={{
+                        fontFamily: "monospace", fontSize: 11, textAlign: "right",
+                        color: hasLoss ? "#dc2626" : T.muted,
+                      }}>
+                        {p.loss_pct}%
+                      </div>
+
+                      {/* Likely k-root node */}
+                      <div style={{ minWidth: 130 }}>
+                        {node && (
+                          <div style={{
+                            fontSize: 9, fontWeight: 700,
+                            color: isOdd ? "#b45309" : "#16a34a",
+                            background: isOdd ? "#fffbeb" : "#f0fdf4",
+                            border: `1px solid ${isOdd ? "#fcd34d" : "#86efac"}`,
+                            borderRadius: 4, padding: "2px 6px",
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                          }}>
+                            <span>{isOdd ? "↗" : "✓"}</span>
+                            <span>{node.city}</span>
+                            <span style={{ fontWeight: 400, opacity: 0.75 }}>
+                              {node.ix}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Inference note */}
+              <div style={{
+                padding: "9px 12px", background: "#f8faff",
+                border: "1px solid #dbeafe", borderRadius: 7,
+                fontSize: 11, color: "#1e40af", lineHeight: 1.5,
+              }}>
+                <strong>⚡ Anycast routing inference</strong> — k-root uses anycast (193.0.14.129),
+                so each probe connects to its geographically closest node. Probes with RTT
+                significantly above the median ({median !== null ? `${Math.round(median)}ms` : "—"})
+                may be routing to a farther node ({nearby[1]?.city || "unknown"}).
+                This is an estimate — only a traceroute measurement can confirm the actual path.
+                <span style={{ display: "block", marginTop: 4 }}>
+                  <a href={`https://atlas.ripe.net/measurements/1001/`}
+                    target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
+                    View measurement on RIPE Atlas →
+                  </a>
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail panel (modal) ─────────────────────────────────────────────────────
 function DetailPanel({ market, onClose }) {
   const meta   = sm(market.status);
   const cur    = market.current;
   const [zoom, setZoom] = useState("6h");
+  const [drillMetric, setDrillMetric] = useState(null);
 
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;
@@ -527,19 +722,35 @@ function DetailPanel({ market, onClose }) {
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px",
           }}>
             {charts.map(cfg => (
-              <MetricChart
-                key={cfg.key}
-                data={data}
-                valueKey={cfg.key}
-                label={cfg.label}
-                unit={cfg.unit}
-                color={cfg.color}
-                baseline={cfg.baseline}
-                warnLevel={cfg.warnLevel}
-                critLevel={cfg.critLevel}
-                width={268}
-                height={72}
-              />
+              <div key={cfg.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <MetricChart
+                  data={data}
+                  valueKey={cfg.key}
+                  label={cfg.label}
+                  unit={cfg.unit}
+                  color={cfg.color}
+                  baseline={cfg.baseline}
+                  warnLevel={cfg.warnLevel}
+                  critLevel={cfg.critLevel}
+                  width={268}
+                  height={72}
+                />
+                {market.probeDetails && market.probeDetails.length > 0 && (
+                  <button
+                    onClick={() => setDrillMetric(cfg.key)}
+                    style={{
+                      alignSelf: "flex-end",
+                      fontSize: 9, fontWeight: 700,
+                      color: "#3b82f6", background: "#eff6ff",
+                      border: "1px solid #bfdbfe", borderRadius: 4,
+                      padding: "2px 7px", cursor: "pointer",
+                      letterSpacing: "0.2px",
+                    }}
+                  >
+                    🔬 per-probe ↗
+                  </button>
+                )}
+              </div>
             ))}
           </div>
 
@@ -638,6 +849,15 @@ function DetailPanel({ market, onClose }) {
           </div>
         </div>
       </div>
+
+      {/* Per-probe drill-down modal (renders on top of this panel) */}
+      {drillMetric && (
+        <ProbeBreakdown
+          market={market}
+          metricKey={drillMetric}
+          onClose={() => setDrillMetric(null)}
+        />
+      )}
     </div>
   );
 }
