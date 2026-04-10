@@ -327,7 +327,7 @@ function MetricsGlossary() {
               { icon: "📊", title: "P95 Latency",   body: "95th percentile RTT. If avg is 15ms but P95 is 80ms, 1-in-20 pings hit very high latency — users feel it even if the average looks fine. Detects bursty congestion the mean hides." },
               { icon: "📦", title: "Packet Loss",   body: "% of ICMP pings with no reply: (sent−received)/sent×100, aggregated over all probes. 0% is normal. >1% signals degradation. >5% indicates a serious connectivity problem." },
               { icon: "🔬", title: "Active Probes", body: "Physical RIPE Atlas devices inside Vodafone's AS reporting in the last 15 min. A sudden drop may indicate widespread access failure — or just few probes in that country (fewer = lower statistical confidence)." },
-              { icon: "🔗", title: "BGP Visibility", body: "% of RIPE RIS (Routing Information Service) BGP peers globally that can see Vodafone's IP prefixes. Near 100% is normal. A drop signals prefix withdrawal, route leak, or BGP session failure — meaning parts of the Internet can no longer reach Vodafone customers. This is the earliest warning of a routing incident, often visible before latency degrades." },
+              { icon: "🔗", title: "BGP Visibility", body: null, bgpEntry: true },
               { icon: "🔍", title: "DNS RTT (msm #10001)", body: "Round-trip time for a DNS SOA query to k.root-servers.net, measured from the same Vodafone probes. Unlike the ICMP ping (which tests raw IP reachability), this tests the full DNS query path including Vodafone's local resolver. If DNS RTT >> ICMP RTT, Vodafone's resolver is slow or overloaded — customers experience slow page loads even if the network path is healthy." },
             ].map(m => (
               <div key={m.title} style={{
@@ -337,7 +337,50 @@ function MetricsGlossary() {
                 <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 3 }}>
                   {m.icon} {m.title}
                 </div>
-                <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{m.body}</div>
+                {m.bgpEntry ? (
+                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.55 }}>
+                    <p style={{ margin: "0 0 6px" }}>
+                      RIPE NCC runs <strong style={{ color: T.text }}>~329 BGP observers</strong> distributed worldwide.
+                      Every few minutes each observer checks: <em>"can I route traffic to this Vodafone AS?"</em>
+                      The value shows <strong style={{ color: T.text }}>how many can / total</strong>.
+                    </p>
+                    <p style={{ margin: "0 0 6px" }}>
+                      Each country is measured <strong style={{ color: T.text }}>independently by ASN</strong>,
+                      so an incident in Spain doesn't affect the reading for Germany.
+                    </p>
+                    {/* Examples */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5, margin: "8px 0" }}>
+                      <div style={{
+                        background: "#f0fdf4", border: "1px solid #86efac",
+                        borderRadius: 6, padding: "6px 9px",
+                      }}>
+                        <div style={{ fontWeight: 700, fontSize: 10, color: "#16a34a", marginBottom: 2 }}>✓ Normal — 329/329 🇪🇸</div>
+                        <div style={{ fontSize: 10, color: "#166534" }}>
+                          All 329 observers can reach Vodafone Spain. This is the expected state.
+                          The number should stay at 329/329 unless there's an incident.
+                        </div>
+                      </div>
+                      <div style={{
+                        background: "#fef2f2", border: "1px solid #fca5a5",
+                        borderRadius: 6, padding: "6px 9px",
+                      }}>
+                        <div style={{ fontWeight: 700, fontSize: 10, color: "#dc2626", marginBottom: 2 }}>✗ Incident — 200/329 🇪🇸 · 329/329 🇩🇪</div>
+                        <div style={{ fontSize: 10, color: "#991b1b" }}>
+                          129 observers worldwide can no longer route to Vodafone Spain's AS — but Germany is fine.
+                          Problem is Spain-specific: likely a BGP prefix withdrawal, upstream session failure,
+                          or route leak. Customers on those 129 networks can't reach Vodafone Spain.
+                        </div>
+                      </div>
+                    </div>
+                    <p style={{ margin: "6px 0 0", fontSize: 10 }}>
+                      Thresholds: <strong style={{ color: "#16a34a" }}>OK ≥95%</strong> ·{" "}
+                      <strong style={{ color: "#b45309" }}>WARNING ≥80%</strong> ·{" "}
+                      <strong style={{ color: "#dc2626" }}>OUTAGE &lt;80%</strong> peers seeing this AS.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{m.body}</div>
+                )}
               </div>
             ))}
           </div>
@@ -1106,6 +1149,99 @@ function RatioTooltip({ market, meta }) {
   );
 }
 
+// ─── BGP peers tooltip ────────────────────────────────────────────────────────
+// Shown on hover of the X/Y peers value in the card. Explains the metric with
+// a concrete normal example and an incident example using the current market's flag.
+function BgpPeersTooltip({ market }) {
+  const [show, setShow] = useState(false);
+  const bgp   = market.bgp?.current;
+  const color = market.bgp?.status === "ok"      ? "#16a34a"
+              : market.bgp?.status === "warning" ? "#b45309"
+              : market.bgp?.status === "outage"  ? "#dc2626" : "#9ca3af";
+  const total  = bgp?.total_ris_peers  ?? 329;
+  const seeing = bgp?.ris_peers_seeing ?? null;
+  const pct    = bgp?.visibility_pct   ?? null;
+
+  return (
+    <div
+      style={{ position: "relative" }}
+      onMouseEnter={e => { e.stopPropagation(); setShow(true); }}
+      onMouseLeave={() => setShow(false)}
+      onClick={e => e.stopPropagation()}
+    >
+      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, cursor: "help" }}>BGP VISIBLE ⓘ</div>
+      <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1, color, cursor: "help" }}>
+        {seeing != null ? `${seeing}/${total}` : pct != null ? `${pct}%` : "—"}
+      </div>
+      {pct != null && <div style={{ fontSize: 9, color: T.muted }}>{pct}% visible</div>}
+
+      {show && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 8px)", left: "-10px", zIndex: 9999,
+          background: "#1e293b", border: "1px solid #334155", borderRadius: 10,
+          padding: "11px 13px", width: 250,
+          boxShadow: "0 10px 28px rgba(0,0,0,0.4)", pointerEvents: "none",
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.5px", marginBottom: 7 }}>
+            BGP VISIBILITY
+          </div>
+
+          {/* Core explanation */}
+          <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.55, marginBottom: 9 }}>
+            RIPE operates <span style={{ color: "#f1f5f9", fontWeight: 700 }}>{total} BGP observers</span> worldwide.
+            Each is asked: <em style={{ color: "#94a3b8" }}>"can you route traffic to AS{market.asn}?"</em>
+          </div>
+
+          {/* Examples */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 9 }}>
+            <div style={{ background: "#14532d22", border: "1px solid #16a34a44", borderRadius: 6, padding: "6px 8px" }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: "#4ade80", letterSpacing: "0.4px", marginBottom: 2 }}>
+                ✓ NORMAL
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 11, color: "#86efac" }}>
+                {total}/{total} {market.flag}
+              </div>
+              <div style={{ fontSize: 10, color: "#4ade80", opacity: 0.8, marginTop: 1 }}>
+                All observers reach {market.name}. Healthy.
+              </div>
+            </div>
+
+            <div style={{ background: "#7f1d1d22", border: "1px solid #ef444444", borderRadius: 6, padding: "6px 8px" }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: "#f87171", letterSpacing: "0.4px", marginBottom: 2 }}>
+                ✗ INCIDENT EXAMPLE
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 11, color: "#fca5a5" }}>
+                200/{total} {market.flag} · {total}/{total} 🇩🇪
+              </div>
+              <div style={{ fontSize: 10, color: "#f87171", opacity: 0.85, marginTop: 1, lineHeight: 1.4 }}>
+                Problem in {market.name} only — {total - 200} observers can't reach AS{market.asn}. Germany fine.
+              </div>
+            </div>
+          </div>
+
+          {/* Thresholds */}
+          <div style={{ borderTop: "1px solid #334155", paddingTop: 7, display: "flex", flexDirection: "column", gap: 3 }}>
+            {[
+              { label: "OK",      range: "≥ 95% peers seeing this AS", color: "#22c55e" },
+              { label: "WARNING", range: "≥ 80%",                       color: "#f59e0b" },
+              { label: "OUTAGE",  range: "< 80%",                       color: "#ef4444" },
+            ].map(t => (
+              <div key={t.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 800, color: t.color,
+                  background: `${t.color}18`, border: `1px solid ${t.color}44`,
+                  borderRadius: 3, padding: "1px 5px", minWidth: 46, textAlign: "center",
+                }}>{t.label}</span>
+                <span style={{ fontSize: 10, color: "#64748b" }}>{t.range}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Market card ──────────────────────────────────────────────────────────────
 function MarketCard({ market, onClick }) {
   const meta = sm(market.status);
@@ -1170,26 +1306,7 @@ function MarketCard({ market, onClick }) {
               {cur.loss_pct}<span style={{ fontSize: 10, fontWeight: 600 }}> %</span>
             </div>
           </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>BGP VISIBLE</div>
-            <div style={{
-              fontSize: 15, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
-              color: market.bgp?.status === "ok"      ? "#16a34a"
-                   : market.bgp?.status === "warning" ? "#b45309"
-                   : market.bgp?.status === "outage"  ? "#dc2626" : "#9ca3af",
-            }}>
-              {market.bgp?.current?.ris_peers_seeing != null
-                ? `${market.bgp.current.ris_peers_seeing}/${market.bgp.current.total_ris_peers}`
-                : market.bgp?.current?.visibility_pct != null
-                ? `${market.bgp.current.visibility_pct}%`
-                : "—"}
-            </div>
-            {market.bgp?.current?.visibility_pct != null && (
-              <div style={{ fontSize: 9, color: T.muted }}>
-                {market.bgp.current.visibility_pct}% visible
-              </div>
-            )}
-          </div>
+          <BgpPeersTooltip market={market} />
           {/* Row 2: P95 LATENCY | DNS RTT | ACTIVE PROBES */}
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>P95 LATENCY</div>
