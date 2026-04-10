@@ -147,8 +147,11 @@ export async function scrapeAll(log) {
     log?.(`[downdetector] WARNING: no SCRAPER_API_KEY — direct fetch (may hit CF 403)`);
   }
 
+  // Stagger launches by 600ms to avoid hitting ScraperAPI concurrent-request limits.
+  // Total cycle ≈ max(individual fetch) + 9×0.6s ≈ 20–25s — far better than sequential ~5min.
   const settled = await Promise.allSettled(
-    MARKETS.map(async m => {
+    MARKETS.map(async (m, i) => {
+      if (i > 0) await new Promise(r => setTimeout(r, i * 600));
       try {
         const parsed = await scrapeMarket(m, log);
         const result = buildResult(parsed, m);
