@@ -26,6 +26,7 @@ import { eventFromAlarm, eventFromResolution, getRecentEvents } from "./lib/even
 import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
 import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
+import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -134,6 +135,11 @@ app.get("/api/alarms", (req, res) => {
 app.get("/api/events", (req, res) => {
   const limit = parseInt(req.query.limit || "100");
   res.json(getRecentEvents(limit));
+});
+
+// GET /api/service-status — Downdetector-style complaint data for all markets
+app.get("/api/service-status", (req, res) => {
+  res.json(getServiceStatus());
 });
 
 const server = http.createServer(app);
@@ -485,6 +491,13 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Start polling loop
   setInterval(runPollCycle, POLL_INTERVAL);
+
+  // Service status simulation — tick every 30s
+  const SERVICE_STATUS_INTERVAL = 30_000;
+  setInterval(() => {
+    tickServiceStatus(PORT).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
+  }, SERVICE_STATUS_INTERVAL);
+  log(chalk.cyan(`[service-status] simulator started (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
 });
 
 function log(msg) {

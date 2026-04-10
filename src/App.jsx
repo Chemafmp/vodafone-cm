@@ -28,7 +28,8 @@ const EventsView      = lazy(() => import("./components/EventsView.jsx"));
 const ObservabilityView = lazy(() => import("./components/ObservabilityView.jsx"));
 const ChaosControlPanel = lazy(() => import("./components/ChaosControlPanel.jsx"));
 const TicketListView    = lazy(() => import("./components/TicketListView.jsx"));
-const TicketReportsView = lazy(() => import("./components/TicketReportsView.jsx"));
+const TicketReportsView    = lazy(() => import("./components/TicketReportsView.jsx"));
+const ServiceStatusView    = lazy(() => import("./components/ServiceStatusView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -161,7 +162,7 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
@@ -247,7 +248,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -375,6 +376,7 @@ export default function App(){
         {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
+        {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
 
         {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(

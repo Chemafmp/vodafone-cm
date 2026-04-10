@@ -12,10 +12,11 @@ const ALL_NAV_GROUPS=[
     {id:"topology", icon:"🔗", label:"Topology"},
   ]},
   { label:"MONITORING", app:"monitoring", items:[
-    {id:"livestatus",    icon:"◉", label:"Live Status"},
-    {id:"alarms",        icon:"🔔", label:"Alarms"},
-    {id:"events",        icon:"📋", label:"Events"},
-    {id:"observability", icon:"📈", label:"Observability"},
+    {id:"livestatus",      icon:"◉",  label:"Live Status"},
+    {id:"alarms",          icon:"🔔", label:"Alarms"},
+    {id:"events",          icon:"📋", label:"Events"},
+    {id:"observability",   icon:"📈", label:"Observability"},
+    {id:"service_monitor", icon:"🌍", label:"Service Monitor"},
   ]},
   { label:"TICKETING", app:"tickets", summaryKeys:{ open:"ticketsAll", critical:"ticketsCritical" }, items:[
     {id:"tickets_all",       icon:"🎫", label:"All Tickets", badgeKey:"ticketsAll",       badgeColor:"#475569"},
