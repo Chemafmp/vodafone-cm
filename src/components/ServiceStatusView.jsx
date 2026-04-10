@@ -201,24 +201,104 @@ function MarketCard({ market, trend, selected, onClick }) {
   );
 }
 
+// ─── Detail chart (with baseline + threshold zones) ──────────────────────────
+function DetailChart({ trend, baseline, status, width = 272, height = 80 }) {
+  if (!trend || trend.length < 2) return <div style={{ width, height }} />;
+
+  const warn2x   = baseline * 2.0;
+  const outage45 = baseline * 4.5;
+  const domainMax = Math.max(...trend, outage45 * 1.1, 1);
+  const toY = v => height - (v / domainMax) * (height - 4) - 2;
+
+  const pts = trend.map((v, i) => {
+    const x = (i / (trend.length - 1)) * width;
+    return `${x},${toY(v)}`;
+  });
+
+  const col    = STATUS_META[status]?.dot || "#22c55e";
+  const baseY  = toY(baseline);
+  const warn2Y = toY(warn2x);
+  const out45Y = toY(outage45);
+  const lastX  = width;
+  const lastV  = trend[trend.length - 1];
+  const lastY  = toY(lastV);
+
+  return (
+    <svg width={width} height={height} style={{ display: "block", overflow: "visible" }}>
+      {/* Outage zone (red tint above 4.5×) */}
+      {out45Y > 0 && (
+        <rect x={0} y={0} width={width} height={Math.max(0, out45Y)}
+          fill="rgba(239,68,68,0.06)" />
+      )}
+      {/* Warning zone (amber tint 2×–4.5×) */}
+      <rect x={0} y={Math.max(0, out45Y)} width={width}
+        height={Math.max(0, warn2Y - out45Y)}
+        fill="rgba(245,158,11,0.06)" />
+
+      {/* Threshold lines */}
+      <line x1={0} y1={out45Y} x2={width} y2={out45Y}
+        stroke="#ef4444" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      <line x1={0} y1={warn2Y} x2={width} y2={warn2Y}
+        stroke="#f59e0b" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      {/* Baseline */}
+      <line x1={0} y1={baseY} x2={width} y2={baseY}
+        stroke="#64748b" strokeWidth={1} strokeDasharray="4,2" opacity={0.6} />
+
+      {/* Labels on right edge */}
+      <text x={width - 2} y={out45Y - 3} textAnchor="end" fontSize={7} fill="#ef4444" opacity={0.7}>OUTAGE</text>
+      <text x={width - 2} y={warn2Y - 3} textAnchor="end" fontSize={7} fill="#f59e0b" opacity={0.7}>WARN</text>
+      <text x={width - 2} y={baseY + 9}  textAnchor="end" fontSize={7} fill="#64748b" opacity={0.7}>BASE</text>
+
+      {/* Complaint line */}
+      <polyline points={pts.join(" ")} fill="none" stroke={col}
+        strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Last value dot */}
+      <circle cx={lastX} cy={lastY} r={3} fill={col} />
+    </svg>
+  );
+}
+
+// ─── Trend direction helper ───────────────────────────────────────────────────
+function trendDirection(trend) {
+  if (!trend || trend.length < 4) return { arrow: "→", label: "Stable", color: "#64748b" };
+  const recent = trend.slice(-4);
+  const older  = trend.slice(-8, -4);
+  if (older.length === 0) return { arrow: "→", label: "Stable", color: "#64748b" };
+  const avgRecent = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const avgOlder  = older.reduce((a, b) => a + b, 0) / older.length;
+  const pct = avgOlder > 0 ? (avgRecent - avgOlder) / avgOlder : 0;
+  if (pct >  0.15) return { arrow: "↑", label: "Rising",    color: "#dc2626" };
+  if (pct >  0.05) return { arrow: "↗", label: "Increasing",color: "#f59e0b" };
+  if (pct < -0.15) return { arrow: "↓", label: "Falling",   color: "#15803d" };
+  if (pct < -0.05) return { arrow: "↘", label: "Decreasing",color: "#0369a1" };
+  return { arrow: "→", label: "Stable", color: "#64748b" };
+}
+
 // ─── Detail panel ─────────────────────────────────────────────────────────────
 function DetailPanel({ market, trend, rangeLabel, onClose }) {
-  const sm = STATUS_META[market.status] || STATUS_META.ok;
+  const sm  = STATUS_META[market.status] || STATUS_META.ok;
+  const dir = trendDirection(trend);
+  const peak = trend && trend.length > 0 ? Math.max(...trend) : market.complaints;
+  const peakRatio = market.baseline > 0 ? Math.round((peak / market.baseline) * 10) / 10 : "—";
+
+  // Worst affected service
+  const worstSvc = Object.entries(market.services || {})
+    .sort((a, b) => b[1].ratio - a[1].ratio)[0];
 
   return (
     <div style={{
-      width: 320, flexShrink: 0, background: T.surface,
+      width: 340, flexShrink: 0, background: T.surface,
       borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column",
       overflow: "hidden",
     }}>
-      {/* Header */}
-      <div style={{ padding: "16px 18px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 28, lineHeight: 1 }}>{market.flag}</span>
+      {/* ── Header ── */}
+      <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 26, lineHeight: 1 }}>{market.flag}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{market.name}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-              <span style={{ fontSize: 11, color: T.muted }}>Vodafone Market Monitor</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
               {market.dataSource === "downdetector" ? (
                 <span style={{ fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
                   border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px" }}>🌐 LIVE</span>
@@ -226,106 +306,149 @@ function DetailPanel({ market, trend, rangeLabel, onClose }) {
                 <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", background: "#f8fafc",
                   border: "1px solid #cbd5e1", borderRadius: 4, padding: "1px 5px" }}>∿ SIMULATED</span>
               )}
+              <span style={{ fontSize: 9, fontWeight: 700, color: dir.color, background: T.bg,
+                border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 5px" }}>
+                {dir.arrow} {dir.label}
+              </span>
             </div>
           </div>
-          <button onClick={onClose}
-            style={{ background: "none", border: "none", fontSize: 16, color: T.muted, cursor: "pointer", padding: "2px 6px" }}>
-            ✕
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {market.ticketId && (
+              <button onClick={() => window.open(`#ticket=${market.ticketId}`, "_blank")}
+                style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2",
+                  border: "1px solid #fca5a5", borderRadius: 5, padding: "3px 8px",
+                  cursor: "pointer", fontFamily: "inherit" }}>
+                🎫 Ticket
+              </button>
+            )}
+            <button onClick={onClose}
+              style={{ background: "none", border: "none", fontSize: 16, color: T.muted, cursor: "pointer", padding: "2px 4px" }}>
+              ✕
+            </button>
+          </div>
         </div>
 
-        {/* Overall status */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
-          background: sm.bg, border: `1px solid ${sm.border}`, borderRadius: 8,
-        }}>
-          <span style={{ width: 10, height: 10, borderRadius: "50%", background: sm.dot, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: sm.color }}>{sm.label}</div>
-            <div style={{ fontSize: 10, color: T.muted }}>
-              {market.complaints}/h · {market.ratio}× baseline ({market.baseline}/h)
-            </div>
-          </div>
-          {market.ticketId && (
-            <button
-              onClick={() => window.open(`#ticket=${market.ticketId}`, "_blank")}
-              style={{
-                fontSize: 10, fontWeight: 700, color: "#dc2626",
-                background: "#fef2f2", border: "1px solid #fca5a5",
-                borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit",
-              }}>
-              🎫 View ticket
-            </button>
-          )}
+        {/* Status banner */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
+          background: sm.bg, border: `1px solid ${sm.border}`, borderRadius: 7 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: sm.dot, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 800, color: sm.color, flex: 1 }}>{sm.label}</span>
+          <span style={{ fontSize: 11, color: sm.color, fontFamily: "monospace", fontWeight: 600 }}>
+            {market.ratio}× baseline
+          </span>
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
-        {/* Trend sparkline (large) */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Complaint Trend — last {rangeLabel}
-          </div>
-          <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.border}` }}>
-            <Sparkline trend={trend} status={market.status} width={260} height={50} />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-              <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
-              <span style={{ fontSize: 9, color: T.muted }}>now</span>
-            </div>
-          </div>
-        </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
-        {/* Per-service breakdown */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Service Breakdown
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {Object.entries(market.services || {}).map(([svcId, svc]) => {
-              const ssm = STATUS_META[svc.status] || STATUS_META.ok;
-              const sm_meta = SERVICES_META[svcId];
-              const pct = Math.min(100, (svc.ratio / 8) * 100);
-              return (
-                <div key={svcId} style={{
-                  padding: "10px 12px", background: T.bg, borderRadius: 8,
-                  border: `1px solid ${svc.status !== "ok" ? ssm.border : T.border}`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 14 }}>{sm_meta?.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text, flex: 1 }}>{sm_meta?.name}</span>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
-                      background: ssm.bg, border: `1px solid ${ssm.border}`,
-                      borderRadius: 4, padding: "1px 5px" }}>{ssm.label}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ width: `${pct}%`, height: "100%", background: ssm.dot, borderRadius: 2, transition: "width 0.5s" }} />
-                    </div>
-                    <span style={{ fontSize: 10, color: T.muted, fontFamily: "monospace", flexShrink: 0 }}>
-                      {svc.complaints}/h · {svc.ratio}×
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Status legend */}
-        <div style={{ marginTop: 20, padding: "10px 12px", background: T.bg, borderRadius: 8, border: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, marginBottom: 6, letterSpacing: "0.4px" }}>STATUS THRESHOLDS</div>
+        {/* ── Key metrics ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
           {[
-            { label: "OK",      desc: "< 2× baseline",  ...STATUS_META.ok },
-            { label: "WARNING", desc: "2–4.5× baseline", ...STATUS_META.warning },
-            { label: "OUTAGE",  desc: "> 4.5× baseline — auto-ticket", ...STATUS_META.outage },
-          ].map(row => (
-            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: row.color, width: 56 }}>{row.label}</span>
-              <span style={{ fontSize: 10, color: T.muted }}>{row.desc}</span>
+            { label: "Now",      value: `${market.complaints}`, unit: "/h",    color: sm.color },
+            { label: "Baseline", value: `${market.baseline}`,   unit: "/h",    color: T.muted  },
+            { label: "Peak",     value: `${peak}`,              unit: ` (${peakRatio}×)`, color: peak > market.baseline * 2 ? "#b45309" : T.muted },
+          ].map(m => (
+            <div key={m.label} style={{ padding: "8px 10px", background: T.bg,
+              border: `1px solid ${T.border}`, borderRadius: 8, textAlign: "center" }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: T.muted, letterSpacing: "0.4px",
+                textTransform: "uppercase", marginBottom: 3 }}>{m.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: m.color, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>{m.unit}</div>
             </div>
           ))}
         </div>
+
+        {/* ── Chart with baseline + thresholds ── */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, marginBottom: 6,
+            letterSpacing: "0.5px", textTransform: "uppercase" }}>
+            Complaints — last {rangeLabel}
+          </div>
+          <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px",
+            border: `1px solid ${T.border}` }}>
+            <DetailChart trend={trend} baseline={market.baseline} status={market.status} width={272} height={80} />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+              <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
+              <span style={{ fontSize: 9, color: T.muted }}>now · {market.complaints}/h</span>
+            </div>
+            {/* Legend row */}
+            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+              {[
+                { color: "#64748b", dash: true,  label: "Baseline" },
+                { color: "#f59e0b", dash: true,  label: "2× warn" },
+                { color: "#ef4444", dash: true,  label: "4.5× outage" },
+              ].map(l => (
+                <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <svg width={16} height={8}>
+                    <line x1={0} y1={4} x2={16} y2={4} stroke={l.color} strokeWidth={1.5}
+                      strokeDasharray={l.dash ? "3,2" : "none"} />
+                  </svg>
+                  <span style={{ fontSize: 9, color: T.muted }}>{l.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Service breakdown ── */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, marginBottom: 6,
+            letterSpacing: "0.5px", textTransform: "uppercase" }}>
+            Service Breakdown
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {Object.entries(market.services || {})
+              .sort((a, b) => b[1].ratio - a[1].ratio)
+              .map(([svcId, svc]) => {
+                const ssm    = STATUS_META[svc.status] || STATUS_META.ok;
+                const smeta  = SERVICES_META[svcId];
+                const pct    = Math.min(100, (svc.ratio / 6) * 100);
+                const isWorst = svcId === worstSvc?.[0];
+                return (
+                  <div key={svcId} style={{ padding: "8px 10px", background: T.bg, borderRadius: 7,
+                    border: `1px solid ${svc.status !== "ok" ? ssm.border : T.border}`,
+                    boxShadow: isWorst && svc.status !== "ok" ? `0 0 0 1px ${ssm.border}` : "none" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                      <span style={{ fontSize: 13 }}>{smeta?.icon}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.text, flex: 1 }}>{smeta?.name}</span>
+                      <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>
+                        {svc.complaints}/h
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
+                        background: ssm.bg, border: `1px solid ${ssm.border}`,
+                        borderRadius: 4, padding: "1px 5px" }}>
+                        {svc.ratio}×
+                      </span>
+                    </div>
+                    {/* Ratio bar with baseline marker at 1/6 */}
+                    <div style={{ position: "relative", height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: ssm.dot,
+                        borderRadius: 3, transition: "width 0.5s" }} />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+
+        {/* ── Thresholds reference ── */}
+        <div style={{ padding: "8px 10px", background: T.bg, borderRadius: 7, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, marginBottom: 5,
+            letterSpacing: "0.4px", textTransform: "uppercase" }}>Thresholds (baseline {market.baseline}/h)</div>
+          {[
+            { label: "OK",      desc: `< ${market.baseline * 2}/h`,  sub: "< 2×", ...STATUS_META.ok },
+            { label: "WARNING", desc: `${market.baseline * 2}–${Math.round(market.baseline * 4.5)}/h`, sub: "2–4.5×", ...STATUS_META.warning },
+            { label: "OUTAGE",  desc: `> ${Math.round(market.baseline * 4.5)}/h`, sub: "> 4.5× → ticket", ...STATUS_META.outage },
+          ].map(row => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
+              <span style={{ fontSize: 9, fontWeight: 700, color: row.color, width: 52 }}>{row.label}</span>
+              <span style={{ fontSize: 9, color: T.muted, flex: 1 }}>{row.desc}</span>
+              <span style={{ fontSize: 9, color: T.muted, opacity: 0.7 }}>{row.sub}</span>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
