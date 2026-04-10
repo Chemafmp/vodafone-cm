@@ -424,30 +424,14 @@ function ProbeBar({ value, minVal, maxVal, globalMax, color, isLoss }) {
 }
 
 // ─── Per-probe breakdown modal ────────────────────────────────────────────────
-// Opens when user clicks "🔬 per-probe" on Avg Latency, P95 Latency, or Packet Loss.
-function ProbeBreakdown({ market, metricKey, onClose }) {
+// Single combined view — all metrics per probe in one table.
+function ProbeBreakdown({ market, onClose }) {
   const probes = market.probeDetails || [];
   const nearby = KROOT_NEARBY[market.id] || [];
 
-  // Pick which value to visualise based on the clicked metric
-  const isLoss = metricKey === "loss_pct";
-  const valKey = metricKey === "p95_rtt" ? "p95_rtt" : isLoss ? "loss_pct" : "avg_rtt";
+  // Sort by avg_rtt ascending (fastest first)
+  const sorted = [...probes].sort((a, b) => (a.avg_rtt ?? 999) - (b.avg_rtt ?? 999));
 
-  const metaLabel = {
-    avg_rtt:  "Avg Latency per probe",
-    p95_rtt:  "P95 Latency per probe",
-    loss_pct: "Packet Loss per probe",
-  }[metricKey] || "Per-probe results";
-
-  // Colour per metric
-  const barColor = metricKey === "p95_rtt" ? "#8b5cf6"
-                 : metricKey === "loss_pct" ? "#ef4444"
-                 : "#3b82f6";
-
-  // Sort probes by the selected metric
-  const sorted = [...probes].sort((a, b) => (a[valKey] ?? 999) - (b[valKey] ?? 999));
-
-  // Anycast inference uses avg_rtt regardless of selected metric
   const allAvg = probes.map(p => p.avg_rtt).filter(Boolean);
   const median = allAvg.length
     ? [...allAvg].sort((a, b) => a - b)[Math.floor(allAvg.length / 2)]
@@ -459,10 +443,7 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
     return probe.avg_rtt > median * 1.5 ? nearby[1] : nearby[0];
   }
 
-  // Global max for bar scaling
-  const globalMax = isLoss
-    ? Math.max(...sorted.map(p => p.loss_pct || 0), 5)
-    : Math.max(...sorted.map(p => p[valKey] || 0), 1);
+  const maxRtt = Math.max(...sorted.map(p => p.max_rtt || p.avg_rtt || 0), 1);
 
   return (
     <div style={{
@@ -473,7 +454,7 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{
         background: T.surface, border: `1px solid ${T.border}`,
-        borderRadius: 14, width: "100%", maxWidth: 660,
+        borderRadius: 14, width: "100%", maxWidth: 700,
         maxHeight: "88vh", overflow: "hidden",
         display: "flex", flexDirection: "column",
         boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
@@ -487,10 +468,10 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
           <span style={{ fontSize: 20 }}>🔬</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
-              {market.flag} {market.name} — {metaLabel}
+              {market.flag} {market.name} — Per-probe breakdown
             </div>
             <div style={{ fontSize: 11, color: T.muted }}>
-              AS{market.asn} · {probes.length} probes · msm #1001 · last 15 min window
+              AS{market.asn} · {probes.length} probes · msm #1001 · last 15-min window
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -509,15 +490,13 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
               {/* Column headers */}
               <div style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 180px 72px 72px 130px",
+                gridTemplateColumns: "1fr 200px 52px 52px 120px",
                 gap: 8, padding: "4px 10px 6px",
                 fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.5px",
               }}>
                 <div>PROBE</div>
-                <div>{metricKey === "loss_pct" ? "LOSS" : "LATENCY (min–avg–max)"}</div>
-                <div style={{ textAlign: "right" }}>
-                  {metricKey === "p95_rtt" ? "P95" : metricKey === "loss_pct" ? "LOSS" : "AVG"}
-                </div>
+                <div>LATENCY — min / avg / max</div>
+                <div style={{ textAlign: "right" }}>P95</div>
                 <div style={{ textAlign: "right" }}>LOSS</div>
                 <div>LIKELY K-ROOT</div>
               </div>
@@ -527,71 +506,89 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
                 const node    = inferNode(p);
                 const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
                 const hasLoss = p.loss_pct > 0;
-                const dispVal = p[valKey] ?? null;
+                const barColor = isOdd ? "#f59e0b" : "#3b82f6";
+
+                // Bar positions (scale on max_rtt of all probes)
+                const pct  = v => v != null ? Math.max(0, Math.min(1, v / maxRtt)) : 0;
+                const W = 200;
+                const minX  = pct(p.min_rtt) * W;
+                const avgX  = pct(p.avg_rtt) * W;
+                const maxX  = pct(p.max_rtt) * W;
 
                 return (
                   <div key={p.id} style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 180px 72px 72px 130px",
+                    gridTemplateColumns: "1fr 200px 52px 52px 120px",
                     alignItems: "center",
                     gap: 8,
-                    padding: "8px 10px",
+                    padding: "10px 10px",
                     background: i % 2 === 0 ? T.bg : T.surface,
                     borderRadius: 7,
                     marginBottom: 3,
-                    border: hasLoss ? "1px solid #fca5a5" : `1px solid transparent`,
+                    border: hasLoss ? "1px solid #fca5a5" : "1px solid transparent",
                   }}>
+
                     {/* Probe identity */}
                     <div>
-                      <div style={{
-                        fontSize: 11, fontWeight: 600, color: T.text,
-                        display: "flex", alignItems: "center", gap: 5,
-                      }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.text,
+                        display: "flex", alignItems: "center", gap: 5 }}>
                         {p.description || `Probe #${p.id}`}
                         {hasLoss && (
-                          <span style={{
-                            fontSize: 9, fontWeight: 700, color: "#dc2626",
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#dc2626",
                             background: "#fef2f2", border: "1px solid #fca5a5",
-                            borderRadius: 3, padding: "1px 4px",
-                          }}>loss!</span>
+                            borderRadius: 3, padding: "1px 4px" }}>loss!</span>
                         )}
                       </div>
                       <div style={{ fontSize: 9, color: T.muted }}>
-                        #{p.id}
-                        {p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
+                        #{p.id}{p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
                       </div>
                     </div>
 
-                    {/* Bar chart */}
-                    <ProbeBar
-                      value={isLoss ? p.loss_pct : (metricKey === "p95_rtt" ? p.p95_rtt : p.avg_rtt)}
-                      minVal={isLoss ? null : p.min_rtt}
-                      maxVal={isLoss ? null : p.max_rtt}
-                      globalMax={globalMax}
-                      color={isOdd ? "#f59e0b" : barColor}
-                      isLoss={isLoss}
-                    />
-
-                    {/* Primary value */}
-                    <div style={{
-                      fontFamily: "monospace", fontWeight: 800, fontSize: 13,
-                      color: hasLoss && isLoss ? "#dc2626"
-                           : isOdd && !isLoss ? "#b45309"
-                           : "#16a34a",
-                      textAlign: "right",
-                    }}>
-                      {dispVal != null ? (isLoss ? `${dispVal}%` : `${dispVal}ms`) : "—"}
+                    {/* Latency bar + min/avg/max text */}
+                    <div>
+                      {/* SVG bar */}
+                      <svg width={W} height={14} style={{ display: "block", overflow: "visible" }}>
+                        {/* Track */}
+                        <rect x={0} y={5} width={W} height={4} rx={2} fill={T.border} />
+                        {/* min–max band */}
+                        {p.min_rtt != null && p.max_rtt != null && (
+                          <rect x={minX} y={4} width={Math.max(maxX - minX, 2)} height={6}
+                            rx={2} fill={barColor} opacity={0.2} />
+                        )}
+                        {/* avg marker */}
+                        <rect x={Math.max(0, avgX - 2)} y={2} width={4} height={10}
+                          rx={2} fill={barColor} />
+                      </svg>
+                      {/* min / avg / max text row */}
+                      <div style={{
+                        display: "flex", justifyContent: "space-between",
+                        fontSize: 9, fontFamily: "monospace", marginTop: 2,
+                      }}>
+                        <span style={{ color: T.muted }}>
+                          {p.min_rtt != null ? `${p.min_rtt}ms` : "—"}
+                        </span>
+                        <span style={{ color: barColor, fontWeight: 700 }}>
+                          {p.avg_rtt != null ? `${p.avg_rtt}ms` : "—"}
+                        </span>
+                        <span style={{ color: T.muted }}>
+                          {p.max_rtt != null ? `${p.max_rtt}ms` : "—"}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Loss (always shown as context) */}
-                    <div style={{
-                      fontFamily: "monospace", fontSize: 11, textAlign: "right",
-                      color: hasLoss ? "#dc2626" : T.muted,
-                    }}>
+                    {/* P95 */}
+                    <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700,
+                      textAlign: "right", color: isOdd ? "#b45309" : "#8b5cf6" }}>
+                      {p.p95_rtt != null ? `${p.p95_rtt}ms` : "—"}
+                    </div>
+
+                    {/* Loss */}
+                    <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: hasLoss ? 700 : 400,
+                      textAlign: "right", color: hasLoss ? "#dc2626" : T.muted }}>
                       {p.loss_pct}%
                     </div>
 
-                    {/* Likely k-root node */}
+                    {/* Likely k-root */}
                     <div>
                       {node && (
                         <div style={{
@@ -612,53 +609,26 @@ function ProbeBreakdown({ market, metricKey, onClose }) {
                 );
               })}
 
-              {/* Chart legend */}
+              {/* Legend */}
               <div style={{
-                marginTop: 10, padding: "10px 14px", background: T.bg,
+                marginTop: 10, padding: "9px 14px", background: T.bg,
                 border: `1px solid ${T.border}`, borderRadius: 7,
+                display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center",
+                fontSize: 11, color: T.muted,
               }}>
-                <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 8 }}>
-                  How to read the bars
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {/* Bar anatomy */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {/* Mini bar example */}
-                    <svg width={120} height={20} style={{ flexShrink: 0, overflow: "visible" }}>
-                      <rect x={0} y={8} width={120} height={4} rx={2} fill={T.border} />
-                      <rect x={20} y={7} width={70} height={6} rx={2} fill="#3b82f6" opacity={0.22} />
-                      <rect x={52} y={5} width={4} height={10} rx={2} fill="#3b82f6" />
-                      {/* min label */}
-                      <line x1={20} y1={4} x2={20} y2={16} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,1"/>
-                      <text x={21} y={3} fontSize={7} fill="#94a3b8">min</text>
-                      {/* max label */}
-                      <line x1={90} y1={4} x2={90} y2={16} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,1"/>
-                      <text x={91} y={3} fontSize={7} fill="#94a3b8">max</text>
-                      {/* avg label */}
-                      <text x={57} y={3} fontSize={7} fill="#3b82f6" fontWeight={700}>avg</text>
-                    </svg>
-                    <span style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
-                      <strong style={{ color: T.text }}>Shaded band</strong> = min–max spread
-                      across all pings in the 15-min window (each probe sends ~3 pings every 4 min ≈ 12 samples).
-                      A wide band means <em>jitter</em> — latency is inconsistent.
-                      The <strong style={{ color: T.text }}>solid marker</strong> is the avg (or P95 when viewing P95).
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4 }}>
-                    <span style={{
-                      display: "inline-block", width: 10, height: 10,
-                      background: "#f59e0b", borderRadius: 2, marginRight: 5, verticalAlign: "middle",
-                    }} />
-                    <strong style={{ color: "#b45309" }}>Amber bar</strong> = probe RTT is &gt;1.5× above
-                    the market median ({median !== null ? `${Math.round(median)}ms` : "—"}ms) — it likely
-                    connects to a farther k-root anycast node
-                    {nearby[1] ? ` (e.g. ${nearby[1].city} via ${nearby[1].ix})` : ""}.
-                    {" "}<a href="https://atlas.ripe.net/measurements/1001/"
-                      target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
-                      View on RIPE Atlas →
-                    </a>
-                  </div>
-                </div>
+                <span>
+                  <strong style={{ color: T.text }}>Bar:</strong>{" "}
+                  shaded band = min–max jitter range · solid marker = avg
+                </span>
+                <span>
+                  <span style={{ color: "#f59e0b", fontWeight: 700 }}>■ amber</span>
+                  {" "}= RTT &gt;1.5× median → likely farther k-root node
+                </span>
+                <a href="https://atlas.ripe.net/measurements/1001/"
+                  target="_blank" rel="noreferrer"
+                  style={{ color: "#3b82f6", marginLeft: "auto" }}>
+                  View on RIPE Atlas →
+                </a>
               </div>
             </>
           )}
@@ -673,7 +643,7 @@ function DetailPanel({ market, onClose }) {
   const meta   = sm(market.status);
   const cur    = market.current;
   const [zoom, setZoom] = useState("6h");
-  const [drillMetric, setDrillMetric] = useState(null);
+  const [probeOpen, setProbeOpen] = useState(false);
 
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;
@@ -806,38 +776,39 @@ function DetailPanel({ market, onClose }) {
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px",
           }}>
             {charts.map(cfg => (
-              <div key={cfg.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <MetricChart
-                  data={data}
-                  valueKey={cfg.key}
-                  label={cfg.label}
-                  unit={cfg.unit}
-                  color={cfg.color}
-                  baseline={cfg.baseline}
-                  warnLevel={cfg.warnLevel}
-                  critLevel={cfg.critLevel}
-                  width={268}
-                  height={72}
-                />
-                {market.probeDetails && market.probeDetails.length > 0
-                  && cfg.key !== "probe_count" && (
-                  <button
-                    onClick={() => setDrillMetric(cfg.key)}
-                    style={{
-                      alignSelf: "flex-end",
-                      fontSize: 9, fontWeight: 700,
-                      color: "#3b82f6", background: "#eff6ff",
-                      border: "1px solid #bfdbfe", borderRadius: 4,
-                      padding: "2px 7px", cursor: "pointer",
-                      letterSpacing: "0.2px",
-                    }}
-                  >
-                    🔬 per-probe ↗
-                  </button>
-                )}
-              </div>
+              <MetricChart
+                key={cfg.key}
+                data={data}
+                valueKey={cfg.key}
+                label={cfg.label}
+                unit={cfg.unit}
+                color={cfg.color}
+                baseline={cfg.baseline}
+                warnLevel={cfg.warnLevel}
+                critLevel={cfg.critLevel}
+                width={268}
+                height={72}
+              />
             ))}
           </div>
+
+          {/* Single per-probe button */}
+          {market.probeDetails && market.probeDetails.length > 0 && (
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setProbeOpen(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  fontSize: 11, fontWeight: 700,
+                  color: "#1d4ed8", background: "#eff6ff",
+                  border: "1px solid #bfdbfe", borderRadius: 6,
+                  padding: "5px 12px", cursor: "pointer",
+                }}
+              >
+                🔬 Per-probe breakdown — {market.probeDetails.length} probes ↗
+              </button>
+            </div>
+          )}
 
           {/* Chart legend */}
           <div style={{
@@ -936,11 +907,10 @@ function DetailPanel({ market, onClose }) {
       </div>
 
       {/* Per-probe drill-down modal (renders on top of this panel) */}
-      {drillMetric && (
+      {probeOpen && (
         <ProbeBreakdown
           market={market}
-          metricKey={drillMetric}
-          onClose={() => setDrillMetric(null)}
+          onClose={() => setProbeOpen(false)}
         />
       )}
     </div>
