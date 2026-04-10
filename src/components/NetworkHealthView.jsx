@@ -44,19 +44,12 @@ const KROOT_NEARBY = {
 };
 
 // ─── Zoom filter ──────────────────────────────────────────────────────────────
-// history: array of { ..., measured_at: ISO }
+// zoom = 1 (all) | 2 | 4 | 8 — slices last history.length/zoom points.
+// Same model as Downdetector / ServiceStatusView.
 function applyZoom(history, zoom) {
   if (!history || !history.length) return history || [];
-  if (zoom === "all") return history;
-  const cutoffMs = {
-    "1h":  60 * 60 * 1000,
-    "30m": 30 * 60 * 1000,
-    "10m": 10 * 60 * 1000,
-  }[zoom];
-  if (!cutoffMs) return history;
-  const since = Date.now() - cutoffMs;
-  const filtered = history.filter(h => new Date(h.measured_at).getTime() >= since);
-  return filtered.length ? filtered : history.slice(-2);
+  if (zoom === 1) return history;
+  return history.slice(-Math.max(4, Math.ceil(history.length / zoom)));
 }
 
 // ─── Interactive chart ────────────────────────────────────────────────────────
@@ -351,10 +344,10 @@ function MetricsGlossary() {
 
 // ─── Zoom selector ────────────────────────────────────────────────────────────
 const ZOOM_OPTIONS = [
-  { key: "all", label: "All" },
-  { key: "1h",  label: "1h"  },
-  { key: "30m", label: "30m" },
-  { key: "10m", label: "10m" },
+  { key: 1, label: "All" },
+  { key: 2, label: "2×"  },
+  { key: 4, label: "4×"  },
+  { key: 8, label: "8×"  },
 ];
 
 function ZoomSelector({ value, onChange }) {
@@ -384,7 +377,7 @@ function ZoomSelector({ value, onChange }) {
 function DetailPanel({ market, onClose }) {
   const meta   = sm(market.status);
   const cur    = market.current;
-  const [zoom, setZoom] = useState("all");
+  const [zoom, setZoom] = useState(1);
 
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;
