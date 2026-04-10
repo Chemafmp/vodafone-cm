@@ -761,55 +761,6 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
           {/* ── RIGHT — TABS + CONTENT ─────────────────────────────────────── */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-            {/* Tab bar */}
-            {/* ── CHILD TICKETS ─────────────────────────────────────────────── */}
-            {(() => {
-              const openKids = children.filter(c => !["resolved","closed"].includes(c.status));
-              return (
-                <div style={{ flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-                  <div style={{ padding: "8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.4px" }}>⛓ Child tickets</span>
-                    {children.length > 0 && (
-                      <span style={{ fontSize: 10, color: T.muted }}>
-                        {openKids.length} open · {children.length - openKids.length} closed
-                      </span>
-                    )}
-                    {loadingChildren && <span style={{ fontSize: 10, color: T.muted }}>Loading…</span>}
-                    <button onClick={() => setCreateChildOpen(true)}
-                      style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}>
-                      + Add child
-                    </button>
-                  </div>
-                  {children.length > 0 && (
-                    <div style={{ padding: "0 14px 8px" }}>
-                      {children.map(child => {
-                        const cTC = TICKET_COLORS[child.type] || TICKET_COLORS.incident;
-                        const cSev = child.severity ? SEV_META[child.severity] : null;
-                        const cStatus = TICKET_STATUS_META[child.status] || { label: child.status, color: T.muted };
-                        const isDone = ["resolved","closed"].includes(child.status);
-                        return (
-                          <div key={child.id}
-                            onClick={() => window.open(`${window.location.pathname}#ticket=${child.id}`, "_blank")}
-                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 6, cursor: "pointer", opacity: isDone ? 0.55 : 1, transition: "background 0.12s" }}
-                            onMouseEnter={e => e.currentTarget.style.background = T.bg}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            <span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700, color: T.primary, flexShrink: 0 }}>{child.id}</span>
-                            <span style={{ fontSize: 9, fontWeight: 800, color: cTC.text, background: cTC.bg, border: `1px solid ${cTC.border}`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>
-                              {child.type === "project" ? "REQ" : child.type.slice(0,3).toUpperCase()}
-                            </span>
-                            <span style={{ fontSize: 11, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{child.title}</span>
-                            {child.team && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{child.team}</span>}
-                            {cSev && <span style={{ fontSize: 9, fontWeight: 700, color: cSev.color, flexShrink: 0 }}>{cSev.label}</span>}
-                            <span style={{ fontSize: 9, fontWeight: 700, color: cStatus.color, background: `${cStatus.color}14`, border: `1px solid ${cStatus.color}33`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>{cStatus.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* ── TABS ──────────────────────────────────────────────────────── */}
             <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
               {[
@@ -817,6 +768,7 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                 { key: "worklog",     label: `Worklog (${worklogEvents.length})` },
                 { key: "log",         label: `Log (${logEvents.length})` },
                 { key: "attachments", label: `Attachments (${evidence.length})` },
+                { key: "children",    label: `Children (${children.length})`, dot: children.filter(c => !["resolved","closed"].includes(c.status)).length > 0 },
               ].map(tab => (
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                   style={{
@@ -824,8 +776,11 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                     color: activeTab === tab.key ? T.primary : T.muted,
                     background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit",
                     borderBottom: `2px solid ${activeTab === tab.key ? T.primary : "transparent"}`,
-                    marginBottom: -1, transition: "color 0.15s",
-                  }}>{tab.label}</button>
+                    marginBottom: -1, transition: "color 0.15s", display: "flex", alignItems: "center", gap: 5,
+                  }}>
+                  {tab.label}
+                  {tab.dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />}
+                </button>
               ))}
             </div>
 
@@ -1112,6 +1067,69 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                       {addingLink ? "…" : "Add"}
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── CHILDREN TAB ──────────────────────────────────────────────── */}
+            {activeTab === "children" && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Header */}
+                <div style={{ padding: "14px 22px 10px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>
+                      {children.length === 0 ? "No child tickets" : `${children.filter(c => !["resolved","closed"].includes(c.status)).length} open · ${children.filter(c => ["resolved","closed"].includes(c.status)).length} closed`}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Dependencies and sub-tasks tracked under this ticket</div>
+                  </div>
+                  <button onClick={() => setCreateChildOpen(true)}
+                    style={{ padding: "7px 14px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "#7c3aed", border: "none", color: "#fff" }}>
+                    + Add child
+                  </button>
+                </div>
+                {/* List */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {loadingChildren && (
+                    <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Loading…</div>
+                  )}
+                  {!loadingChildren && children.length === 0 && (
+                    <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", textAlign: "center", padding: "32px 0" }}>
+                      No child tickets yet.<br />
+                      <span style={{ fontSize: 11 }}>Use "+ Add child" to track dependencies or sub-tasks with other teams.</span>
+                    </div>
+                  )}
+                  {children.map(child => {
+                    const cTC = TICKET_COLORS[child.type] || TICKET_COLORS.incident;
+                    const cSev = child.severity ? SEV_META[child.severity] : null;
+                    const cStatus = TICKET_STATUS_META[child.status] || { label: child.status, color: T.muted };
+                    const isDone = ["resolved","closed"].includes(child.status);
+                    return (
+                      <div key={child.id}
+                        onClick={() => window.open(`${window.location.pathname}#ticket=${child.id}`, "_blank")}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                          borderRadius: 8, cursor: "pointer", opacity: isDone ? 0.6 : 1,
+                          border: `1px solid ${T.border}`, background: T.surface,
+                          transition: "background 0.12s",
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                        onMouseLeave={e => e.currentTarget.style.background = T.surface}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: T.primary }}>{child.id}</span>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: cTC.text, background: cTC.bg, border: `1px solid ${cTC.border}`, borderRadius: 3, padding: "1px 5px", width: "fit-content" }}>
+                            {child.type === "project" ? "REQUEST" : child.type.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{child.title}</div>
+                          {child.team && <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{child.team}{child.owner_name ? ` · ${child.owner_name}` : ""}</div>}
+                        </div>
+                        {cSev && <span style={{ fontSize: 9, fontWeight: 700, color: cSev.color, background: cSev.bg, border: `1px solid ${cSev.border}`, borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>{cSev.label}</span>}
+                        <span style={{ fontSize: 10, fontWeight: 700, color: cStatus.color, background: `${cStatus.color}14`, border: `1px solid ${cStatus.color}33`, borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>{cStatus.label}</span>
+                        <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>↗</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
