@@ -17,6 +17,7 @@ const ALL_NAV_GROUPS=[
     {id:"events",          icon:"📋", label:"Events"},
     {id:"observability",   icon:"📈", label:"Observability"},
     {id:"service_monitor", icon:"🌍", label:"Service Monitor"},
+    {id:"network_health",  icon:"📡", label:"Network Health"},
   ]},
   { label:"TICKETING", app:"tickets", summaryKeys:{ open:"ticketsAll", critical:"ticketsCritical" }, items:[
     {id:"tickets_all",       icon:"🎫", label:"All Tickets", badgeKey:"ticketsAll",       badgeColor:"#475569"},

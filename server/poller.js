@@ -27,6 +27,7 @@ import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
 import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
 import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
+import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -140,6 +141,11 @@ app.get("/api/events", (req, res) => {
 // GET /api/service-status — Downdetector-style complaint data for all markets
 app.get("/api/service-status", (req, res) => {
   res.json(getServiceStatus());
+});
+
+// GET /api/network-health — RIPE Atlas latency/loss per Vodafone market
+app.get("/api/network-health", (req, res) => {
+  res.json(getNetworkHealth());
 });
 
 const server = http.createServer(app);
@@ -501,6 +507,17 @@ server.listen(PORT, BIND_HOST, () => {
   }, SERVICE_STATUS_INTERVAL);
   // Fire first tick immediately so logs appear right away
   setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+
+  // RIPE Atlas network health — tick every 5 min
+  const RIPE_INTERVAL = 5 * 60 * 1000;
+  initRipeAtlas(log).then(() => {
+    log(chalk.cyan(`[ripe] network health polling started (every ${RIPE_INTERVAL / 60000} min)`));
+    setInterval(() => {
+      tickRipeAtlas(log).catch(e => log(chalk.yellow(`[ripe] tick error: ${e.message}`)));
+    }, RIPE_INTERVAL);
+    // First tick after 10s to let other init settle
+    setTimeout(() => tickRipeAtlas(log).catch(e => log(chalk.yellow(`[ripe] first tick error: ${e.message}`))), 10_000);
+  }).catch(e => log(chalk.yellow(`[ripe] init error: ${e.message}`)));
 });
 
 function log(msg) {

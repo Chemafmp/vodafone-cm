@@ -30,6 +30,7 @@ const ChaosControlPanel = lazy(() => import("./components/ChaosControlPanel.jsx"
 const TicketListView    = lazy(() => import("./components/TicketListView.jsx"));
 const TicketReportsView    = lazy(() => import("./components/TicketReportsView.jsx"));
 const ServiceStatusView    = lazy(() => import("./components/ServiceStatusView.jsx"));
+const NetworkHealthView    = lazy(() => import("./components/NetworkHealthView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -162,7 +163,7 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",network_health:"Network Health",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
   // ── Standalone PWA mode: hash param OR running as installed PWA ──
@@ -293,7 +294,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","network_health","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","network_health","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -422,6 +423,7 @@ export default function App(){
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
         {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
+        {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView/></div>}
 
         {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(

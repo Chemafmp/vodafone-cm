@@ -360,6 +360,7 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
   const liveSt    = liveRatio >= 4.5 ? "outage" : liveRatio >= 2.0 ? "warning" : "ok";
   const liveSm    = STATUS_META[liveSt];
   const liveFmt   = fmt(liveVal);
+  const baseFmt   = fmt(market.baseline);
 
   function handleShare() {
     const base = `${window.location.origin}${window.location.pathname}`;
@@ -477,19 +478,23 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
           </div>
 
           {/* Live value bar — always visible, no touch needed */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
             background: liveSm.bg, border: `1px solid ${liveSm.border}`, borderRadius: "7px 7px 0 0",
             borderBottom: "none" }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: liveSm.dot, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, fontWeight: 800, color: liveSm.color, fontFamily: "monospace" }}>
+            {/* now vs base */}
+            <span style={{ fontSize: 12, fontWeight: 800, color: liveSm.color, fontFamily: "monospace" }}>
               {liveFmt.v}{liveFmt.u}
             </span>
-            <span style={{ fontSize: 10, color: liveSm.color, fontFamily: "monospace" }}>
-              {liveRatio}× baseline
+            <span style={{ fontSize: 11, color: T.muted, fontFamily: "monospace" }}>vs</span>
+            <span style={{ fontSize: 11, color: T.muted, fontFamily: "monospace" }}>
+              base {baseFmt.v}{baseFmt.u}
             </span>
-            <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, color: liveSm.color,
-              background: "#fff", border: `1px solid ${liveSm.border}`, borderRadius: 4, padding: "1px 6px" }}>
-              NOW
+            {/* ratio badge */}
+            <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: liveSm.color,
+              background: "#fff", border: `1px solid ${liveSm.border}`, borderRadius: 4,
+              padding: "1px 7px", fontFamily: "monospace" }}>
+              {liveRatio}×
             </span>
           </div>
 
@@ -548,12 +553,17 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
                     <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                       <span style={{ fontSize: 13 }}>{smeta?.icon}</span>
                       <span style={{ fontSize: 11, fontWeight: 600, color: T.text, flex: 1 }}>{smeta?.name}</span>
-                      <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>
+                      {/* now vs base */}
+                      <span style={{ fontSize: 10, fontWeight: 700, color: ssm.color, fontFamily: "monospace" }}>
                         {fmt(svc.complaints).v}{fmt(svc.complaints).u}
                       </span>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
+                      <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>vs</span>
+                      <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>
+                        {(() => { const b = fmt(Math.round(svc.complaints / Math.max(svc.ratio, 0.1))); return `${b.v}${b.u}`; })()}
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: ssm.color,
                         background: ssm.bg, border: `1px solid ${ssm.border}`,
-                        borderRadius: 4, padding: "1px 5px" }}>
+                        borderRadius: 4, padding: "1px 5px", fontFamily: "monospace" }}>
                         {svc.ratio}×
                       </span>
                     </div>
