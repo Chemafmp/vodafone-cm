@@ -141,23 +141,21 @@ async function tryHtmlScrape(m) {
     } catch { /* try next */ }
   }
 
-  // Pattern 2: JSON blob in <script type="application/json"> or window.__DD_* / window.__INITIAL_STATE__
-  const jsonBlobPatterns = [
-    /window\.__(?:DD_DATA|INITIAL_STATE|APP_STATE|NUXT__)\s*=\s*(\{[\s\S]*?\})(?:\s*;|\s*<\/script>)/,
-    /<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/,
-    /window\.reportData\s*=\s*(\{[\s\S]*?\});/,
-  ];
-  for (const pat of jsonBlobPatterns) {
-    const mm = html.match(pat);
-    if (!mm) continue;
+  // Pattern 2: Next.js __NEXT_DATA__ (Downdetector uses Next.js)
+  const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (nextDataMatch) {
     try {
-      const obj = JSON.parse(mm[1]);
-      // Look for an array of {x,y} or [[epoch,count]] anywhere in the object
+      const obj = JSON.parse(nextDataMatch[1]);
+      // DEBUG: log top-level keys of pageProps so we can find where chart data lives
+      const pp = obj?.props?.pageProps;
+      if (pp) log?.(`[downdetector] __NEXT_DATA__ pageProps keys: ${Object.keys(pp).join(", ")}`);
+
+      // Look for an array of {x,y} or [[epoch,count]] anywhere in the object (depth-first)
       const findSeries = (o, depth = 0) => {
-        if (depth > 5 || !o || typeof o !== "object") return null;
+        if (depth > 8 || !o || typeof o !== "object") return null;
         if (Array.isArray(o) && o.length >= 4) {
-          if (o[0]?.y !== undefined) return o.map(p => Math.round(p.y));
-          if (Array.isArray(o[0]) && o[0].length === 2) return o.map(p => Math.round(p[1]));
+          if (typeof o[0]?.y === "number") return o.map(p => Math.round(p.y));
+          if (Array.isArray(o[0]) && o[0].length === 2 && typeof o[0][1] === "number") return o.map(p => Math.round(p[1]));
         }
         for (const v of Object.values(o)) {
           const r = findSeries(v, depth + 1);
@@ -166,8 +164,10 @@ async function tryHtmlScrape(m) {
         return null;
       };
       const values = findSeries(obj);
-      if (values) return { values, url, shape: "html-json-blob" };
-    } catch { /* try next */ }
+      if (values) return { values, url, shape: "next-data" };
+    } catch (e) {
+      log?.(`[downdetector]   __NEXT_DATA__ parse error: ${e.message}`);
+    }
   }
 
   // Pattern 3: {x: epoch, y: count} pairs embedded in JS (React/Next hydration data)
