@@ -12,7 +12,7 @@
 // WARNING: fragile — for testing only. Replace with official Downdetector API.
 
 const MARKETS = [
-  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"estado" },
+  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone-espana",  path:"estado" },
   { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status" },
   { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status" },
   { id:"it", name:"Italy",       flag:"🇮🇹", domain:"downdetector.it",     slug:"vodafone",         path:"status" },
@@ -116,8 +116,9 @@ async function tryJsonEndpoint(m) {
 // ─── Approach 2 & 3: HTML scraping ───────────────────────────────────────────
 async function tryHtmlScrape(m) {
   const url = `https://${m.domain}/${m.path}/${m.slug}/`;
-  // render=true tells ScraperAPI to execute JS (needed for Cloudflare JS challenges)
-  const r = await timedFetch(url, HTML_HEADERS, { render: true });
+  // Do NOT use render=true — Highcharts data lives in <script> tags in raw HTML.
+  // render=true produces a fully-executed SPA with no inline script data.
+  const r = await timedFetch(url, HTML_HEADERS, {});
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
   const html = await r.text();
 

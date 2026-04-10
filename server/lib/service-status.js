@@ -85,9 +85,12 @@ function statusForRatio(ratio) {
  *
  * @param {number} port  — poller HTTP port (for self-calls to /api/tickets)
  */
+let _scraping = false; // prevent concurrent scrape cycles
 export async function tickServiceStatus(port, log) {
   if (USE_SCRAPER) {
-    await tickFromScraper(port, log);
+    if (_scraping) { log?.("[service-status] skipping tick — previous scrape still running"); return; }
+    _scraping = true;
+    try { await tickFromScraper(port, log); } finally { _scraping = false; }
     return;
   }
   await tickSimulated(port, log);
