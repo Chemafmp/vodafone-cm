@@ -238,6 +238,11 @@ useEffect(() => {
       <div style={{padding:"13px 28px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14,background:T.surface,flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
         <div style={{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}}>{VIEW_TITLES[view]||"Changes"}</div>
         {view==="changes"&&<span style={{fontSize:11,color:T.muted,fontWeight:500,marginLeft:4}}>— manage, execute and track network changes</span>}
+        {view==="service_monitor"&&<span style={{display:"flex",alignItems:"center",gap:6,marginLeft:4}}>
+          <span style={{fontSize:11,color:T.muted,fontWeight:500}}>powered by</span>
+          <span style={{fontSize:11,fontWeight:800,color:"#0369a1",letterSpacing:"-0.2px"}}>Downdetector</span>
+          <span style={{fontSize:9,fontWeight:700,color:"#0369a1",background:"#eff6ff",border:"1px solid #93c5fd",borderRadius:4,padding:"1px 5px",letterSpacing:"0.3px"}}>COMMUNITY DATA</span>
+        </span>}
         <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}}>
         </div>
       </div>
