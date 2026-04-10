@@ -640,7 +640,7 @@ export default function ServiceStatusView() {
               if (liveCount === 0) return null;
               return (
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 8px" }}>
-                  🌐 {liveCount}/{markets.length} LIVE — Downdetector
+                  🌐 {liveCount}/{markets.length} via Downdetector
                 </span>
               );
             })()}
@@ -686,8 +686,16 @@ export default function ServiceStatusView() {
           )}
 
           {/* Footer note */}
-          <div style={{ marginTop: 24, fontSize: 10, color: T.muted, textAlign: "center", lineHeight: 1.6 }}>
-            🌐 LIVE markets pull real complaint counts from Downdetector. ∿ SIMULATED markets use modelled data. Auto-refreshes every 15s. Outages auto-create incident tickets.
+          <div style={{ marginTop: 24, fontSize: 10, color: T.muted, textAlign: "center", lineHeight: 1.8 }}>
+            🌐 LIVE markets pull real complaint counts from{" "}
+            <span style={{ fontWeight: 600, color: "#0369a1" }}>Downdetector</span>
+            {" "}· ∿ SIMULATED markets use modelled data · Auto-refreshes every 15s · Outages auto-create incident tickets
+            <br />
+            <span style={{ opacity: 0.6 }}>
+              Data sourced via Downdetector public pages for monitoring purposes only.
+              For official data, see{" "}
+              <span style={{ fontWeight: 600 }}>downdetector.com</span>.
+            </span>
           </div>
         </div>
       </div>
