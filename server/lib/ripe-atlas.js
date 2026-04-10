@@ -54,7 +54,7 @@ function initState() {
   for (const m of RIPE_MARKETS) {
     state.set(m.id, {
       ...m,
-      probeIds:        [],
+      probes:          [],   // [{ id, country, lat, lon, description }]
       probesFetchedAt: 0,
       current:         null,
       history:         [],   // rolling HISTORY_POINTS × { avg_rtt, p95_rtt, loss_pct, probe_count, measured_at }
@@ -84,16 +84,24 @@ async function ripeFetch(url) {
 }
 
 // ─── Probe discovery ──────────────────────────────────────────────────────────
-// Returns array of probe IDs active in a given ASN (handles pagination).
-async function fetchProbeIds(asn) {
-  const ids = [];
-  let url = `${RIPE_BASE}/probes/?asn_v4=${asn}&status=1&fields=id&page_size=500`;
+// Returns array of probe objects with id + location metadata.
+async function fetchProbes(asn) {
+  const probes = [];
+  let url = `${RIPE_BASE}/probes/?asn_v4=${asn}&status=1&fields=id,country_code,geometry,description&page_size=500`;
   while (url) {
     const data = await ripeFetch(url);
-    for (const p of (data.results || [])) ids.push(p.id);
+    for (const p of (data.results || [])) {
+      probes.push({
+        id:          p.id,
+        country:     p.country_code  || null,
+        lat:         p.geometry?.coordinates?.[1] ?? null,
+        lon:         p.geometry?.coordinates?.[0] ?? null,
+        description: p.description  || null,
+      });
+    }
     url = data.next || null;
   }
-  return ids;
+  return probes;
 }
 
 // ─── Percentile helper ────────────────────────────────────────────────────────
@@ -199,22 +207,22 @@ async function loadHistory(marketId) {
 async function pollMarket(m, log) {
   const s = state.get(m.id);
 
-  // Refresh probe IDs if stale or missing
+  // Refresh probes if stale or missing
   const probeAgeH = (Date.now() - s.probesFetchedAt) / 3_600_000;
-  if (!s.probeIds.length || probeAgeH > PROBE_REFRESH_H) {
+  if (!s.probes.length || probeAgeH > PROBE_REFRESH_H) {
     log?.(`[ripe] ${m.id}: fetching probes for AS${m.asn}…`);
-    s.probeIds = await fetchProbeIds(m.asn);
+    s.probes = await fetchProbes(m.asn);
     s.probesFetchedAt = Date.now();
-    log?.(`[ripe] ${m.id}: ${s.probeIds.length} active probes in AS${m.asn}`);
+    log?.(`[ripe] ${m.id}: ${s.probes.length} active probes in AS${m.asn}`);
   }
 
-  if (!s.probeIds.length) {
+  if (!s.probes.length) {
     s.ok    = false;
     s.error = `No active RIPE Atlas probes found in AS${m.asn}`;
     return;
   }
 
-  const results = await fetchResults(s.probeIds);
+  const results = await fetchResults(s.probes.map(p => p.id));
   const metrics = computeMetrics(results);
 
   if (!metrics) {
@@ -289,7 +297,16 @@ export function getNetworkHealth() {
       history:      s.history,
       lastUpdate:   s.lastUpdate,
       // Total probes discovered for this ASN (0 = no probes found / RIPE key missing)
-      totalProbes:  s.probeIds.length,
+      totalProbes:  s.probes.length,
+      // Probe location metadata — descriptions (typically city/ISP info) for display
+      // Capped at 20 to keep response size reasonable
+      probeLocations: s.probes.slice(0, 20).map(p => ({
+        id:          p.id,
+        country:     p.country,
+        lat:         p.lat,
+        lon:         p.lon,
+        description: p.description,
+      })),
     };
   });
 }

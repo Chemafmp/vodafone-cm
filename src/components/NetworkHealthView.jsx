@@ -1,10 +1,9 @@
 // ─── Network Health View ──────────────────────────────────────────────────────
 // RIPE Atlas latency + packet-loss data per Vodafone market.
 // Source: GET /api/network-health (polls RIPE Atlas msm #1001 every 5 min)
-//
-// Ratio model (same as Downdetector): ok < 2×  warning ≥ 2×  outage ≥ 4.5×
+// Ratio model: ok <2×  warning ≥2×  outage ≥4.5× above 4h rolling baseline
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { T } from "../data/constants.js";
 
 function apiBase() {
@@ -21,111 +20,275 @@ const STATUS_META = {
 };
 const sm = s => STATUS_META[s] || STATUS_META.unknown;
 
-// ─── Trend chart (SVG) ────────────────────────────────────────────────────────
-function TrendChart({ history, baseline, width = 200, height = 48, showAxes = false }) {
+function fmtTime(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch { return ""; }
+}
+
+// ─── K-root anycast nodes nearest to each Vodafone market ────────────────────
+// Source: RIPE NCC k-root deployment list (https://www.ripe.net/analyse/dns/k-root/)
+// Each entry: city where a k-root node is present + the IXP it peers at
+const KROOT_NEARBY = {
+  es: [{ city: "Madrid",    ix: "ESPANIX" },    { city: "Frankfurt", ix: "DE-CIX" }],
+  uk: [{ city: "London",    ix: "LINX / LONAP"},{ city: "Amsterdam", ix: "AMS-IX" }],
+  de: [{ city: "Frankfurt", ix: "DE-CIX" },     { city: "Berlin",    ix: "BCIX"   }, { city: "Amsterdam", ix: "AMS-IX" }],
+  it: [{ city: "Milan",     ix: "MIX" },        { city: "Rome",      ix: "NaMeX"  }, { city: "Frankfurt", ix: "DE-CIX" }],
+  pt: [{ city: "Lisbon",    ix: "GigaPix" },    { city: "Madrid",    ix: "ESPANIX"}],
+  nl: [{ city: "Amsterdam", ix: "AMS-IX (primary)" }],
+  ie: [{ city: "Dublin",    ix: "INEX" },       { city: "London",    ix: "LINX"   }],
+  gr: [{ city: "Athens",    ix: "GR-IX" },      { city: "Frankfurt", ix: "DE-CIX" }],
+  tr: [{ city: "Istanbul",  ix: "TREX" },       { city: "Frankfurt", ix: "DE-CIX" }],
+};
+
+// ─── Zoom filter ──────────────────────────────────────────────────────────────
+// history: array of { ..., measured_at: ISO }
+function applyZoom(history, zoom) {
+  if (!history || !history.length) return history || [];
+  if (zoom === "all") return history;
+  const cutoffMs = {
+    "1h":  60 * 60 * 1000,
+    "30m": 30 * 60 * 1000,
+    "10m": 10 * 60 * 1000,
+  }[zoom];
+  if (!cutoffMs) return history;
+  const since = Date.now() - cutoffMs;
+  const filtered = history.filter(h => new Date(h.measured_at).getTime() >= since);
+  return filtered.length ? filtered : history.slice(-2);
+}
+
+// ─── Interactive chart ────────────────────────────────────────────────────────
+// Each of the 4 metric charts in the detail panel.
+function MetricChart({
+  data,        // filtered history array
+  valueKey,    // "avg_rtt" | "p95_rtt" | "loss_pct" | "probe_count"
+  label,
+  unit,
+  color,
+  warnLevel,   // optional horizontal warning line
+  critLevel,   // optional critical line
+  baseline,    // optional baseline ref line (green dashed)
+  width = 240,
+  height = 72,
+}) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const svgRef = useRef(null);
+
+  const values = data.map(d => d[valueKey]).filter(v => v !== null && v !== undefined);
+
+  const handlePointerMove = useCallback((e) => {
+    if (!svgRef.current || !values.length) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const raw = (x / rect.width) * (values.length - 1);
+    setHoverIdx(Math.max(0, Math.min(values.length - 1, Math.round(raw))));
+  }, [values.length]);
+
+  const handlePointerLeave = useCallback(() => setHoverIdx(null), []);
+
+  if (!values.length) {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</span>
+        </div>
+        <div style={{
+          width, height,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          border: `1px dashed ${T.border}`, borderRadius: 5,
+          fontSize: 10, color: T.muted,
+        }}>
+          collecting data…
+        </div>
+      </div>
+    );
+  }
+
+  const W = width, H = height;
+  const refVals = [
+    ...values,
+    baseline != null ? baseline : null,
+    warnLevel != null ? warnLevel * 1.05 : null,
+    critLevel != null ? critLevel * 1.05 : null,
+  ].filter(v => v != null);
+  const maxVal = Math.max(...refVals) * 1.15;
+  const minVal = 0;
+  const range  = Math.max(maxVal - minVal, 0.001);
+
+  const toX = i  => values.length === 1 ? W / 2 : (i / (values.length - 1)) * W;
+  const toY = v  => H - ((v - minVal) / range) * H;
+
+  const linePts  = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+  const areaPts  = `${toX(0)},${H} ${linePts} ${toX(values.length - 1)},${H}`;
+
+  const displayVal = hoverIdx !== null ? values[hoverIdx] : values[values.length - 1];
+  const displayTime = hoverIdx !== null ? fmtTime(data[hoverIdx]?.measured_at) : null;
+  const latestVal  = values[values.length - 1];
+
+  return (
+    <div>
+      {/* Metric header row */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "baseline",
+        marginBottom: 4,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</span>
+        <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 800, color }}>
+          {displayVal}{unit}
+          {displayTime && (
+            <span style={{ fontSize: 9, color: T.muted, marginLeft: 5, fontWeight: 400 }}>
+              @ {displayTime}
+            </span>
+          )}
+          {!displayTime && (
+            <span style={{ fontSize: 9, color: T.muted, marginLeft: 5, fontWeight: 400 }}>
+              now
+            </span>
+          )}
+        </span>
+      </div>
+
+      {/* SVG chart */}
+      <div style={{ position: "relative" }}>
+        <svg
+          ref={svgRef}
+          width={W} height={H}
+          style={{ overflow: "visible", cursor: "crosshair", display: "block", userSelect: "none" }}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
+        >
+          {/* Warn zone */}
+          {warnLevel != null && critLevel == null && (
+            <rect x={0} y={0} width={W} height={toY(warnLevel)}
+              fill="rgba(239,68,68,0.05)" />
+          )}
+          {warnLevel != null && (
+            <rect x={0} y={toY(warnLevel)} width={W}
+              height={Math.max(0, H - toY(warnLevel))}
+              fill="rgba(34,197,94,0.05)" />
+          )}
+          {/* Crit zone */}
+          {critLevel != null && (
+            <rect x={0} y={0} width={W} height={Math.max(0, toY(critLevel))}
+              fill="rgba(239,68,68,0.06)" />
+          )}
+          {/* Area fill */}
+          {values.length > 1 && (
+            <polygon points={areaPts} fill={`${color}14`} />
+          )}
+          {/* Baseline */}
+          {baseline != null && (
+            <line x1={0} y1={toY(baseline)} x2={W} y2={toY(baseline)}
+              stroke="#22c55e" strokeWidth={1} strokeDasharray="4,3" opacity={0.7} />
+          )}
+          {/* Warn line */}
+          {warnLevel != null && (
+            <line x1={0} y1={toY(warnLevel)} x2={W} y2={toY(warnLevel)}
+              stroke="#f59e0b" strokeWidth={1} strokeDasharray="4,3" opacity={0.65} />
+          )}
+          {/* Crit line */}
+          {critLevel != null && (
+            <line x1={0} y1={toY(critLevel)} x2={W} y2={toY(critLevel)}
+              stroke="#ef4444" strokeWidth={1} strokeDasharray="4,3" opacity={0.65} />
+          )}
+          {/* Trend line */}
+          {values.length > 1 && (
+            <polyline points={linePts} fill="none" stroke={color} strokeWidth={1.8}
+              strokeLinejoin="round" strokeLinecap="round" />
+          )}
+          {/* Latest dot */}
+          <circle cx={toX(values.length - 1)} cy={toY(latestVal)} r={3}
+            fill={color} stroke={T.surface} strokeWidth={1.5} />
+
+          {/* Hover crosshair */}
+          {hoverIdx !== null && (
+            <>
+              <line
+                x1={toX(hoverIdx)} y1={0} x2={toX(hoverIdx)} y2={H}
+                stroke={T.muted} strokeWidth={1} strokeDasharray="2,2" opacity={0.6}
+              />
+              <circle cx={toX(hoverIdx)} cy={toY(values[hoverIdx])} r={4}
+                fill={color} stroke={T.surface} strokeWidth={2}
+              />
+            </>
+          )}
+
+          {/* X-axis time labels */}
+          {values.length > 1 && data.length > 0 && (
+            <>
+              <text x={2} y={H + 11} fontSize={8} fill={T.muted} fontFamily="monospace">
+                {fmtTime(data[0]?.measured_at)}
+              </text>
+              <text x={W} y={H + 11} fontSize={8} fill={T.muted} fontFamily="monospace"
+                textAnchor="end">
+                {fmtTime(data[data.length - 1]?.measured_at)}
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ─── Compact sparkline for card (no interaction) ──────────────────────────────
+function CardSparkline({ history, baseline, width = 220, height = 32 }) {
   if (!history || history.length < 1) {
     return (
       <div style={{
         width, height,
         display: "flex", alignItems: "center", justifyContent: "center",
-        border: `1px dashed ${T.border}`, borderRadius: 4,
         fontSize: 9, color: T.muted,
       }}>
         collecting data…
       </div>
     );
   }
-
   const values  = history.map(h => h.avg_rtt);
-  const warn2x  = baseline ? baseline * 2   : null;
-  const out45x  = baseline ? baseline * 4.5 : null;
-  const maxVal  = Math.max(...values, warn2x || 0, out45x || 0) * 1.15;
-  const minVal  = 0;
-  const range   = Math.max(maxVal - minVal, 1);
+  const warn    = baseline ? baseline * 2   : null;
+  const out     = baseline ? baseline * 4.5 : null;
+  const maxVal  = Math.max(...values, warn || 0, out || 0) * 1.1;
   const W = width, H = height;
-  const toX = i  => values.length === 1 ? W / 2 : (i / (values.length - 1)) * W;
-  const toY = v  => H - ((v - minVal) / range) * H;
-
-  const linePts = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
-  const areaBot = H;
-  const areaPts = `${toX(0)},${areaBot} ${linePts} ${toX(values.length - 1)},${areaBot}`;
+  const toX = i => values.length === 1 ? W / 2 : (i / (values.length - 1)) * W;
+  const toY = v => H - (v / Math.max(maxVal, 0.001)) * H;
+  const pts = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
 
   return (
     <svg width={W} height={H} style={{ overflow: "visible", display: "block" }}>
-      {/* OK zone fill */}
-      {warn2x !== null && (
-        <rect x={0} y={toY(warn2x)} width={W} height={Math.max(0, H - toY(warn2x))}
-          fill="rgba(34,197,94,0.06)" />
-      )}
-      {/* Warning zone fill */}
-      {warn2x !== null && out45x !== null && (
-        <rect x={0} y={toY(out45x)} width={W}
-          height={Math.max(0, toY(warn2x) - toY(out45x))}
-          fill="rgba(245,158,11,0.06)" />
-      )}
-      {/* Outage zone fill */}
-      {out45x !== null && (
-        <rect x={0} y={0} width={W} height={Math.max(0, toY(out45x))}
-          fill="rgba(239,68,68,0.05)" />
-      )}
-      {/* Area under line */}
-      {values.length > 1 && (
-        <polygon points={areaPts} fill="rgba(59,130,246,0.08)" />
-      )}
-      {/* Baseline reference */}
-      {baseline !== null && (
+      {baseline != null && (
         <line x1={0} y1={toY(baseline)} x2={W} y2={toY(baseline)}
-          stroke="#22c55e" strokeWidth={1} strokeDasharray="4,3" opacity={0.6} />
+          stroke="#22c55e" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
       )}
-      {/* 2× warning line */}
-      {warn2x !== null && (
-        <line x1={0} y1={toY(warn2x)} x2={W} y2={toY(warn2x)}
-          stroke="#f59e0b" strokeWidth={1} strokeDasharray="4,3" opacity={0.5} />
+      {warn != null && (
+        <line x1={0} y1={toY(warn)} x2={W} y2={toY(warn)}
+          stroke="#f59e0b" strokeWidth={1} strokeDasharray="3,3" opacity={0.45} />
       )}
-      {/* Trend line */}
       {values.length > 1 && (
-        <polyline points={linePts} fill="none" stroke="#3b82f6" strokeWidth={1.8}
+        <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth={1.5}
           strokeLinejoin="round" strokeLinecap="round" />
       )}
-      {/* Latest dot */}
-      <circle
-        cx={toX(values.length - 1)} cy={toY(values[values.length - 1])} r={3}
-        fill="#3b82f6" stroke={T.surface} strokeWidth={1.5}
-      />
-      {/* Y-axis labels (detail mode only) */}
-      {showAxes && (
-        <>
-          <text x={3} y={toY(values[values.length - 1]) - 4}
-            fontSize={8} fill="#3b82f6" fontFamily="monospace">
-            {values[values.length - 1]}ms
-          </text>
-          {baseline !== null && (
-            <text x={3} y={toY(baseline) - 3} fontSize={7} fill="#16a34a" fontFamily="monospace">
-              base {baseline}ms
-            </text>
-          )}
-        </>
-      )}
+      <circle cx={toX(values.length - 1)} cy={toY(values[values.length - 1])} r={2.5}
+        fill="#3b82f6" />
     </svg>
   );
 }
 
-// ─── Metric glossary ──────────────────────────────────────────────────────────
+// ─── Metrics glossary (collapsed by default) ──────────────────────────────────
 function MetricsGlossary() {
   const [open, setOpen] = useState(false);
   return (
     <div style={{
       border: `1px solid ${T.border}`, borderRadius: 10,
-      background: T.surface, marginTop: 20,
-      overflow: "hidden",
+      background: T.surface, marginTop: 20, overflow: "hidden",
     }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
           width: "100%", padding: "12px 18px",
           background: "none", border: "none", cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 10,
-          textAlign: "left",
+          display: "flex", alignItems: "center", gap: 10, textAlign: "left",
         }}
       >
         <span style={{ fontSize: 16 }}>ℹ️</span>
@@ -134,90 +297,51 @@ function MetricsGlossary() {
         </span>
         <span style={{ fontSize: 12, color: T.muted }}>{open ? "▲ collapse" : "▼ expand"}</span>
       </button>
-
       {open && (
         <div style={{ padding: "0 18px 18px", borderTop: `1px solid ${T.border}` }}>
-
-          {/* Target */}
           <div style={{
             marginTop: 14, padding: "10px 14px",
-            background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8,
+            background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, marginBottom: 10,
           }}>
             <div style={{ fontWeight: 700, fontSize: 12, color: "#0369a1", marginBottom: 4 }}>
-              📡 Measurement target: k.root-servers.net · 193.0.14.129
+              📡 Target: k.root-servers.net · 193.0.14.129
             </div>
             <div style={{ fontSize: 11, color: "#075985", lineHeight: 1.6 }}>
-              One of the 13 global DNS root servers. Operated by <strong>RIPE NCC</strong> —
-              the same organisation that runs RIPE Atlas. Primary node in <strong>Amsterdam</strong>,
-              distributed globally via anycast (100+ locations). Each probe contacts
-              the geographically closest instance.
-              <br /><br />
-              <strong>Why this target?</strong> Because the traffic is routed to the nearest
-              k-root instance, the RTT mainly reflects: Vodafone access network →
-              backbone → Internet exit. It is a good proxy for the path from a Vodafone
-              customer to the operator&apos;s Internet edge — not the distance to a remote server.
+              One of the 13 global DNS root servers. Operated by <strong>RIPE NCC</strong> — the
+              same org that runs RIPE Atlas. Primary node in <strong>Amsterdam</strong>, anycast in
+              100+ locations. Because traffic routes to the nearest instance, RTT mainly reflects:
+              Vodafone access → backbone → Internet exit. A good proxy for the path from a Vodafone
+              customer to the operator&apos;s Internet edge.
             </div>
           </div>
-
-          <div style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr",
-            gap: 10, marginTop: 10,
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[
-              {
-                icon: "⏱️", title: "Average Latency (avg RTT)",
-                body: `Round-trip time in ms from RIPE Atlas probes inside Vodafone's
-                network to k.root-servers.net. Each probe sends 3 ICMP pings every ~4 min.
-                A sudden increase indicates congestion or degradation inside Vodafone's
-                own network (access, backbone or peering exit).`,
-              },
-              {
-                icon: "📊", title: "P95 Latency (95th percentile)",
-                body: `The RTT value that 95% of all pings do not exceed.
-                If avg is 15 ms but P95 is 80 ms, 1 in 20 pings experience very high
-                latency — users feel it even if the average looks fine.
-                Captures frequent worst-case experience that the mean hides.`,
-              },
-              {
-                icon: "📦", title: "Packet Loss",
-                body: `% of ICMP pings with no reply within the timeout, aggregated
-                across all active probes: (sent − received) / sent × 100.
-                0% is normal. >1% signals degradation. >5% indicates a serious
-                connectivity or congestion problem.`,
-              },
-              {
-                icon: "🔬", title: "Active Probes",
-                body: `Number of physical RIPE Atlas devices inside Vodafone's AS that
-                reported results in the last 15 min. Probes are hardware units
-                voluntarily installed by Vodafone customers. A sudden drop may indicate
-                widespread access failure — or simply that few probes exist in that country
-                (fewer probes = lower statistical confidence).`,
-              },
+              { icon: "⏱️", title: "Avg Latency",   body: "Mean round-trip time across all active probes. Each probe sends 3 ICMP pings every ~4 min to the nearest k-root anycast node. An increase signals congestion inside Vodafone's access, backbone or peering exit." },
+              { icon: "📊", title: "P95 Latency",   body: "95th percentile RTT. If avg is 15ms but P95 is 80ms, 1-in-20 pings hit very high latency — users feel it even if the average looks fine. Detects bursty congestion the mean hides." },
+              { icon: "📦", title: "Packet Loss",   body: "% of ICMP pings with no reply: (sent−received)/sent×100, aggregated over all probes. 0% is normal. >1% signals degradation. >5% indicates a serious connectivity problem." },
+              { icon: "🔬", title: "Active Probes", body: "Physical RIPE Atlas devices inside Vodafone's AS reporting in the last 15 min. A sudden drop may indicate widespread access failure — or just few probes in that country (fewer = lower statistical confidence)." },
             ].map(m => (
               <div key={m.title} style={{
-                padding: "10px 12px",
-                background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7,
+                padding: "9px 11px", background: T.bg,
+                border: `1px solid ${T.border}`, borderRadius: 7,
               }}>
-                <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 3 }}>
                   {m.icon} {m.title}
                 </div>
-                <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
-                  {m.body}
-                </div>
+                <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{m.body}</div>
               </div>
             ))}
           </div>
-
           <div style={{
-            marginTop: 10, padding: "8px 12px",
+            marginTop: 8, padding: "7px 11px",
             background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7,
-            fontSize: 11, color: T.muted, lineHeight: 1.5,
+            fontSize: 11, color: T.muted,
           }}>
-            <strong style={{ color: T.text }}>Chart reference lines:</strong>{" "}
+            <strong style={{ color: T.text }}>Chart lines:</strong>{" "}
             <span style={{ color: "#22c55e" }}>green dashed</span> = 4h rolling baseline ·{" "}
-            <span style={{ color: "#f59e0b" }}>amber dashed</span> = 2× warning threshold ·{" "}
-            <span style={{ color: "#3b82f6" }}>blue line</span> = avg RTT over time.
-            Status thresholds: OK &lt;2× · WARNING ≥2× · OUTAGE ≥4.5× above baseline.
+            <span style={{ color: "#f59e0b" }}>amber dashed</span> = warning threshold ·{" "}
+            <span style={{ color: "#ef4444" }}>red dashed</span> = critical threshold.
+            Status: OK &lt;2× · WARNING ≥2× · OUTAGE ≥4.5× above baseline.
           </div>
         </div>
       )}
@@ -225,10 +349,65 @@ function MetricsGlossary() {
   );
 }
 
+// ─── Zoom selector ────────────────────────────────────────────────────────────
+const ZOOM_OPTIONS = [
+  { key: "all", label: "All" },
+  { key: "1h",  label: "1h"  },
+  { key: "30m", label: "30m" },
+  { key: "10m", label: "10m" },
+];
+
+function ZoomSelector({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      <span style={{ fontSize: 10, color: T.muted, marginRight: 2 }}>Zoom:</span>
+      {ZOOM_OPTIONS.map(z => (
+        <button
+          key={z.key}
+          onClick={() => onChange(z.key)}
+          style={{
+            padding: "2px 9px", fontSize: 10, fontWeight: 700,
+            borderRadius: 5, cursor: "pointer",
+            border: `1px solid ${value === z.key ? "#3b82f6" : T.border}`,
+            background: value === z.key ? "#eff6ff" : "none",
+            color: value === z.key ? "#1d4ed8" : T.muted,
+          }}
+        >
+          {z.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Detail panel (modal) ─────────────────────────────────────────────────────
 function DetailPanel({ market, onClose }) {
-  const meta = sm(market.status);
-  const cur  = market.current;
+  const meta   = sm(market.status);
+  const cur    = market.current;
+  const [zoom, setZoom] = useState("all");
+
+  const data = applyZoom(market.history, zoom);
+  const bl   = market.baseline_rtt;
+
+  // Per-metric config
+  const charts = [
+    {
+      key: "avg_rtt",     label: "Avg Latency",   unit: " ms",   color: "#3b82f6",
+      baseline: bl,       warnLevel: bl ? bl * 2 : null,         critLevel: bl ? bl * 4.5 : null,
+    },
+    {
+      key: "p95_rtt",     label: "P95 Latency",   unit: " ms",   color: "#8b5cf6",
+      baseline: null,     warnLevel: null,                        critLevel: null,
+    },
+    {
+      key: "loss_pct",    label: "Packet Loss",   unit: "%",     color: "#ef4444",
+      baseline: null,     warnLevel: 1,                           critLevel: 5,
+    },
+    {
+      key: "probe_count", label: "Active Probes", unit: "",      color: "#0891b2",
+      baseline: null,     warnLevel: null,                        critLevel: null,
+    },
+  ];
 
   return (
     <div style={{
@@ -241,27 +420,27 @@ function DetailPanel({ market, onClose }) {
         background: T.surface,
         border: `1px solid ${T.border}`,
         borderRadius: 14,
-        width: "100%", maxWidth: 560,
-        maxHeight: "88vh",
+        width: "100%", maxWidth: 620,
+        maxHeight: "90vh",
         overflow: "hidden",
         display: "flex", flexDirection: "column",
         boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
       }}>
         {/* Header */}
         <div style={{
-          padding: "14px 18px",
-          borderBottom: `1px solid ${T.border}`,
-          background: meta.bg,
-          display: "flex", alignItems: "center", gap: 10,
+          padding: "13px 18px", borderBottom: `1px solid ${T.border}`,
+          background: meta.bg, display: "flex", alignItems: "center", gap: 10,
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 24 }}>{market.flag}</span>
+          <span style={{ fontSize: 22 }}>{market.flag}</span>
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{market.name}</span>
-            <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>AS{market.asn}</span>
+            <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>{market.name}</span>
+            <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>
+              AS{market.asn} · {market.totalProbes} probes · msm #1001
+            </span>
           </div>
           <span style={{
-            fontSize: 10, fontWeight: 800, letterSpacing: "0.5px",
+            fontSize: 10, fontWeight: 800, letterSpacing: "0.4px",
             color: meta.color, background: meta.bg,
             border: `1px solid ${meta.border}`,
             borderRadius: 5, padding: "2px 8px",
@@ -276,91 +455,173 @@ function DetailPanel({ market, onClose }) {
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
 
-          {/* Metrics */}
-          {cur ? (
+          {/* Current values row */}
+          {cur && (
             <div style={{
               display: "grid", gridTemplateColumns: "repeat(4,1fr)",
               gap: 8, marginBottom: 16,
             }}>
               {[
-                { label: "Avg latency",    value: cur.avg_rtt,    unit: "ms",    sub: market.baseline_rtt ? `base ${market.baseline_rtt} ms` : null },
-                { label: "P95 latency",    value: cur.p95_rtt,    unit: "ms",    sub: null },
-                { label: "Packet loss",    value: cur.loss_pct,   unit: "%",     sub: cur.loss_pct === 0 ? "nominal" : cur.loss_pct < 1 ? "degraded" : "critical" },
-                { label: "Active probes",  value: cur.probe_count, unit: "",     sub: `of ${market.totalProbes}` },
+                { label: "AVG RTT",      value: cur.avg_rtt,     unit: " ms", color: "#3b82f6" },
+                { label: "P95 RTT",      value: cur.p95_rtt,     unit: " ms", color: "#8b5cf6" },
+                { label: "PACKET LOSS",  value: cur.loss_pct,    unit: "%",   color: "#ef4444" },
+                { label: "PROBES",       value: cur.probe_count, unit: "",    color: "#0891b2" },
               ].map(m2 => (
                 <div key={m2.label} style={{
-                  padding: "10px 12px", background: T.bg,
-                  border: `1px solid ${T.border}`, borderRadius: 8, textAlign: "center",
+                  padding: "9px 11px", background: T.bg,
+                  border: `1px solid ${T.border}`, borderRadius: 7, textAlign: "center",
                 }}>
-                  <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 3 }}>
-                    {m2.label.toUpperCase()}
+                  <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 2 }}>
+                    {m2.label}
                   </div>
                   <div style={{
-                    fontSize: 22, fontWeight: 800, fontFamily: "monospace",
-                    color: market.status === "ok" ? "#16a34a"
-                      : market.status === "warning" ? "#b45309" : "#dc2626",
-                    lineHeight: 1,
+                    fontSize: 20, fontWeight: 800, fontFamily: "monospace",
+                    color: m2.color, lineHeight: 1,
                   }}>
                     {m2.value}
-                    <span style={{ fontSize: 11, fontWeight: 600 }}>{m2.unit}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600 }}>{m2.unit}</span>
                   </div>
-                  {m2.sub && (
-                    <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>{m2.sub}</div>
+                  {m2.label === "AVG RTT" && bl && (
+                    <div style={{ fontSize: 9, color: T.muted, marginTop: 1 }}>
+                      base {bl} ms
+                    </div>
                   )}
                 </div>
               ))}
             </div>
-          ) : (
+          )}
+
+          {!cur && (
             <div style={{
-              padding: 20, textAlign: "center", color: T.muted,
-              fontSize: 12, background: T.bg, borderRadius: 8,
-              border: `1px solid ${T.border}`, marginBottom: 16,
+              padding: 18, textAlign: "center", color: T.muted, fontSize: 12,
+              background: T.bg, borderRadius: 8, border: `1px solid ${T.border}`,
+              marginBottom: 16,
             }}>
               {market.error || "First measurement in progress…"}
             </div>
           )}
 
-          {/* Chart */}
+          {/* Zoom selector */}
           <div style={{
-            padding: "12px 14px", background: T.bg,
-            border: `1px solid ${T.border}`, borderRadius: 8,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            marginBottom: 12,
           }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>
+              Trend — {data.length} point{data.length !== 1 ? "s" : ""} · 5 min interval
+            </span>
+            <ZoomSelector value={zoom} onChange={setZoom} />
+          </div>
+
+          {/* 4 metric charts in 2×2 grid */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px",
+          }}>
+            {charts.map(cfg => (
+              <MetricChart
+                key={cfg.key}
+                data={data}
+                valueKey={cfg.key}
+                label={cfg.label}
+                unit={cfg.unit}
+                color={cfg.color}
+                baseline={cfg.baseline}
+                warnLevel={cfg.warnLevel}
+                critLevel={cfg.critLevel}
+                width={268}
+                height={72}
+              />
+            ))}
+          </div>
+
+          {/* Chart legend */}
+          <div style={{
+            marginTop: 16, padding: "8px 12px",
+            background: T.bg, border: `1px solid ${T.border}`,
+            borderRadius: 7, display: "flex", gap: 18, flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: 9, color: "#22c55e" }}>── 4h baseline</span>
+            <span style={{ fontSize: 9, color: "#f59e0b" }}>─ ─ warning threshold</span>
+            <span style={{ fontSize: 9, color: "#ef4444" }}>─ ─ critical threshold</span>
+            <span style={{ fontSize: 9, color: T.muted, marginLeft: "auto" }}>
+              hover chart to see value at point in time
+            </span>
+          </div>
+
+          {/* Probe locations + k-root nodes */}
+          <div style={{
+            marginTop: 14, display: "grid",
+            gridTemplateColumns: "1fr 1fr", gap: 10,
+          }}>
+            {/* Probe locations */}
             <div style={{
-              display: "flex", justifyContent: "space-between",
-              alignItems: "center", marginBottom: 10,
+              padding: "10px 12px", background: T.bg,
+              border: `1px solid ${T.border}`, borderRadius: 8,
             }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>
-                Avg RTT trend — last 4h
-              </span>
-              <span style={{ fontSize: 10, color: T.muted }}>
-                {market.history.length} pt{market.history.length !== 1 ? "s" : ""} · 5 min interval
-              </span>
+              <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 6 }}>
+                🔬 Probe locations — AS{market.asn}
+              </div>
+              {market.probeLocations && market.probeLocations.length > 0 ? (
+                <div>
+                  {/* Group by non-null descriptions */}
+                  {[...new Set(
+                    market.probeLocations
+                      .map(p => p.description)
+                      .filter(Boolean)
+                      .slice(0, 8)
+                  )].map((desc, i) => (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      fontSize: 11, color: T.muted, marginBottom: 3,
+                    }}>
+                      <span style={{ color: "#3b82f6", fontSize: 9 }}>●</span>
+                      <span style={{ flex: 1 }}>{desc}</span>
+                    </div>
+                  ))}
+                  {market.probeLocations.filter(p => !p.description).length > 0 && (
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 3 }}>
+                      + {market.probeLocations.filter(p => !p.description).length} probes (no description)
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>
+                    {market.totalProbes} total · {market.current?.probe_count || 0} active now
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: T.muted }}>Loading probe locations…</div>
+              )}
             </div>
-            <TrendChart
-              history={market.history}
-              baseline={market.baseline_rtt}
-              width={496}
-              height={80}
-              showAxes
-            />
-            <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-              <span style={{ fontSize: 9, color: "#22c55e" }}>── baseline (4h avg)</span>
-              <span style={{ fontSize: 9, color: "#f59e0b" }}>─ ─ 2× warning</span>
-              <span style={{ fontSize: 9, color: "#3b82f6" }}>── avg RTT</span>
+
+            {/* K-root nearest nodes */}
+            <div style={{
+              padding: "10px 12px", background: T.bg,
+              border: `1px solid ${T.border}`, borderRadius: 8,
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 11, color: T.text, marginBottom: 6 }}>
+                🎯 Nearest k-root nodes (193.0.14.129)
+              </div>
+              <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, lineHeight: 1.4 }}>
+                Probes route to the closest anycast instance. Likely nodes from {market.name}:
+              </div>
+              {(KROOT_NEARBY[market.id] || []).map((node, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  fontSize: 11, marginBottom: 3,
+                }}>
+                  <span style={{ color: "#16a34a", fontSize: 9 }}>●</span>
+                  <span style={{ fontWeight: 600, color: T.text }}>{node.city}</span>
+                  <span style={{ color: T.muted, fontSize: 10 }}>via {node.ix}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: T.muted, marginTop: 6, lineHeight: 1.4 }}>
+                RTT reflects Vodafone access + backbone + path to nearest node above.
+              </div>
             </div>
           </div>
 
-          {/* Technical details */}
-          <div style={{
-            marginTop: 10, padding: "10px 12px",
-            background: T.bg, border: `1px solid ${T.border}`,
-            borderRadius: 8, fontSize: 11, color: T.muted, lineHeight: 1.6,
-          }}>
-            <strong style={{ color: T.text }}>Technical:</strong>{" "}
-            Measurement msm #1001 · Target k.root-servers.net 193.0.14.129 (RIPE NCC, Amsterdam + anycast) ·
-            AS{market.asn} · {market.totalProbes} probes registered · results window 15 min.
-            RTT reflects: Vodafone access → backbone → Internet exit.{" "}
-            <a href={`https://atlas.ripe.net/measurements/1001/`}
+          {/* Technical footer */}
+          <div style={{ marginTop: 10, fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+            msm #1001 · k.root-servers.net 193.0.14.129 · AS{market.asn} · 15-min result window ·{" "}
+            <a href="https://atlas.ripe.net/measurements/1001/"
               target="_blank" rel="noreferrer" style={{ color: "#3b82f6" }}>
               View on RIPE Atlas →
             </a>
@@ -380,14 +641,12 @@ function MarketCard({ market, onClick }) {
     <div
       onClick={onClick}
       style={{
-        background:   T.surface,
-        border:       `1.5px solid ${market.ok ? meta.border : T.border}`,
-        borderTop:    `3px solid ${market.ok ? meta.color : T.border}`,
-        borderRadius: 10,
-        padding:      "13px 15px 10px",
-        cursor:       "pointer",
-        transition:   "box-shadow 0.15s, transform 0.1s",
-        display:      "flex", flexDirection: "column", gap: 0,
+        background: T.surface,
+        border: `1.5px solid ${market.ok ? meta.border : T.border}`,
+        borderTop: `3px solid ${market.ok ? meta.color : T.border}`,
+        borderRadius: 10, padding: "13px 15px 10px",
+        cursor: "pointer", transition: "box-shadow 0.15s, transform 0.1s",
+        display: "flex", flexDirection: "column",
       }}
       onMouseEnter={e => {
         e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)";
@@ -398,7 +657,7 @@ function MarketCard({ market, onClick }) {
         e.currentTarget.style.transform = "";
       }}
     >
-      {/* Header row */}
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 20 }}>{market.flag}</span>
         <div style={{ flex: 1 }}>
@@ -407,8 +666,7 @@ function MarketCard({ market, onClick }) {
         </div>
         <span style={{
           fontSize: 9, fontWeight: 800, letterSpacing: "0.4px",
-          color: meta.color, background: meta.bg,
-          border: `1px solid ${meta.border}`,
+          color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`,
           borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap",
         }}>
           {meta.label}{market.ratio !== null && market.ok ? ` ${market.ratio}×` : ""}
@@ -419,14 +677,14 @@ function MarketCard({ market, onClick }) {
       {cur ? (
         <div style={{
           display: "grid", gridTemplateColumns: "1fr 1fr",
-          gap: "6px 14px", marginBottom: 10,
+          gap: "5px 12px", marginBottom: 10,
         }}>
           <div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>AVG LATENCY</div>
             <div style={{
               fontSize: 20, fontWeight: 800, fontFamily: "monospace", lineHeight: 1.1,
-              color: market.status === "ok"      ? "#16a34a"
-                : market.status === "warning"   ? "#b45309" : "#dc2626",
+              color: market.status === "ok"     ? "#16a34a"
+                : market.status === "warning" ? "#b45309" : "#dc2626",
             }}>
               {cur.avg_rtt}<span style={{ fontSize: 11, fontWeight: 600 }}> ms</span>
             </div>
@@ -453,7 +711,9 @@ function MarketCard({ market, onClick }) {
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>ACTIVE PROBES</div>
             <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: T.text }}>
               {cur.probe_count}
-              <span style={{ fontSize: 9, color: T.muted, fontWeight: 400 }}>/{market.totalProbes}</span>
+              <span style={{ fontSize: 9, color: T.muted, fontWeight: 400 }}>
+                /{market.totalProbes}
+              </span>
             </div>
           </div>
         </div>
@@ -462,27 +722,22 @@ function MarketCard({ market, onClick }) {
           fontSize: 11, color: T.muted, fontStyle: "italic",
           minHeight: 50, display: "flex", alignItems: "center", marginBottom: 10,
         }}>
-          {market.error
-            ? <span style={{ color: "#b45309" }}>⚠ {market.error}</span>
-            : "First measurement in progress…"
-          }
+          <span style={{ color: "#b45309" }}>
+            {market.error ? `⚠ ${market.error}` : "First measurement in progress…"}
+          </span>
         </div>
       )}
 
       {/* Sparkline */}
-      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
-        <TrendChart
+      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 7 }}>
+        <CardSparkline
           history={market.history}
           baseline={market.baseline_rtt}
-          width={210}
-          height={36}
+          width={220}
+          height={32}
         />
       </div>
-
-      <div style={{
-        textAlign: "right", fontSize: 9, color: T.muted,
-        fontWeight: 600, marginTop: 4,
-      }}>
+      <div style={{ textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 600, marginTop: 3 }}>
         details →
       </div>
     </div>
@@ -525,11 +780,8 @@ export default function NetworkHealthView() {
         const r = await fetch(`${apiBase()}/api/network-health`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        if (!cancelled) {
-          setMarkets(data);
-          setLastRefresh(new Date());
-        }
-      } catch { /* retry on next interval */ }
+        if (!cancelled) { setMarkets(data); setLastRefresh(new Date()); }
+      } catch { /* retry on next tick */ }
       finally { if (!cancelled) setLoading(false); }
     }
     load();
@@ -545,15 +797,12 @@ export default function NetworkHealthView() {
     return `${Math.round(s / 60)}m ago`;
   }
 
-  const hasData = markets.some(m => m.ok);
-
   return (
     <div style={{
       flex: 1, display: "flex", flexDirection: "column",
       overflowY: "auto", padding: "20px 24px", background: T.bg,
     }}>
-
-      {/* Page header */}
+      {/* Header */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
           <div style={{ flex: 1 }}>
@@ -569,18 +818,11 @@ export default function NetworkHealthView() {
               )}
             </div>
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, maxWidth: 680 }}>
-              Latency and packet loss from physical RIPE Atlas probes inside Vodafone
-              networks to <strong>k.root-servers.net</strong> (193.0.14.129 · RIPE NCC ·
-              Amsterdam + anycast global). Independent technical signal — complements
-              Downdetector perception data.
-              <br />
-              <span style={{ fontSize: 11 }}>
-                Source: RIPE Atlas msm #1001 · dynamic baseline (4h rolling avg) ·
-                thresholds: OK &lt;2× · WARNING ≥2× · OUTAGE ≥4.5×
-              </span>
+              Real-time network quality from Vodafone operator networks — 9 markets.
+              Click any card to see charts, probe locations and k-root nodes.
             </div>
           </div>
-          {hasData && (
+          {markets.some(m => m.ok) && (
             <div style={{
               padding: "10px 16px", background: T.surface,
               border: `1px solid ${T.border}`, borderRadius: 8, flexShrink: 0,
@@ -591,7 +833,6 @@ export default function NetworkHealthView() {
         </div>
       </div>
 
-      {/* Loading */}
       {loading && (
         <div style={{
           flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
@@ -602,7 +843,6 @@ export default function NetworkHealthView() {
         </div>
       )}
 
-      {/* Market grid */}
       {!loading && (
         <div style={{
           display: "grid",
@@ -615,10 +855,8 @@ export default function NetworkHealthView() {
         </div>
       )}
 
-      {/* Glossary — collapsed by default */}
       {!loading && <MetricsGlossary />}
 
-      {/* Detail modal */}
       {selected && (
         <DetailPanel market={selected} onClose={() => setSelected(null)} />
       )}
