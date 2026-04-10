@@ -155,7 +155,9 @@ function computeMetrics(results) {
   const avg_rtt    = avgRtts.reduce((a, b) => a + b, 0) / avgRtts.length;
   const p95_rtt    = percentile(allRtts.length ? allRtts : avgRtts, 95);
   const loss_pct   = totalSent > 0 ? ((totalSent - totalRcvd) / totalSent) * 100 : 0;
-  const probe_count = results.length; // number of probes that reported
+  // Count unique probe IDs — each probe can appear 3-4× in a 15-min window
+  // (measurement 1001 runs every ~4 min) so results.length would over-count
+  const probe_count = new Set(results.map(r => r.prb_id).filter(Boolean)).size || results.length;
 
   return {
     avg_rtt:     Math.round(avg_rtt  * 10) / 10,
