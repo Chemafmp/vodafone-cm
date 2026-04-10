@@ -75,8 +75,25 @@ export default function App(){
   });
   function handleLogin(u) { sessionStorage.setItem("bnocUser", JSON.stringify(u)); setUser(u); }
   function handleLogout() { sessionStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
-  const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
-  const [view,setView]=useState("changes");
+  // ── Hash-based initial navigation (e.g. #view=service_monitor) ──────────────
+  const [app,setApp]=useState(() => {
+    const hash = window.location.hash;
+    if (hash.includes("ticket=")) return null; // ticket routing handles this separately
+    const vm = hash.match(/[#&]view=([^&]+)/);
+    if (!vm) return null;
+    const v = decodeURIComponent(vm[1]);
+    if (["changes","mywork","timeline","peakcal"].includes(v)) return "changes";
+    if (["network","topology"].includes(v))                    return "network";
+    if (["livestatus","alarms","events","observability","service_monitor"].includes(v)) return "monitoring";
+    if (v.startsWith("ticket"))                                return "tickets";
+    return null;
+  });
+  const [view,setView]=useState(() => {
+    const hash = window.location.hash;
+    if (hash.includes("ticket=")) return "changes";
+    const vm = hash.match(/[#&]view=([^&]+)/);
+    return vm ? decodeURIComponent(vm[1]) : "changes";
+  });
   const [creatingMode,setCreatingMode]=useState(null); // null | "picker" | "wizard"
   const [chaosOpen,setChaosOpen]=useState(false);
 
@@ -110,12 +127,15 @@ export default function App(){
   const handleSelectApp = (a) => { setApp(a); setView(APP_DEFAULTS[a]); };
   const handleBack = () => { setApp(null); };
 
-  // ── Hash-based deep linking: #ticket=ID → full-screen ticket page ────────────
+  // ── Hash-based deep linking ───────────────────────────────────────────────────
+  // #ticket=ID         → full-screen ticket page
+  // #view=service_monitor (or any app=X&view=Y) → navigate directly to a view
   const [fullScreenTicketId, setFullScreenTicketId] = useState(() => {
     const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   });
-  useEffect(() => {
+
+useEffect(() => {
     function readHash() {
       const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
       setFullScreenTicketId(m ? decodeURIComponent(m[1]) : null);
