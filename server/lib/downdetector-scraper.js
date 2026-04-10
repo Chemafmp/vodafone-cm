@@ -14,12 +14,12 @@ const MARKETS = [
   { id:"nl", name:"Netherlands", flag:"🇳🇱", domain:"downdetector.nl",     slug:"vodafone",         path:"status" },
   { id:"ie", name:"Ireland",     flag:"🇮🇪", domain:"downdetector.ie",     slug:"vodafone",         path:"status" },
   { id:"gr", name:"Greece",      flag:"🇬🇷", domain:"downdetector.gr",     slug:"vodafone",         path:"status" },
-  { id:"ro", name:"Romania",     flag:"🇷🇴", domain:"downdetector.ro",     slug:"vodafone-romania", path:"status" },
+  { id:"ro", name:"Romania",     flag:"🇷🇴", domain:"downdetector.ro",     slug:"vodafone",         path:"status" },
   { id:"tr", name:"Turkey",      flag:"🇹🇷", domain:"downdetector.com.tr", slug:"vodafone",         path:"durum" },
 ];
 
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY || null;
-const TIMEOUT_MS      = 55_000;
+const TIMEOUT_MS      = 20_000;
 
 function proxied(url, render = false) {
   if (!SCRAPER_API_KEY) return url;
@@ -139,6 +139,7 @@ function buildResult(parsed, m) {
 }
 
 // ─── Scrape all markets ───────────────────────────────────────────────────────
+// All markets scraped in parallel — total cycle time = slowest market, not sum.
 export async function scrapeAll(log) {
   if (SCRAPER_API_KEY) {
     log?.(`[downdetector] using ScraperAPI (key: ...${SCRAPER_API_KEY.slice(-6)})`);
@@ -146,22 +147,23 @@ export async function scrapeAll(log) {
     log?.(`[downdetector] WARNING: no SCRAPER_API_KEY — direct fetch (may hit CF 403)`);
   }
 
-  const results = [];
-  for (const m of MARKETS) {
-    await new Promise(r => setTimeout(r, 500));
-    try {
-      const parsed = await scrapeMarket(m, log);
-      const result = buildResult(parsed, m);
-      log?.(`[downdetector] ✓ ${m.id}: ${result.complaints} reports (src: ${result.source})`);
-      results.push({ market: m, ...result, ok: true });
-    } catch (e) {
-      const msg = e.message.split("\n")[0]; // don't spam logs with full debug
-      log?.(`[downdetector] ✗ ${m.id}: ${msg}`);
-      if (e.message.includes("DEBUG[")) log?.(e.message.split("\n").slice(1).join("\n"));
-      results.push({ market: m, ok: false, error: msg });
-    }
-  }
-  return results;
+  const settled = await Promise.allSettled(
+    MARKETS.map(async m => {
+      try {
+        const parsed = await scrapeMarket(m, log);
+        const result = buildResult(parsed, m);
+        log?.(`[downdetector] ✓ ${m.id}: ${result.complaints} reports (src: ${result.source})`);
+        return { market: m, ...result, ok: true };
+      } catch (e) {
+        const msg = e.message.split("\n")[0];
+        log?.(`[downdetector] ✗ ${m.id}: ${msg}`);
+        if (e.message.includes("DEBUG[")) log?.(e.message.split("\n").slice(1).join("\n"));
+        return { market: m, ok: false, error: msg };
+      }
+    })
+  );
+
+  return settled.map(s => s.value); // allSettled never rejects — value always present
 }
 
 export { MARKETS };
