@@ -143,8 +143,18 @@ function MarketCard({ market, trend, selected, onClick }) {
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
             {market.complaints}/h · {market.ratio}× baseline
           </div>
-          {market.dataSource === "downdetector" && (
-            <div style={{ fontSize: 8, fontWeight: 700, color: "#0369a1", letterSpacing: "0.3px", marginTop: 2 }}>🌐 LIVE</div>
+          {market.dataSource === "downdetector" ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
+              fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
+              border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>
+              🌐 LIVE
+            </div>
+          ) : (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
+              fontSize: 9, fontWeight: 700, color: "#64748b", background: "#f8fafc",
+              border: "1px solid #cbd5e1", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>
+              ∿ SIMULATED
+            </div>
           )}
         </div>
         <div style={{
@@ -207,7 +217,16 @@ function DetailPanel({ market, trend, rangeLabel, onClose }) {
           <span style={{ fontSize: 28, lineHeight: 1 }}>{market.flag}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{market.name}</div>
-            <div style={{ fontSize: 11, color: T.muted }}>Vodafone Market Monitor</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+              <span style={{ fontSize: 11, color: T.muted }}>Vodafone Market Monitor</span>
+              {market.dataSource === "downdetector" ? (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
+                  border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px" }}>🌐 LIVE</span>
+              ) : (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", background: "#f8fafc",
+                  border: "1px solid #cbd5e1", borderRadius: 4, padding: "1px 5px" }}>∿ SIMULATED</span>
+              )}
+            </div>
           </div>
           <button onClick={onClose}
             style={{ background: "none", border: "none", fontSize: 16, color: T.muted, cursor: "pointer", padding: "2px 6px" }}>
@@ -494,7 +513,7 @@ export default function ServiceStatusView() {
 
           {/* Footer note */}
           <div style={{ marginTop: 24, fontSize: 10, color: T.muted, textAlign: "center", lineHeight: 1.6 }}>
-            Complaint data is simulated (Downdetector-style). Auto-refreshes every 15s. Outage events auto-create incident tickets.
+            🌐 LIVE markets pull real complaint counts from Downdetector. ∿ SIMULATED markets use modelled data. Auto-refreshes every 15s. Outages auto-create incident tickets.
           </div>
         </div>
       </div>

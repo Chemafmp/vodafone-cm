@@ -101,8 +101,11 @@ async function tickFromScraper(port, log) {
   log?.("[service-status] scraping Downdetector...");
   const results = await scrapeAll(log);
 
+  console.log(`[DEBUG tickFromScraper] results: ${results.length} — ${results.map(r => `${r.market?.id}:ok=${r.ok}:c=${r.complaints}`).join(", ")}`);
+
   for (const r of results) {
     const m = state.get(r.market.id);
+    console.log(`[DEBUG] ${r.market?.id}: stateFound=${!!m} ok=${r.ok} complaints=${r.complaints}`);
     if (!m) continue;
 
     if (!r.ok) {
