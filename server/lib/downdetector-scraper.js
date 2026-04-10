@@ -12,7 +12,7 @@
 // WARNING: fragile — for testing only. Replace with official Downdetector API.
 
 const MARKETS = [
-  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone-espana",  path:"estado" },
+  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"problemas" },
   { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status" },
   { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status" },
   { id:"it", name:"Italy",       flag:"🇮🇹", domain:"downdetector.it",     slug:"vodafone",         path:"status" },
@@ -122,7 +122,7 @@ async function tryHtmlScrape(m) {
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
   const html = await r.text();
 
-  // Highcharts embedded series data
+  // Pattern 1: Highcharts [[epoch, count], ...] arrays
   const hcPatterns = [
     /"data"\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}\]]/,
     /data\s*:\s*(\[\s*\[\d{10,13},\s*\d+\][\s\S]*?\])\s*[,}]/,
@@ -141,10 +141,48 @@ async function tryHtmlScrape(m) {
     } catch { /* try next */ }
   }
 
-  // Badge count fallback
+  // Pattern 2: JSON blob in <script type="application/json"> or window.__DD_* / window.__INITIAL_STATE__
+  const jsonBlobPatterns = [
+    /window\.__(?:DD_DATA|INITIAL_STATE|APP_STATE|NUXT__)\s*=\s*(\{[\s\S]*?\})(?:\s*;|\s*<\/script>)/,
+    /<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/,
+    /window\.reportData\s*=\s*(\{[\s\S]*?\});/,
+  ];
+  for (const pat of jsonBlobPatterns) {
+    const mm = html.match(pat);
+    if (!mm) continue;
+    try {
+      const obj = JSON.parse(mm[1]);
+      // Look for an array of {x,y} or [[epoch,count]] anywhere in the object
+      const findSeries = (o, depth = 0) => {
+        if (depth > 5 || !o || typeof o !== "object") return null;
+        if (Array.isArray(o) && o.length >= 4) {
+          if (o[0]?.y !== undefined) return o.map(p => Math.round(p.y));
+          if (Array.isArray(o[0]) && o[0].length === 2) return o.map(p => Math.round(p[1]));
+        }
+        for (const v of Object.values(o)) {
+          const r = findSeries(v, depth + 1);
+          if (r) return r;
+        }
+        return null;
+      };
+      const values = findSeries(obj);
+      if (values) return { values, url, shape: "html-json-blob" };
+    } catch { /* try next */ }
+  }
+
+  // Pattern 3: {x: epoch, y: count} pairs embedded in JS (React/Next hydration data)
+  const xyMatch = html.match(/\{"x"\s*:\s*\d{10,13}\s*,\s*"y"\s*:\s*\d+\}/g);
+  if (xyMatch && xyMatch.length >= 4) {
+    try {
+      const values = xyMatch.map(s => JSON.parse(s).y);
+      return { values, url, shape: "html-xy-pairs" };
+    } catch { /* fall through */ }
+  }
+
+  // Pattern 4: badge / counter text
   const badgeMatch = html.match(/class="[^"]*reports-num[^"]*"[^>]*>\s*(\d+)/) ||
                      html.match(/data-count="(\d+)"/) ||
-                     html.match(/>(\d+)\s*(?:reports?|denuncias?|meldungen?)<\//) ;
+                     html.match(/>(\d+)\s*(?:reports?|denuncias?|meldungen?|meldingen?|segnalazioni?)<\//) ;
   if (badgeMatch) {
     const count = parseInt(badgeMatch[1], 10);
     return { values: [count], url, shape: "html-badge" };
