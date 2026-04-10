@@ -41,7 +41,7 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 
 ---
 
-## Current State — v1.5
+## Current State — v1.6
 
 **Frontend live:** https://chemafmp.github.io/vodafone-cm/
 **Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
@@ -49,13 +49,34 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 React 19 + Vite SPA. Supabase DB backend (Phase 2 complete). Live poller backend on DigitalOcean.
 
 **Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
-Tables: `changes` (JSONB), `freeze_periods` (JSONB), `tickets`, `ticket_events`, `ticket_evidence`
+Tables: `changes` (JSONB), `freeze_periods` (JSONB), `tickets`, `ticket_events`, `ticket_evidence`,
+        `ripe_measurements`, `bgp_visibility`, `dns_measurements`
 Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
+          `RIPE_ATLAS_KEY` — RIPE Atlas API key (in `.env` on droplet, enables network health polling)
 `.env.production` sets `VITE_POLLER_WS=wss://api.chemafmp.dev` (not committed)
 
-**Pending DB migration** (run in Supabase SQL Editor if not yet applied):
+**⚠️ Droplet needs update** — run this to activate BGP + DNS modules:
+```bash
+ssh root@159.89.17.36
+cd ~/vodafone-cm && git pull && docker compose up -d --build
+```
+
+**Pending DB migrations** (run in Supabase SQL Editor if not yet applied):
 ```sql
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS working_state text;
+
+CREATE TABLE IF NOT EXISTS ripe_measurements (
+  id bigserial PRIMARY KEY, market_id text, avg_rtt numeric, p95_rtt numeric,
+  loss_pct numeric, probe_count int, measured_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS bgp_visibility (
+  id bigserial PRIMARY KEY, market_id text, visibility_pct numeric,
+  announced_prefixes int, measured_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS dns_measurements (
+  id bigserial PRIMARY KEY, market_id text, dns_rtt numeric,
+  probe_count int, measured_at timestamptz DEFAULT now()
+);
 ```
 
 ---
@@ -91,6 +112,15 @@ POST /api/control/revive/:nodeId      → re-fork a killed node
 POST /api/control/scenario/:nodeId    → trigger chaos scenario (body: {scenario})
      valid scenarios: cascade | maintenance | linkflap | bgpleak | thermal
 
+# Network Health API (server/poller.js + lib/ripe-atlas.js + bgp-visibility.js + dns-measurements.js):
+GET  /api/network-health              → array of 9 markets, each:
+     { id, name, flag, asn, ok, error, current, baseline_rtt, ratio, status,
+       history[], totalProbes, probeDetails[], probeLocations[],
+       bgp: { current:{visibility_pct, ris_peers_seeing, total_ris_peers, announced_prefixes},
+              history[], status, ok, error },
+       dns: { current:{dns_rtt, p95_dns_rtt, probe_count}, history[], baseline_rtt, ratio,
+              status, ok, error, probeDetails[] } }
+
 # Ticketing API (server/tickets.js):
 POST   /api/tickets                   → create ticket
 GET    /api/tickets                   → list (filters: type,status,severity,country,node,team,sla_at_risk)
@@ -99,6 +129,7 @@ GET    /api/tickets/sla               → tickets at risk or breached
 PATCH  /api/tickets/:id               → update fields (status, owner, working_state, tags, etc.)
 POST   /api/tickets/:id/events        → add log event
 POST   /api/tickets/:id/evidence      → add evidence link
+POST   /api/tickets/:id/notes         → automation alias (x-api-key header, body: {content, source, metadata})
 ```
 
 ---
@@ -118,6 +149,19 @@ server/
     scenarios.js         # Chaos scenarios: cascade, maintenance, linkFlap, bgpLeak, thermalRunaway
     alarm-engine.js      # Threshold-based alarm detection + dedup
     events.js            # Event log builder
+    ripe-atlas.js        # ★ RIPE Atlas msm #1001 (ICMP ping to k-root). Fetches probes by Vodafone
+                         #   ASN, polls results every 5 min, dynamic 4h baseline, ratio model.
+                         #   Exports: initRipeAtlas, tickRipeAtlas, getNetworkHealth.
+                         #   probeDetails per-probe: avg/p95/min/max/loss. 36h retention.
+                         #   Fallback: 60-min window for sparse markets (≤3 probes).
+    bgp-visibility.js    # ★ RIPE Stat routing-status API. Polls % of RIS BGP peers seeing
+                         #   each Vodafone ASN. Returns ris_peers_seeing/total_ris_peers +
+                         #   announced_prefixes. Static thresholds: ok≥95%, warn≥80%.
+                         #   Exports: initBgpVisibility, tickBgpVisibility, getBgpVisibility.
+    dns-measurements.js  # ★ RIPE Atlas msm #10001 (DNS SOA to k-root). Same probe selection
+                         #   as ripe-atlas.js. DNS result shape: {prb_id, result:{rt, rcode}}.
+                         #   Per-probe breakdown (computeDnsProbeDetails). Dynamic baseline.
+                         #   Exports: initDnsMeasurements, tickDnsMeasurements, getDnsMeasurements.
 
 src/
   App.jsx                # Main app — state, navigation, layout.
@@ -160,6 +204,18 @@ src/
                          # DetailPanel: live value bar, zoom ×1-8, share button.
                          # Standalone PWA: App.jsx detects navigator.standalone → renders this directly.
                          # In-app ticket nav: onOpenTicket(id) → window.location.hash = #ticket=ID
+    NetworkHealthView.jsx# ★ RIPE Atlas Network Health. GET /api/network-health every 30s.
+                         # MarketCard: 3×2 metric grid (AVG/P95 Latency, Packet Loss,
+                         #   BGP Visible [X/Y peers], DNS RTT, Active Probes).
+                         #   RatioTooltip: hover status pill → ×ratio explained + thresholds.
+                         # DetailPanel: 6 charts (avg/p95/loss/bgp/dns history), 7 zoom options,
+                         #   ProbeBreakdown button (opens per-probe modal).
+                         # ProbeBreakdown: per-probe table — ICMP latency bar (min/avg/max),
+                         #   P95, loss, DNS RTT column (purple/orange), K-ROOT inference.
+                         #   BGP summary panel (peer counts + explanation).
+                         # MetricsGlossary: explains all 6 metrics with measurement source.
+                         # RIPE_MARKETS: ES/UK/DE/IT/PT/NL/IE/GR/TR (9 markets).
+                         #   All have active probes except TR (AS15924 — 1 probe, not reporting).
 ```
 
 ---
@@ -321,8 +377,10 @@ Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same
 | MONITORING | `alarms` | AlarmsView |
 | MONITORING | `events` | EventsView ← needs Session 3 redesign |
 | MONITORING | `observability` | ObservabilityView |
+| MONITORING | `network_health` | NetworkHealthView ★ |
 | TICKETS | `tickets` | TicketListView ★ |
 | PWA only | `service_monitor` | ServiceStatusView (standalone mode, no login) |
+| PWA only | `network_health` | NetworkHealthView (PWA tile from landing page) |
 
 ---
 
@@ -349,66 +407,66 @@ const [user, setUser] = useState(() => {
 
 ---
 
-## Next Work — Session 6: Automation API (Camunda / runbook integration)
+## Next Work — Session 7: EventsView → Incident Timeline
 
-**Goal:** Allow external automation tools (Camunda workflows, Nagios scripts, Ansible runbooks)
-to post information into tickets via REST API — check results, remediation actions, metrics.
+**Goal:** Replace the placeholder `EventsView` with a real chronological incident timeline.
 
-**What's missing:**
-1. **API key auth** — `AUTOMATION_API_KEY` env var + `x-api-key` header middleware in `server/tickets.js`.
-   Apply to all POST/PATCH routes. GET routes stay open (read-only).
-2. **`/api/tickets/:id/notes` alias** — clean automation-friendly endpoint:
-   `{ content, source, metadata }` → inserts event with `event_type: "automation_note"`.
-3. **Third log category in TicketDetailView** — "Automated Actions":
-   `event_type === "automation_note"` → 🤖 icon, `#f0f9ff` background, `4px solid #38bdf8` left border,
-   `white-space: pre-wrap` content, metadata pills (source, node, workflow_id).
+**What to build (`src/components/IncidentTimelineView.jsx`):**
+1. Chronological feed merging:
+   - Network events from `liveEvents` WS stream (alarm open/resolve, interface flap, BGP changes)
+   - Change management events from `crs` (status transitions: Approved → In Execution → Completed)
+2. Correlation badge: if a change was "In Execution" when an alarm fired on one of its `affectedDeviceIds`, show a ⚡ correlation badge linking the two.
+3. Filter bar: severity (All/Critical/Major/Minor), type (All/PERFORMANCE/INTERFACE/BGP/HARDWARE/CHANGE).
+4. Single feed for the whole team, newest first.
 
-**Example Camunda call:**
-```bash
-curl -X POST https://api.chemafmp.dev/api/tickets/BNOC-INC-00000042/notes \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: YOUR_KEY" \
-  -d '{
-    "content": "✅ Interface check: 4/4 UP\n✅ BGP peers: 4/4 Established\n❌ CPU: 91%\n\nAcción: restart proceso. CPU bajó a 43% tras 90s.",
-    "source": "Camunda — Node Health Check",
-    "metadata": { "workflow_id": "NHC-001", "node": "fj-suva-cr-01", "duration_s": 47 }
-  }'
-```
+**Also consider:**
+- Network Health → real-world validation once droplet is updated (BGP/DNS data flowing)
+- Turkey market: AS15924 has 1 probe not reporting. Might stay as "no data" permanently.
+- Downdetector official API: user's token expired. Contact `enterprise.downdetector.com` for renewal.
 
 ---
 
 ## Backlog / Next Sessions
 
 ### Session 3 (planned): EventsView → Incident Timeline
-Create `src/components/IncidentTimelineView.jsx` — chronological feed of:
-1. Network events (from `liveEvents` WS stream) — alarm open/resolve, interface flap, BGP changes
-2. Change management events (from `crs`) — status transitions
-3. Correlation badge: if change was "In Execution" when alarm fired on an `affectedDeviceId`
+See "Next Work — Session 7" section above.
 
-Rules: single view for whole team, organized by type not role.
-Filter bar: severity (All/Critical/Major/Minor), type (All/PERFORMANCE/INTERFACE/BGP/HARDWARE/CHANGE).
-
-### ✅ Session 5 — Service Monitor chart improvements (DONE, on claude/zealous-bassi, merged here)
+### ✅ Session 5 — Service Monitor chart improvements (DONE, claude/zealous-bassi → main)
   - SVG chart with threshold zones (rgba fills) and dashed reference lines (baseline/2×/4.5×)
   - Hover + touch crosshair tooltip
   - trendDirection() helper, key metrics grid (Now/Baseline/Peak), service breakdown sorted by ratio
   - Threshold reference table, perMin toggle
 
-### ✅ Session 5b — PWA (iPhone app) (DONE, on claude/nifty-proskuriakova)
+### ✅ Session 5b — PWA (iPhone app) (DONE, claude/nifty-proskuriakova → main)
   - manifest.json, apple-touch-icon, display:standalone, safe-area-inset
   - Standalone detection via navigator.standalone / display-mode media query
   - App name: "Chema NOC", icon: navy + red band + ECG pulse line
   - Ticket navigation fixed in PWA: onOpenTicket callback → hash routing instead of window.open
+  - PWA landing page: two tiles (🌐 Service Monitor + 📡 Network Health)
 
-### ✅ Session 5c — Chart improvements v2 (DONE, on claude/nifty-proskuriakova)
+### ✅ Session 5c — Chart improvements v2 (DONE, claude/nifty-proskuriakova → main)
   - Live value bar (always visible above chart, no touch needed)
   - Zoom buttons All/2×/4×/8× within chart panel
   - Moving average line (thick translucent band)
   - Threshold crossing annotation markers (vertical line + label at first 2× and 4.5× crossings)
   - Share button (⎘) copies PWA deep link to clipboard
 
-### Session 6 (planned): Automation API
-See "Next Work" section above.
+### ✅ Session 6 — Automation API (DONE, already merged to main)
+  - POST /api/tickets/:id/notes alias for Camunda/Nagios/Ansible
+  - x-api-key middleware (AUTOMATION_API_KEY env var), scoped to /notes only
+  - Frontend: automation_note events rendered in Worklog tab (🤖 icon, blue tint)
+
+### ✅ Session 6b — Network Health View (DONE, claude/nifty-proskuriakova → main 2026-04-10)
+  - RIPE Atlas msm #1001 (ICMP ping to k-root) per Vodafone market, 9 countries
+  - 3×2 card: AVG/P95 Latency, Packet Loss, BGP Visible (peer counts), DNS RTT, Active Probes
+  - 6-chart DetailPanel with 7 time window options (10m→36h)
+  - Per-probe breakdown modal: ICMP bars (min/avg/max), P95, DNS RTT column, BGP summary
+  - BGP Visibility: RIPE Stat routing-status API — ris_peers_seeing/total, prefixes announced
+  - DNS RTT: RIPE Atlas msm #10001 (DNS SOA), per-probe breakdown, dynamic baseline
+  - Ratio tooltip on status pill: explains ×ratio, thresholds, probe count
+  - MetricsGlossary: all 6 metrics explained (ICMP, P95, loss, BGP, DNS, probes)
+  - Probe coverage: 8/9 markets active (Turkey AS15924 has 1 probe not reporting — no fix available)
+  - 60-min fallback window for sparse markets (≤3 probes)
 
 ### Phase 3 (after sessions): Authentication
 Supabase Auth (email magic link or SSO). `currentUser` from real session.
@@ -434,19 +492,74 @@ Row-Level Security in Supabase.
   - Working state, SLA timer, log tab with operator/system split
   - Ticket badges in LiveStatusView and AlarmsView
 
+### ✅ Phase 2d — Automation API (DONE)
+  - POST /api/tickets/:id/notes alias (x-api-key, body: {content, source, metadata})
+  - requireAutomationKey middleware scoped to /notes only
+  - automation_note events in TicketDetailView Worklog tab
+
 ### ✅ Phase 2e — PWA / iPhone app (DONE)
   - manifest.json, icons (Pillow-generated: navy + red + ECG), app name "Chema NOC"
   - Standalone detection, safe-area-insets, in-app ticket navigation via hash routing
   - Chart: live value bar, zoom ×1-8, moving average, threshold crossings, share button
+  - Landing page: two tiles (Service Monitor + Network Health)
 
-### 🔲 Phase 2d — Automation API (NEXT)
-  - API key auth on POST/PATCH ticket endpoints
-  - /api/tickets/:id/notes alias for automation
-  - Third log category "Automated Actions" in TicketDetailView
+### ✅ Phase 2f — Network Health View (DONE 2026-04-10)
+  - RIPE Atlas msm #1001 latency per Vodafone market (9 countries)
+  - BGP Visibility via RIPE Stat (ris_peers_seeing/total, prefixes)
+  - DNS RTT via RIPE Atlas msm #10001 (per-probe breakdown)
+  - Dynamic 4h baseline, ratio model, 36h Supabase persistence
+  - ⚠️ Droplet needs: git pull && docker compose up -d --build
 
-### 🔲 Phase 3 — Authentication
+### 🔲 Phase 3 — Authentication (Supabase Auth magic link or SSO)
 ### 🔲 Phase 4 — RBAC with RLS
 ### 🔲 Phase 5 — Real-time (Supabase)
+
+---
+
+## Network Health View — How it works
+
+`src/components/NetworkHealthView.jsx` — view id `"network_health"`, sidebar item "📡 Network Health" under MONITORING. Also accessible from PWA landing page tile.
+
+**Data source:** `GET /api/network-health` — polled every 30s by the frontend.
+**Backend polling:** every 5 min per market, staggered 600ms between markets.
+
+**Three metrics, three modules:**
+
+| Metric | Module | Measurement | Notes |
+|---|---|---|---|
+| ICMP Latency + Loss | `ripe-atlas.js` | msm #1001 — ICMP ping to k.root-servers.net | Probes inside Vodafone AS |
+| BGP Visibility | `bgp-visibility.js` | RIPE Stat routing-status API | External RIS peers looking AT Vodafone |
+| DNS RTT | `dns-measurements.js` | msm #10001 — DNS SOA to k.root-servers.net | Same probes as ICMP |
+
+**Ratio model (ICMP + DNS):**
+- `ratio = current_metric / 4h_rolling_baseline`
+- OK <2× · WARNING ≥2× · OUTAGE ≥4.5×
+
+**BGP thresholds (static, not ratio):**
+- OK ≥95% · WARNING ≥80% · OUTAGE <80%
+
+**Markets and ASNs:**
+| Market | ASN | Probes (active) |
+|---|---|---|
+| ES | 12430 | 6 |
+| UK | 5378 | 18 |
+| DE | 3209 | 199 |
+| IT | 30722 | 15 |
+| PT | 12353 | 14 |
+| NL | 33915 | 60 |
+| IE | 15502 | 12 |
+| GR | 3329 | 14 |
+| TR | 15924 | 1 (not reporting) |
+
+Turkey has only 1 RIPE Atlas probe on Vodafone's ASN and it doesn't report to msm #1001. No alternative Vodafone TR ASN has probes (AS47331=0, Turk Telekom and Superonline are NOT Vodafone). Show as "no data" — 60-min fallback window applied.
+
+**Why BGP data looks like 329/329 (all same)?**
+RIPE Stat's routing-status API returns a snapshot of the CURRENT global routing table. `total_ris_peers` is the global count of all RIPE RIS BGP collectors (same number for every ASN, ~329). `ris_peers_seeing` is how many of those can route to this specific AS. When all 329/329 see you = perfect visibility. The value never changes unless there's a routing incident.
+
+**Supabase tables (36h retention, auto-cleaned each tick):**
+- `ripe_measurements` — {market_id, avg_rtt, p95_rtt, loss_pct, probe_count, measured_at}
+- `bgp_visibility` — {market_id, visibility_pct, announced_prefixes, measured_at}
+- `dns_measurements` — {market_id, dns_rtt, probe_count, measured_at}
 
 ---
 
