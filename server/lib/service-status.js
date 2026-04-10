@@ -30,7 +30,7 @@ const SERVICES = [
   { id: "tv",           name: "TV / IPTV",      icon: "📺", weight: 0.12 },
 ];
 
-const HISTORY_LEN = 20; // sparkline points (20 × 30s = 10 minutes visible)
+const HISTORY_LEN = 2880; // 24h at 30s/tick
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 // marketId → { ...market fields, complaints, ratio, status, trend[], ticketId,

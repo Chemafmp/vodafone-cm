@@ -69,6 +69,15 @@ const SERVICES_META = {
   tv:           { name: "TV / IPTV",       icon: "📺" },
 };
 
+// ─── Time ranges ──────────────────────────────────────────────────────────────
+const TIME_RANGES = [
+  { key: "10m",  label: "10 min",  points:   20 },
+  { key: "30m",  label: "30 min",  points:   60 },
+  { key: "1h",   label: "1 h",     points:  120 },
+  { key: "6h",   label: "6 h",     points:  720 },
+  { key: "24h",  label: "24 h",    points: 2880 },
+];
+
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 function Sparkline({ trend = [], status, width = 80, height = 28 }) {
   if (!trend || trend.length < 2) return <div style={{ width, height }} />;
@@ -104,15 +113,10 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 }
 
 // ─── Market card ──────────────────────────────────────────────────────────────
-function MarketCard({ market, selected, onClick }) {
+function MarketCard({ market, trend, selected, onClick }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
-  const isOutage = market.status === "outage";
-  const isWarning = market.status === "warning";
 
-  // Worst service
   const svcStatuses = Object.values(market.services || {}).map(s => s.status);
-  const hasOutageSvc = svcStatuses.includes("outage");
-  const hasWarnSvc   = svcStatuses.includes("warning");
 
   return (
     <div onClick={onClick}
@@ -150,7 +154,7 @@ function MarketCard({ market, selected, onClick }) {
       </div>
 
       {/* Sparkline */}
-      <Sparkline trend={market.trend} status={market.status} width={148} height={28} />
+      <Sparkline trend={trend} status={market.status} width={148} height={28} />
 
       {/* Service dots */}
       <div style={{ display: "flex", gap: 5, marginTop: 8, alignItems: "center" }}>
@@ -185,7 +189,7 @@ function MarketCard({ market, selected, onClick }) {
 }
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ market, onClose }) {
+function DetailPanel({ market, trend, rangeLabel, onClose }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
 
   return (
@@ -238,12 +242,12 @@ function DetailPanel({ market, onClose }) {
         {/* Trend sparkline (large) */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Complaint Trend (last 10 min)
+            Complaint Trend — last {rangeLabel}
           </div>
           <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.border}` }}>
-            <Sparkline trend={market.trend} status={market.status} width={260} height={50} />
+            <Sparkline trend={trend} status={market.status} width={260} height={50} />
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-              <span style={{ fontSize: 9, color: T.muted }}>10 min ago</span>
+              <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
               <span style={{ fontSize: 9, color: T.muted }}>now</span>
             </div>
           </div>
@@ -313,8 +317,18 @@ export default function ServiceStatusView() {
   const [usingDemo, setUsingDemo]     = useState(false);
   const [selected, setSelected]       = useState(null);
   const [filter, setFilter]           = useState("all"); // all | outage | warning
+  const [timeRange, setTimeRange]     = useState(TIME_RANGES[0]); // default 10 min
   const [lastRefresh, setLastRefresh] = useState(null);
   const intervalRef = useRef(null);
+
+  // Slice trend for given range, padding with first value if not enough history yet
+  function sliceTrend(trend, points) {
+    if (!trend || trend.length === 0) return [];
+    if (trend.length >= points) return trend.slice(-points);
+    // Pad left with the oldest known value
+    const pad = Array(points - trend.length).fill(trend[0]);
+    return [...pad, ...trend];
+  }
 
   async function load() {
     try {
@@ -391,8 +405,24 @@ export default function ServiceStatusView() {
             ))}
           </div>
 
+          {/* Zoom selector */}
+          <div style={{ display: "flex", gap: 3, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: 3 }}>
+            {TIME_RANGES.map(r => (
+              <button key={r.key} onClick={() => setTimeRange(r)}
+                style={{
+                  padding: "3px 9px", fontSize: 10, fontWeight: 700, borderRadius: 5,
+                  cursor: "pointer", fontFamily: "inherit", border: "none",
+                  background: timeRange.key === r.key ? T.text : "transparent",
+                  color: timeRange.key === r.key ? T.surface : T.muted,
+                  transition: "all 0.12s",
+                }}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+
           {/* Status summary */}
-          <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted, marginLeft: 8 }}>
+          <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted }}>
             {outageCount > 0 && (
               <span style={{ color: "#dc2626", fontWeight: 700 }}>🔴 {outageCount} outage{outageCount > 1 ? "s" : ""}</span>
             )}
@@ -447,6 +477,7 @@ export default function ServiceStatusView() {
                 <MarketCard
                   key={m.id}
                   market={m}
+                  trend={sliceTrend(m.trend, timeRange.points)}
                   selected={selected === m.id}
                   onClick={() => setSelected(selected === m.id ? null : m.id)}
                 />
@@ -465,6 +496,8 @@ export default function ServiceStatusView() {
       {selectedMarket && (
         <DetailPanel
           market={selectedMarket}
+          trend={sliceTrend(selectedMarket.trend, timeRange.points)}
+          rangeLabel={timeRange.label}
           onClose={() => setSelected(null)}
         />
       )}
