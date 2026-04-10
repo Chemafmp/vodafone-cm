@@ -12,8 +12,8 @@
 // WARNING: fragile — for testing only. Replace with official Downdetector API.
 
 const MARKETS = [
-  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"problemas" },
-  { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status" },
+  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"problemas", serviceId:"33125" },
+  { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status",    serviceId:"32659" },
   { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status" },
   { id:"it", name:"Italy",       flag:"🇮🇹", domain:"downdetector.it",     slug:"vodafone",         path:"status" },
   { id:"pt", name:"Portugal",    flag:"🇵🇹", domain:"downdetector.pt",     slug:"vodafone",         path:"estado" },
@@ -69,19 +69,28 @@ async function timedFetch(url, headers, proxyOpts = null) {
   }
 }
 
-// ─── Approach 1: JSON chart-data endpoint ────────────────────────────────────
-// Downdetector loads chart data from a lightweight JSON endpoint.
-// Known patterns (varies by market/version):
-//   /status/vodafone/chart-data/          → [{x, y}, ...]
-//   /estado/vodafone/chart-data/          → same
-//   /status/vodafone/chart.json           → same
-async function tryJsonEndpoint(m) {
+// ─── Approach 1: Stats API via serviceId ─────────────────────────────────────
+// Downdetector (new Next.js App Router version) exposes a stats API.
+// The serviceId is embedded in the RSC payload on the status page.
+// API endpoints to try (varies by deployment):
+async function tryJsonEndpoint(m, serviceId = null) {
   const base = `https://${m.domain}`;
-  const endpoints = [
+  const endpoints = [];
+
+  // If we have a serviceId, try the v2 stats API first
+  if (serviceId) {
+    endpoints.push(
+      `${base}/api/v2/stats/service/${serviceId}/`,
+      `${base}/api/v2/stats/service/${serviceId}/history/`,
+    );
+  }
+
+  // Legacy chart-data endpoints (older Downdetector versions)
+  endpoints.push(
     `${base}/${m.path}/${m.slug}/chart-data/`,
     `${base}/${m.path}/${m.slug}/chart.json`,
     `${base}/api/v1/stats/${m.slug}/`,
-  ];
+  );
 
   for (const url of endpoints) {
     try {
@@ -108,16 +117,23 @@ async function tryJsonEndpoint(m) {
         const values = json.data.map(p => Array.isArray(p) ? Math.round(p[1]) : Math.round(p.y ?? p.value ?? 0));
         if (values.length > 0) return { values, url, shape: "C" };
       }
+      // Shape D: { history: [...] } or { reports: [...] }
+      const list = json.history ?? json.reports ?? json.series ?? json.stats;
+      if (Array.isArray(list) && list.length > 0) {
+        const values = list.map(p =>
+          typeof p === "number" ? p :
+          Math.round(p.y ?? p.count ?? p.value ?? p[1] ?? 0)
+        );
+        if (values.length > 0) return { values, url, shape: "D" };
+      }
     } catch { /* try next */ }
   }
   return null;
 }
 
-// ─── Approach 2 & 3: HTML scraping ───────────────────────────────────────────
+// ─── Approach 2 & 3: HTML / RSC scraping ─────────────────────────────────────
 async function tryHtmlScrape(m) {
   const url = `https://${m.domain}/${m.path}/${m.slug}/`;
-  // Do NOT use render=true — Highcharts data lives in <script> tags in raw HTML.
-  // render=true produces a fully-executed SPA with no inline script data.
   const r = await timedFetch(url, HTML_HEADERS, {});
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
   const html = await r.text();
@@ -141,33 +157,11 @@ async function tryHtmlScrape(m) {
     } catch { /* try next */ }
   }
 
-  // Pattern 2: Next.js __NEXT_DATA__ (Downdetector uses Next.js)
-  const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-  if (nextDataMatch) {
-    try {
-      const obj = JSON.parse(nextDataMatch[1]);
-      // DEBUG: log top-level keys of pageProps so we can find where chart data lives
-      const pp = obj?.props?.pageProps;
-      if (pp) log?.(`[downdetector] __NEXT_DATA__ pageProps keys: ${Object.keys(pp).join(", ")}`);
-
-      // Look for an array of {x,y} or [[epoch,count]] anywhere in the object (depth-first)
-      const findSeries = (o, depth = 0) => {
-        if (depth > 8 || !o || typeof o !== "object") return null;
-        if (Array.isArray(o) && o.length >= 4) {
-          if (typeof o[0]?.y === "number") return o.map(p => Math.round(p.y));
-          if (Array.isArray(o[0]) && o[0].length === 2 && typeof o[0][1] === "number") return o.map(p => Math.round(p[1]));
-        }
-        for (const v of Object.values(o)) {
-          const r = findSeries(v, depth + 1);
-          if (r) return r;
-        }
-        return null;
-      };
-      const values = findSeries(obj);
-      if (values) return { values, url, shape: "next-data" };
-    } catch (e) {
-      log?.(`[downdetector]   __NEXT_DATA__ parse error: ${e.message}`);
-    }
+  // Pattern 2: Extract serviceId from RSC payload (Downdetector App Router)
+  // The RSC payload contains "serviceId":"12345" which we can use to call the stats API
+  const serviceIdMatch = html.match(/"serviceId"\s*:\s*"(\d+)"/);
+  if (serviceIdMatch) {
+    return { values: null, url, shape: "rsc", serviceId: serviceIdMatch[1] };
   }
 
   // Pattern 3: {x: epoch, y: count} pairs embedded in JS (React/Next hydration data)
@@ -188,32 +182,41 @@ async function tryHtmlScrape(m) {
     return { values: [count], url, shape: "html-badge" };
   }
 
-  // DEBUG: log end of HTML (where __NEXT_DATA__ / RSC payloads typically live)
-  const tail = html.replace(/\s+/g, " ").slice(-3000);
-  const hasNextData = html.includes("__NEXT_DATA__");
-  const scriptTypes = [...html.matchAll(/<script([^>]*)>/g)].map(m => m[1].trim()).filter(Boolean).slice(0, 15).join(" | ");
-  throw new Error(`could not parse HTML from ${url} (${html.length} bytes, hasNextData=${hasNextData})\nSCRIPTS: ${scriptTypes}\nTAIL: ${tail}`);
+  throw new Error(`could not parse HTML from ${url} (${html.length} bytes)`);
 }
 
 // ─── Scrape one market — tries all approaches ─────────────────────────────────
 async function scrapeMarket(m, log) {
-  // Try JSON endpoint first (faster, no render needed)
-  log?.(`[downdetector]   ${m.id}: trying JSON endpoint...`);
+  // Step 1: get HTML to extract serviceId (RSC payload)
+  log?.(`[downdetector]   ${m.id}: fetching page for serviceId...`);
+  let serviceId = m.serviceId ?? null; // use hardcoded fallback if available
   try {
-    const j = await tryJsonEndpoint(m);
-    if (j) {
-      log?.(`[downdetector] ✓ ${m.id}: JSON ${j.shape} → ${j.values.length} points`);
-      return buildResult(j.values, `json-${j.shape}`);
+    const h = await tryHtmlScrape(m);
+    if (h.shape === "rsc" && h.serviceId) {
+      serviceId = h.serviceId;
+      log?.(`[downdetector]   ${m.id}: serviceId=${serviceId}`);
+    } else if (h.values) {
+      // Got data directly from HTML parsing
+      log?.(`[downdetector] ✓ ${m.id}: HTML ${h.shape}`);
+      return buildResult(h.values, h.shape);
     }
   } catch (e) {
-    log?.(`[downdetector]   ${m.id}: JSON failed (${e.message}), trying HTML...`);
+    log?.(`[downdetector]   ${m.id}: HTML fetch failed (${e.message})`);
   }
 
-  // Fallback: rendered HTML scrape (slow — headless browser)
-  log?.(`[downdetector]   ${m.id}: trying HTML (render=true)...`);
-  const h = await tryHtmlScrape(m);
-  log?.(`[downdetector] ✓ ${m.id}: HTML ${h.shape}`);
-  return buildResult(h.values, h.shape);
+  // Step 2: call stats API with serviceId (or legacy chart-data endpoints)
+  log?.(`[downdetector]   ${m.id}: trying stats API (serviceId=${serviceId})...`);
+  try {
+    const j = await tryJsonEndpoint(m, serviceId);
+    if (j) {
+      log?.(`[downdetector] ✓ ${m.id}: API ${j.shape} → ${j.values.length} points`);
+      return buildResult(j.values, `api-${j.shape}`);
+    }
+  } catch (e) {
+    log?.(`[downdetector]   ${m.id}: API failed (${e.message})`);
+  }
+
+  throw new Error(`all approaches failed for ${m.id}`);
 }
 
 function buildResult(values, source) {
