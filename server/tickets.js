@@ -159,15 +159,12 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "type must be incident, problem, or project" });
     }
 
-    // Validate parent_id: must exist and must not itself be a child (max depth = 1)
+    // Validate parent_id: must exist
     if (parent_id) {
       const { data: parent, error: pErr } = await db
-        .from("tickets").select("id,parent_id").eq("id", parent_id).maybeSingle();
+        .from("tickets").select("id").eq("id", parent_id).maybeSingle();
       if (pErr || !parent) {
         return res.status(400).json({ error: `Parent ticket ${parent_id} not found` });
-      }
-      if (parent.parent_id) {
-        return res.status(400).json({ error: "Child tickets cannot have children (maximum depth is 1)" });
       }
     }
 
