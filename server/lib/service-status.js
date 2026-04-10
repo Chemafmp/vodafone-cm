@@ -1,15 +1,29 @@
-// ─── Service Status — Simulator + optional Downdetector scraper ───────────────
-// Set USE_SCRAPER=1 in env to pull real data from Downdetector HTML pages.
-// Falls back to simulation if scraping fails or USE_SCRAPER is unset.
+// ─── Service Status — Simulator + Downdetector scraper/API ───────────────────
+// Data source is selected by env vars (checked in priority order):
+//
+//   USE_OFFICIAL_API=1   → Downdetector Partner REST API (downdetector-api.js)
+//                          Requires: DOWNDETECTOR_API_URL + DOWNDETECTOR_API_KEY
+//   USE_SCRAPER=1        → ScraperAPI HTML scraper (downdetector-scraper.js)
+//                          Requires: SCRAPER_API_KEY (optional — falls back to direct fetch)
+//   (neither)            → Full simulation, no external calls
+//
+// Falls back to per-market simulation if a fetch/scrape fails for a given market.
 //
 // Status thresholds (ratio = complaints / baseline):
 //   OK      < 2.0×
 //   WARNING ≥ 2.0× and < 4.5×
 //   OUTAGE  ≥ 4.5×
 
-import { scrapeAll } from "./downdetector-scraper.js";
+import { scrapeAll as scrapeAllScraper } from "./downdetector-scraper.js";
+import { scrapeAll as scrapeAllApi }     from "./downdetector-api.js";
 import { getSupabase } from "./supabase.js";
-const USE_SCRAPER = process.env.USE_SCRAPER === "1";
+
+const USE_OFFICIAL_API = process.env.USE_OFFICIAL_API === "1";
+const USE_SCRAPER      = !USE_OFFICIAL_API && process.env.USE_SCRAPER === "1";
+
+function scrapeAll(log) {
+  return USE_OFFICIAL_API ? scrapeAllApi(log) : scrapeAllScraper(log);
+}
 
 const MARKETS = [
   { id: "es", name: "Spain",       flag: "🇪🇸", tz: "Europe/Madrid",    baseline: 45 },
@@ -128,10 +142,10 @@ function persistTick(m) {
  *
  * @param {number} port  — poller HTTP port (for self-calls to /api/tickets)
  */
-let _scraping = false; // prevent concurrent scrape cycles
+let _scraping = false; // prevent concurrent fetch cycles
 export async function tickServiceStatus(port, log) {
-  if (USE_SCRAPER) {
-    if (_scraping) { log?.("[service-status] skipping tick — previous scrape still running"); return; }
+  if (USE_OFFICIAL_API || USE_SCRAPER) {
+    if (_scraping) { log?.("[service-status] skipping tick — previous fetch still running"); return; }
     _scraping = true;
     try { await tickFromScraper(port, log); } finally { _scraping = false; }
     return;
@@ -140,7 +154,7 @@ export async function tickServiceStatus(port, log) {
 }
 
 async function tickFromScraper(port, log) {
-  log?.("[service-status] scraping Downdetector...");
+  log?.(USE_OFFICIAL_API ? "[service-status] fetching Downdetector official API..." : "[service-status] scraping Downdetector...");
   const results = await scrapeAll(log);
 
   console.log(`[DEBUG tickFromScraper] results: ${results.length} — ${results.map(r => `${r.market?.id}:ok=${r.ok}:c=${r.complaints}`).join(", ")}`);
