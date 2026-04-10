@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { T } from "../data/constants.js";
 
 // ─── API base (mirrors ticketsDb.js pattern) ──────────────────────────────────
@@ -101,7 +101,6 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
         strokeLinejoin="round"
         opacity={0.85}
       />
-      {/* Last value dot */}
       {(() => {
         const lx = width;
         const lv = trend[trend.length - 1];
@@ -113,10 +112,8 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 }
 
 // ─── Market card ──────────────────────────────────────────────────────────────
-function MarketCard({ market, trend, selected, onClick }) {
+function MarketCard({ market, trend, selected, onClick, fmt }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
-
-  const svcStatuses = Object.values(market.services || {}).map(s => s.status);
 
   return (
     <div onClick={onClick}
@@ -141,8 +138,21 @@ function MarketCard({ market, trend, selected, onClick }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{market.name}</div>
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
-            {market.complaints}/h · {market.ratio}× baseline
+            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()} · {market.ratio}× baseline
           </div>
+          {market.dataSource === "downdetector" ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
+              fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
+              border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>
+              🌐 LIVE
+            </div>
+          ) : (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
+              fontSize: 9, fontWeight: 700, color: "#64748b", background: "#f8fafc",
+              border: "1px solid #cbd5e1", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>
+              ∿ SIMULATED
+            </div>
+          )}
         </div>
         <div style={{
           fontSize: 9, fontWeight: 800, letterSpacing: "0.5px",
@@ -162,10 +172,7 @@ function MarketCard({ market, trend, selected, onClick }) {
           const ssm = STATUS_META[svc.status] || STATUS_META.ok;
           return (
             <div key={svcId} title={`${SERVICES_META[svcId]?.name}: ${svc.complaints}/h (${svc.ratio}×)`}
-              style={{
-                display: "flex", alignItems: "center", gap: 3,
-                fontSize: 10, color: T.muted,
-              }}>
+              style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: T.muted }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: ssm.dot, flexShrink: 0 }} />
               <span style={{ fontSize: 9 }}>{SERVICES_META[svcId]?.icon}</span>
             </div>
@@ -188,144 +195,434 @@ function MarketCard({ market, trend, selected, onClick }) {
   );
 }
 
+// ─── Detail chart (baseline + threshold zones + hover tooltip + MA + annotations) ──
+function DetailChart({ trend, baseline, status, width = 272, height = 80, perMin }) {
+  const [hover, setHover] = useState(null);
+  const svgRef = useRef(null);
+
+  const handlePointerMove = useCallback((clientX) => {
+    if (!trend || trend.length < 2) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = clientX - rect.left;
+    const idx = Math.round((mx / width) * (trend.length - 1));
+    const clamped = Math.max(0, Math.min(trend.length - 1, idx));
+    const v = trend[clamped];
+    const ratio = baseline > 0 ? Math.round((v / baseline) * 10) / 10 : "—";
+    const toY_ = (val) => height - (val / Math.max(...trend, baseline * 4.5 * 1.1, 1)) * (height - 4) - 2;
+    const toX_ = (i)   => (i / (trend.length - 1)) * width;
+    const display = perMin ? (v / 60 < 1 ? Math.round(v / 60 * 100) / 100 : Math.round(v / 60 * 10) / 10) : v;
+    const baseDisplay = perMin ? (baseline / 60 < 1 ? Math.round(baseline / 60 * 100) / 100 : Math.round(baseline / 60 * 10) / 10) : baseline;
+    const unit = perMin ? "/min" : "/h";
+    setHover({ x: toX_(clamped), y: toY_(v), value: display, baseValue: baseDisplay, unit, idx: clamped, ratio });
+  }, [trend, baseline, width, height, perMin]);
+  const handleMouseMove = useCallback((e) => handlePointerMove(e.clientX), [handlePointerMove]);
+  const handleTouchMove = useCallback((e) => { e.preventDefault(); handlePointerMove(e.touches[0].clientX); }, [handlePointerMove]);
+
+  if (!trend || trend.length < 2) return <div style={{ width, height }} />;
+
+  const warn2x    = baseline * 2.0;
+  const outage45  = baseline * 4.5;
+  const domainMax = Math.max(...trend, outage45 * 1.1, 1);
+  const toY = v => height - (v / domainMax) * (height - 4) - 2;
+  const toX = i => (i / (trend.length - 1)) * width;
+
+  const pts = trend.map((v, i) => `${toX(i)},${toY(v)}`);
+
+  // Moving average (adaptive window ~12.5% of data, min 3)
+  const MA_W = Math.max(3, Math.floor(trend.length / 8));
+  const maPts = trend.map((_, i) => {
+    const slice = trend.slice(Math.max(0, i - MA_W + 1), i + 1);
+    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+    return `${toX(i)},${toY(avg)}`;
+  });
+
+  // Threshold crossing annotations (first crossing of warn and outage)
+  const crossings = [];
+  let warnMarked = false, outageMarked = false;
+  for (let i = 1; i < trend.length; i++) {
+    if (!warnMarked && trend[i - 1] < warn2x && trend[i] >= warn2x) {
+      crossings.push({ x: toX(i), label: "2×", color: "#f59e0b" });
+      warnMarked = true;
+    }
+    if (!outageMarked && trend[i - 1] < outage45 && trend[i] >= outage45) {
+      crossings.push({ x: toX(i), label: "4.5×", color: "#ef4444" });
+      outageMarked = true;
+    }
+  }
+
+  const col    = STATUS_META[status]?.dot || "#22c55e";
+  const baseY  = toY(baseline);
+  const warn2Y = toY(warn2x);
+  const out45Y = toY(outage45);
+  const lastY  = toY(trend[trend.length - 1]);
+
+
+  const TIP_W   = 110;
+  const TIP_H   = 42;
+  const tipX    = hover ? (hover.x > width * 0.6 ? hover.x - TIP_W - 8 : hover.x + 10) : 0;
+  const tipY    = hover ? Math.max(2, hover.y - TIP_H / 2) : 0;
+  const hStatus = hover ? (hover.ratio >= 4.5 ? "outage" : hover.ratio >= 2.0 ? "warning" : "ok") : "ok";
+  const hCol    = STATUS_META[hStatus]?.dot || col;
+
+  return (
+    <svg ref={svgRef} width={width} height={height}
+      style={{ display: "block", overflow: "visible", cursor: "crosshair", touchAction: "none" }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setHover(null)}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={() => setHover(null)}>
+
+      {/* Threshold zones */}
+      {out45Y > 0 && <rect x={0} y={0} width={width} height={Math.max(0, out45Y)} fill="rgba(239,68,68,0.06)" />}
+      <rect x={0} y={Math.max(0, out45Y)} width={width} height={Math.max(0, warn2Y - out45Y)} fill="rgba(245,158,11,0.06)" />
+
+      {/* Threshold lines */}
+      <line x1={0} y1={out45Y} x2={width} y2={out45Y} stroke="#ef4444" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      <line x1={0} y1={warn2Y} x2={width} y2={warn2Y} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
+      <line x1={0} y1={baseY}  x2={width} y2={baseY}  stroke="#64748b" strokeWidth={1} strokeDasharray="4,2" opacity={0.6} />
+
+      {/* Labels */}
+      <text x={width - 2} y={out45Y - 3} textAnchor="end" fontSize={7} fill="#ef4444" opacity={0.7}>OUTAGE</text>
+      <text x={width - 2} y={warn2Y - 3} textAnchor="end" fontSize={7} fill="#f59e0b" opacity={0.7}>WARN</text>
+      <text x={width - 2} y={baseY + 9}  textAnchor="end" fontSize={7} fill="#64748b" opacity={0.7}>BASE</text>
+
+      {/* Threshold crossing annotations */}
+      {crossings.map((c, ci) => (
+        <g key={ci}>
+          <line x1={c.x} y1={0} x2={c.x} y2={height} stroke={c.color} strokeWidth={1.5} strokeDasharray="2,3" opacity={0.65} />
+          <rect x={c.x + 2} y={3} width={22} height={11} rx={2} fill={c.color} opacity={0.9} />
+          <text x={c.x + 13} y={11} textAnchor="middle" fontSize={7} fill="#fff" fontWeight="700">{c.label}</text>
+        </g>
+      ))}
+
+      {/* Moving average — thick translucent band */}
+      <polyline points={maPts.join(" ")} fill="none" stroke={col} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" opacity={0.18} />
+
+      {/* Complaint line */}
+      <polyline points={pts.join(" ")} fill="none" stroke={col} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Last value dot */}
+      {!hover && <circle cx={toX(trend.length - 1)} cy={lastY} r={3} fill={col} />}
+
+      {/* Hover crosshair + tooltip */}
+      {hover && (<>
+        <line x1={hover.x} y1={0} x2={hover.x} y2={height} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,2" opacity={0.6} />
+        <circle cx={hover.x} cy={hover.y} r={4} fill={hCol} stroke="#fff" strokeWidth={1.5} />
+        <rect x={tipX} y={tipY} width={TIP_W} height={TIP_H} rx={6} fill="#1e293b" stroke={hCol} strokeWidth={2} opacity={0.97} />
+        <text x={tipX + TIP_W/2} y={tipY + 15} textAnchor="middle" fontSize={14} fontWeight="700" fill="#f1f5f9" fontFamily="monospace">{hover.value}{hover.unit}</text>
+        <text x={tipX + TIP_W/2} y={tipY + 30} textAnchor="middle" fontSize={10} fill={hCol}      fontFamily="monospace">{hover.ratio}× base</text>
+        <text x={tipX + TIP_W/2} y={tipY + 41} textAnchor="middle" fontSize={9}  fill="#94a3b8"   fontFamily="monospace">base: {hover.baseValue}{hover.unit}</text>
+      </>)}
+    </svg>
+  );
+}
+
+// ─── Trend direction helper ───────────────────────────────────────────────────
+function trendDirection(trend) {
+  if (!trend || trend.length < 4) return { arrow: "→", label: "Stable", color: "#64748b" };
+  const recent = trend.slice(-4);
+  const older  = trend.slice(-8, -4);
+  if (older.length === 0) return { arrow: "→", label: "Stable", color: "#64748b" };
+  const avgRecent = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const avgOlder  = older.reduce((a, b) => a + b, 0) / older.length;
+  const pct = avgOlder > 0 ? (avgRecent - avgOlder) / avgOlder : 0;
+  if (pct >  0.15) return { arrow: "↑", label: "Rising",    color: "#dc2626" };
+  if (pct >  0.05) return { arrow: "↗", label: "Increasing",color: "#f59e0b" };
+  if (pct < -0.15) return { arrow: "↓", label: "Falling",   color: "#15803d" };
+  if (pct < -0.05) return { arrow: "↘", label: "Decreasing",color: "#0369a1" };
+  return { arrow: "→", label: "Stable", color: "#64748b" };
+}
+
 // ─── Detail panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ market, trend, rangeLabel, onClose }) {
-  const sm = STATUS_META[market.status] || STATUS_META.ok;
+function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, perMin, mobile = false, onOpenTicket }) {
+  const [zoom, setZoom]           = useState(1);   // 1=full, 2=50%, 4=25%, 8=12.5%
+  const [copied, setCopied]       = useState(false);
+
+  const sm  = STATUS_META[market.status] || STATUS_META.ok;
+  const dir = trendDirection(trend);
+  const peak = trend && trend.length > 0 ? Math.max(...trend) : market.complaints;
+  const peakRatio = market.baseline > 0 ? Math.round((peak / market.baseline) * 10) / 10 : "—";
+
+  const worstSvc = Object.entries(market.services || {})
+    .sort((a, b) => b[1].ratio - a[1].ratio)[0];
+
+  const chartWidth = mobile ? Math.min(300, window.innerWidth - 64) : 272;
+
+  // Zoom slice — always shows the most-recent N points
+  const zoomedTrend = zoom === 1
+    ? trend
+    : trend.slice(-Math.max(4, Math.ceil(trend.length / zoom)));
+
+  // Live value (latest point — always visible without touch)
+  const liveVal   = trend[trend.length - 1] ?? 0;
+  const liveRatio = market.baseline > 0 ? Math.round((liveVal / market.baseline) * 10) / 10 : "—";
+  const liveSt    = liveRatio >= 4.5 ? "outage" : liveRatio >= 2.0 ? "warning" : "ok";
+  const liveSm    = STATUS_META[liveSt];
+  const liveFmt   = fmt(liveVal);
+
+  function handleShare() {
+    const base = `${window.location.origin}${window.location.pathname}`;
+    const url  = `${base}#standalone=service_monitor`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
 
   return (
     <div style={{
-      width: 320, flexShrink: 0, background: T.surface,
-      borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column",
-      overflow: "hidden",
+      flex: mobile ? 1 : undefined,
+      width: mobile ? "100%" : 340, flexShrink: 0, background: T.surface,
+      borderLeft: mobile ? "none" : `1px solid ${T.border}`,
+      display: "flex", flexDirection: "column", overflow: "hidden",
     }}>
-      {/* Header */}
-      <div style={{ padding: "16px 18px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 28, lineHeight: 1 }}>{market.flag}</span>
+      {/* ── Header ── */}
+      <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 26, lineHeight: 1 }}>{market.flag}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{market.name}</div>
-            <div style={{ fontSize: 11, color: T.muted }}>Vodafone Market Monitor</div>
-          </div>
-          <button onClick={onClose}
-            style={{ background: "none", border: "none", fontSize: 16, color: T.muted, cursor: "pointer", padding: "2px 6px" }}>
-            ✕
-          </button>
-        </div>
-
-        {/* Overall status */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
-          background: sm.bg, border: `1px solid ${sm.border}`, borderRadius: 8,
-        }}>
-          <span style={{ width: 10, height: 10, borderRadius: "50%", background: sm.dot, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: sm.color }}>{sm.label}</div>
-            <div style={{ fontSize: 10, color: T.muted }}>
-              {market.complaints}/h · {market.ratio}× baseline ({market.baseline}/h)
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
+              {market.dataSource === "downdetector" ? (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
+                  border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px" }}>🌐 LIVE</span>
+              ) : (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", background: "#f8fafc",
+                  border: "1px solid #cbd5e1", borderRadius: 4, padding: "1px 5px" }}>∿ SIMULATED</span>
+              )}
+              <span style={{ fontSize: 9, fontWeight: 700, color: dir.color, background: T.bg,
+                border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 5px" }}>
+                {dir.arrow} {dir.label}
+              </span>
             </div>
           </div>
-          {market.ticketId && (
-            <button
-              onClick={() => window.open(`#ticket=${market.ticketId}`, "_blank")}
-              style={{
-                fontSize: 10, fontWeight: 700, color: "#dc2626",
-                background: "#fef2f2", border: "1px solid #fca5a5",
-                borderRadius: 5, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit",
-              }}>
-              🎫 View ticket
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {market.ticketId && (
+              <button
+                onClick={() => onOpenTicket
+                  ? onOpenTicket(market.ticketId)
+                  : window.open(`#ticket=${market.ticketId}`, "_blank")}
+                style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2",
+                  border: "1px solid #fca5a5", borderRadius: 5, padding: "3px 8px",
+                  cursor: "pointer", fontFamily: "inherit" }}>
+                🎫 Ticket
+              </button>
+            )}
+            <button onClick={handleShare} title="Copy app link"
+              style={{ fontSize: 10, fontWeight: 700,
+                color: copied ? "#15803d" : T.muted,
+                background: copied ? "#f0fdf4" : "none",
+                border: copied ? "1px solid #86efac" : "none",
+                borderRadius: 5, padding: copied ? "3px 8px" : "2px 4px",
+                cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
+              {copied ? "✓ Copied" : "⎘"}
             </button>
-          )}
+            <button onClick={onClose}
+              style={{ background: "none", border: "none", fontSize: 16, color: T.muted, cursor: "pointer", padding: "2px 4px" }}>
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Status banner */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
+          background: sm.bg, border: `1px solid ${sm.border}`, borderRadius: 7 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: sm.dot, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 800, color: sm.color, flex: 1 }}>{sm.label}</span>
+          <span style={{ fontSize: 11, color: sm.color, fontFamily: "monospace", fontWeight: 600 }}>
+            {market.ratio}× baseline
+          </span>
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
-        {/* Trend sparkline (large) */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Complaint Trend — last {rangeLabel}
-          </div>
-          <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.border}` }}>
-            <Sparkline trend={trend} status={market.status} width={260} height={50} />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-              <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
-              <span style={{ fontSize: 9, color: T.muted }}>now</span>
-            </div>
-          </div>
-        </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
-        {/* Per-service breakdown */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Service Breakdown
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {Object.entries(market.services || {}).map(([svcId, svc]) => {
-              const ssm = STATUS_META[svc.status] || STATUS_META.ok;
-              const sm_meta = SERVICES_META[svcId];
-              const pct = Math.min(100, (svc.ratio / 8) * 100);
-              return (
-                <div key={svcId} style={{
-                  padding: "10px 12px", background: T.bg, borderRadius: 8,
-                  border: `1px solid ${svc.status !== "ok" ? ssm.border : T.border}`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 14 }}>{sm_meta?.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text, flex: 1 }}>{sm_meta?.name}</span>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
-                      background: ssm.bg, border: `1px solid ${ssm.border}`,
-                      borderRadius: 4, padding: "1px 5px" }}>{ssm.label}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ flex: 1, height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ width: `${pct}%`, height: "100%", background: ssm.dot, borderRadius: 2, transition: "width 0.5s" }} />
-                    </div>
-                    <span style={{ fontSize: 10, color: T.muted, fontFamily: "monospace", flexShrink: 0 }}>
-                      {svc.complaints}/h · {svc.ratio}×
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Status legend */}
-        <div style={{ marginTop: 20, padding: "10px 12px", background: T.bg, borderRadius: 8, border: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, marginBottom: 6, letterSpacing: "0.4px" }}>STATUS THRESHOLDS</div>
+        {/* ── Key metrics ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
           {[
-            { label: "OK",      desc: "< 2× baseline",  ...STATUS_META.ok },
-            { label: "WARNING", desc: "2–4.5× baseline", ...STATUS_META.warning },
-            { label: "OUTAGE",  desc: "> 4.5× baseline — auto-ticket", ...STATUS_META.outage },
-          ].map(row => (
-            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: row.color, width: 56 }}>{row.label}</span>
-              <span style={{ fontSize: 10, color: T.muted }}>{row.desc}</span>
+            { label: "Now",      value: `${fmt(market.complaints).v}`, unit: fmt(market.complaints).u, color: sm.color },
+            { label: market.baselineAuto ? "Baseline ∿" : "Baseline", value: `${fmt(market.baseline).v}`, unit: fmt(market.baseline).u, color: T.muted },
+            { label: "Peak",     value: `${fmt(peak).v}`, unit: ` (${peakRatio}×)`, color: peak > market.baseline * 2 ? "#b45309" : T.muted },
+          ].map(m => (
+            <div key={m.label} style={{ padding: "8px 10px", background: T.bg,
+              border: `1px solid ${T.border}`, borderRadius: 8, textAlign: "center" }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: T.muted, letterSpacing: "0.4px",
+                textTransform: "uppercase", marginBottom: 3 }}>{m.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: m.color, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>{m.unit}</div>
             </div>
           ))}
         </div>
+
+        {/* ── Chart with baseline + thresholds ── */}
+        <div style={{ marginBottom: 16 }}>
+          {/* Header row: label + zoom controls */}
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.muted,
+              letterSpacing: "0.5px", textTransform: "uppercase", flex: 1 }}>
+              Complaints — last {zoom === 1 ? rangeLabel : `1/${zoom} window`}
+            </span>
+            <div style={{ display: "flex", gap: 2, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: 2 }}>
+              {[1, 2, 4, 8].map(z => (
+                <button key={z} onClick={() => setZoom(z)}
+                  style={{ padding: "2px 7px", fontSize: 10, fontWeight: 700, borderRadius: 4, border: "none",
+                    cursor: "pointer", fontFamily: "inherit",
+                    background: zoom === z ? T.text : "transparent",
+                    color: zoom === z ? T.surface : T.muted }}>
+                  {z === 1 ? "All" : `${z}×`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Live value bar — always visible, no touch needed */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+            background: liveSm.bg, border: `1px solid ${liveSm.border}`, borderRadius: "7px 7px 0 0",
+            borderBottom: "none" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: liveSm.dot, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, fontWeight: 800, color: liveSm.color, fontFamily: "monospace" }}>
+              {liveFmt.v}{liveFmt.u}
+            </span>
+            <span style={{ fontSize: 10, color: liveSm.color, fontFamily: "monospace" }}>
+              {liveRatio}× baseline
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, color: liveSm.color,
+              background: "#fff", border: `1px solid ${liveSm.border}`, borderRadius: 4, padding: "1px 6px" }}>
+              NOW
+            </span>
+          </div>
+
+          <div style={{ background: T.bg, borderRadius: "0 0 8px 8px", padding: "10px 12px",
+            border: `1px solid ${T.border}`, borderTop: `1px solid ${liveSm.border}` }}>
+            <DetailChart trend={zoomedTrend} baseline={market.baseline} status={market.status}
+              width={chartWidth} height={80} rangePoints={rangePoints} perMin={perMin} />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+              <span style={{ fontSize: 9, color: T.muted }}>
+                {zoom === 1 ? `${rangeLabel} ago` : `last 1/${zoom} of window`}
+              </span>
+              <span style={{ fontSize: 9, color: T.muted }}>now · {fmt(market.complaints).v}{fmt(market.complaints).u}</span>
+            </div>
+            {/* Legend row */}
+            <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+              {[
+                { color: "#64748b", label: "Baseline", dash: "4,2" },
+                { color: "#f59e0b", label: "2× warn",  dash: "3,2" },
+                { color: "#ef4444", label: "4.5× outage", dash: "3,2" },
+              ].map(l => (
+                <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <svg width={16} height={8}>
+                    <line x1={0} y1={4} x2={16} y2={4} stroke={l.color} strokeWidth={1.5} strokeDasharray={l.dash} />
+                  </svg>
+                  <span style={{ fontSize: 9, color: T.muted }}>{l.label}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <svg width={16} height={8}>
+                  <line x1={0} y1={4} x2={16} y2={4} stroke={sm.dot} strokeWidth={4} opacity={0.25} />
+                </svg>
+                <span style={{ fontSize: 9, color: T.muted }}>MA trend</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Service breakdown ── */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, marginBottom: 6,
+            letterSpacing: "0.5px", textTransform: "uppercase" }}>
+            Service Breakdown
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {Object.entries(market.services || {})
+              .sort((a, b) => b[1].ratio - a[1].ratio)
+              .map(([svcId, svc]) => {
+                const ssm    = STATUS_META[svc.status] || STATUS_META.ok;
+                const smeta  = SERVICES_META[svcId];
+                const pct    = Math.min(100, (svc.ratio / 6) * 100);
+                const isWorst = svcId === worstSvc?.[0];
+                return (
+                  <div key={svcId} style={{ padding: "8px 10px", background: T.bg, borderRadius: 7,
+                    border: `1px solid ${svc.status !== "ok" ? ssm.border : T.border}`,
+                    boxShadow: isWorst && svc.status !== "ok" ? `0 0 0 1px ${ssm.border}` : "none" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                      <span style={{ fontSize: 13 }}>{smeta?.icon}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.text, flex: 1 }}>{smeta?.name}</span>
+                      <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>
+                        {fmt(svc.complaints).v}{fmt(svc.complaints).u}
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
+                        background: ssm.bg, border: `1px solid ${ssm.border}`,
+                        borderRadius: 4, padding: "1px 5px" }}>
+                        {svc.ratio}×
+                      </span>
+                    </div>
+                    <div style={{ position: "relative", height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: ssm.dot,
+                        borderRadius: 3, transition: "width 0.5s" }} />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+
+        {/* ── Thresholds reference ── */}
+        <div style={{ padding: "8px 10px", background: T.bg, borderRadius: 7, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, marginBottom: 5,
+            letterSpacing: "0.4px", textTransform: "uppercase" }}>Thresholds (baseline {fmt(market.baseline).v}{fmt(market.baseline).u})</div>
+          {[
+            { label: "OK",      desc: `< ${fmt(market.baseline * 2).v}${fmt(market.baseline * 2).u}`,  sub: "< 2×", ...STATUS_META.ok },
+            { label: "WARNING", desc: `${fmt(market.baseline * 2).v}–${fmt(Math.round(market.baseline * 4.5)).v}${fmt(0).u}`, sub: "2–4.5×", ...STATUS_META.warning },
+            { label: "OUTAGE",  desc: `> ${fmt(Math.round(market.baseline * 4.5)).v}${fmt(0).u}`, sub: "> 4.5× → ticket", ...STATUS_META.outage },
+          ].map(row => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
+              <span style={{ fontSize: 9, fontWeight: 700, color: row.color, width: 52 }}>{row.label}</span>
+              <span style={{ fontSize: 9, color: T.muted, flex: 1 }}>{row.desc}</span>
+              <span style={{ fontSize: 9, color: T.muted, opacity: 0.7 }}>{row.sub}</span>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
 }
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export default function ServiceStatusView() {
+export default function ServiceStatusView({ mobile = false, onOpenTicket }) {
   const [markets, setMarkets]         = useState(() => makeDemoData());
   const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState(null);
+  const [_error, setError]            = useState(null);
   const [usingDemo, setUsingDemo]     = useState(false);
   const [selected, setSelected]       = useState(null);
-  const [filter, setFilter]           = useState("all"); // all | outage | warning
-  const [timeRange, setTimeRange]     = useState(TIME_RANGES[0]); // default 10 min
+  const [filter, setFilter]           = useState("all");
+  const [timeRange, setTimeRange]     = useState(TIME_RANGES[0]);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [perMin, setPerMin]           = useState(false);
   const intervalRef = useRef(null);
 
-  // Slice trend for given range, padding with first value if not enough history yet
+  // Detect mobile layout (standalone prop OR narrow viewport)
+  const [isMobile, setIsMobile] = useState(() => mobile || window.innerWidth < 768);
+  useEffect(() => {
+    if (mobile) return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = e => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [mobile]);
+
+  // Convert a complaints/h value to the selected unit, with label
+  function fmt(val) {
+    if (!perMin) return { v: val, u: "/h" };
+    const m = val / 60;
+    return { v: m < 1 ? Math.round(m * 100) / 100 : Math.round(m * 10) / 10, u: "/min" };
+  }
+
   function sliceTrend(trend, points) {
     if (!trend || trend.length === 0) return [];
     if (trend.length >= points) return trend.slice(-points);
-    // Pad left with the oldest known value
     const pad = Array(points - trend.length).fill(trend[0]);
     return [...pad, ...trend];
   }
@@ -338,7 +635,6 @@ export default function ServiceStatusView() {
       setError(null);
       setUsingDemo(false);
     } catch (e) {
-      // Backend unreachable — keep showing demo data so the UI isn't blank
       setError(e.message);
       setUsingDemo(true);
       setMarkets(prev => prev.length > 0 ? prev : makeDemoData());
@@ -354,7 +650,6 @@ export default function ServiceStatusView() {
     return () => clearInterval(intervalRef.current);
   }, []);
 
-  // Keep selected market in sync with latest data
   const selectedMarket = selected ? markets.find(m => m.id === selected) : null;
 
   const displayMarkets = markets.filter(m => {
@@ -376,26 +671,29 @@ export default function ServiceStatusView() {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", height: "100%", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", height: "100%", overflow: "hidden", position: "relative" }}>
       {/* ── Left: grid ─────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Toolbar */}
         <div style={{
-          padding: "12px 20px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", gap: 14, flexShrink: 0,
-          background: T.surface,
+          padding: isMobile ? "8px 12px" : "12px 20px",
+          borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: isMobile ? 6 : 14,
+          flexShrink: 0, background: T.surface,
+          flexWrap: isMobile ? "wrap" : "nowrap",
         }}>
-          {/* Summary pills */}
-          <div style={{ display: "flex", gap: 8 }}>
+          {/* Filter pills */}
+          <div style={{ display: "flex", gap: 5 }}>
             {[
-              { key: "all",     label: `All (${markets.length})`,    color: T.muted,    active: "#475569" },
-              { key: "outage",  label: `Outage (${outageCount})`,   color: "#dc2626",  active: "#dc2626" },
-              { key: "warning", label: `Warning (${warningCount})`, color: "#b45309",  active: "#b45309" },
+              { key: "all",     label: isMobile ? `All` : `All (${markets.length})`,                    color: T.muted,   active: "#475569" },
+              { key: "outage",  label: isMobile ? `🔴 ${outageCount}` : `Outage (${outageCount})`,      color: "#dc2626", active: "#dc2626" },
+              { key: "warning", label: isMobile ? `🟡 ${warningCount}` : `Warning (${warningCount})`,   color: "#b45309", active: "#b45309" },
             ].map(f => (
               <button key={f.key} onClick={() => setFilter(f.key)}
                 style={{
-                  padding: "5px 12px", fontSize: 11, fontWeight: 700, borderRadius: 6,
-                  cursor: "pointer", fontFamily: "inherit", border: "none",
+                  padding: isMobile ? "5px 10px" : "5px 12px",
+                  fontSize: isMobile ? 12 : 11, fontWeight: 700, borderRadius: 6,
+                  cursor: "pointer", fontFamily: "inherit",
                   background: filter === f.key ? f.active : T.bg,
                   color: filter === f.key ? "#fff" : f.color,
                   border: `1px solid ${filter === f.key ? f.active : T.border}`,
@@ -406,11 +704,12 @@ export default function ServiceStatusView() {
           </div>
 
           {/* Zoom selector */}
-          <div style={{ display: "flex", gap: 3, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: 3 }}>
-            {TIME_RANGES.map(r => (
+          <div style={{ display: "flex", gap: 2, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: 2 }}>
+            {TIME_RANGES.filter(r => !isMobile || ["10m","1h","6h"].includes(r.key)).map(r => (
               <button key={r.key} onClick={() => setTimeRange(r)}
                 style={{
-                  padding: "3px 9px", fontSize: 10, fontWeight: 700, borderRadius: 5,
+                  padding: isMobile ? "4px 8px" : "3px 9px",
+                  fontSize: isMobile ? 11 : 10, fontWeight: 700, borderRadius: 5,
                   cursor: "pointer", fontFamily: "inherit", border: "none",
                   background: timeRange.key === r.key ? T.text : "transparent",
                   color: timeRange.key === r.key ? T.surface : T.muted,
@@ -421,48 +720,72 @@ export default function ServiceStatusView() {
             ))}
           </div>
 
-          {/* Status summary */}
-          <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted }}>
-            {outageCount > 0 && (
-              <span style={{ color: "#dc2626", fontWeight: 700 }}>🔴 {outageCount} outage{outageCount > 1 ? "s" : ""}</span>
-            )}
-            {warningCount > 0 && (
-              <span style={{ color: "#b45309", fontWeight: 600 }}>🟡 {warningCount} warning{warningCount > 1 ? "s" : ""}</span>
-            )}
-            {okCount === markets.length && (
-              <span style={{ color: "#15803d", fontWeight: 600 }}>🟢 All systems operational</span>
-            )}
+          {/* Unit toggle /h · /min */}
+          <div style={{ display: "flex", gap: 2, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: isMobile ? 2 : 3 }}>
+            {[{ label: "/h", val: false }, { label: "/min", val: true }].map(opt => (
+              <button key={opt.label} onClick={() => setPerMin(opt.val)}
+                style={{
+                  padding: isMobile ? "4px 8px" : "3px 9px",
+                  fontSize: isMobile ? 11 : 10, fontWeight: 700, borderRadius: 5,
+                  cursor: "pointer", fontFamily: "inherit", border: "none",
+                  background: perMin === opt.val ? T.text : "transparent",
+                  color: perMin === opt.val ? T.surface : T.muted,
+                  transition: "all 0.12s",
+                }}>
+                {opt.label}
+              </button>
+            ))}
           </div>
 
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Status summary — hidden on mobile */}
+          {!isMobile && (
+            <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted }}>
+              {outageCount > 0 && <span style={{ color: "#dc2626", fontWeight: 700 }}>🔴 {outageCount} outage{outageCount > 1 ? "s" : ""}</span>}
+              {warningCount > 0 && <span style={{ color: "#b45309", fontWeight: 600 }}>🟡 {warningCount} warning{warningCount > 1 ? "s" : ""}</span>}
+              {okCount === markets.length && <span style={{ color: "#15803d", fontWeight: 600 }}>🟢 All systems operational</span>}
+            </div>
+          )}
+
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Downdetector attribution — always visible */}
+            {!isMobile && (
+              <span style={{ fontSize: 10, color: T.muted, opacity: 0.75, letterSpacing: "0.1px" }}>
+                Powered by <span style={{ fontWeight: 700, color: "#0369a1" }}>Downdetector</span> [COMMUNITY DATA]
+              </span>
+            )}
             {usingDemo && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 8px" }}>
-                DEMO — backend offline
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 7px" }}>
+                DEMO
               </span>
             )}
-            {!usingDemo && markets[0]?.dataSource === "downdetector" && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 8px" }}>
-                🌐 LIVE — Downdetector
-              </span>
-            )}
-            {lastRefresh && (
+            {!usingDemo && (() => {
+              const liveCount = markets.filter(m => m.dataSource === "downdetector").length;
+              if (liveCount === 0) return null;
+              return (
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 7px" }}>
+                  {isMobile ? `🌐 ${liveCount}` : `🌐 ${liveCount}/${markets.length} LIVE`}
+                </span>
+              );
+            })()}
+            {lastRefresh && !isMobile && (
               <span style={{ fontSize: 10, color: T.muted }}>
-                Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </span>
             )}
             <button onClick={load}
               style={{
-                fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+                fontSize: isMobile ? 14 : 11, fontWeight: 600,
+                padding: isMobile ? "4px 8px" : "5px 10px", borderRadius: 6,
                 background: "transparent", border: `1px solid ${T.border}`, color: T.muted,
                 cursor: "pointer", fontFamily: "inherit",
               }}>
-              ⟳ Refresh
+              ⟳
             </button>
           </div>
         </div>
 
         {/* Market grid */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 10 : 20 }}>
           {displayMarkets.length === 0 ? (
             <div style={{ textAlign: "center", color: T.muted, fontSize: 13, marginTop: 60 }}>
               No markets match the current filter.
@@ -470,8 +793,10 @@ export default function ServiceStatusView() {
           ) : (
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-              gap: 12,
+              gridTemplateColumns: isMobile
+                ? "repeat(2, 1fr)"
+                : "repeat(auto-fill, minmax(190px, 1fr))",
+              gap: isMobile ? 8 : 12,
             }}>
               {displayMarkets.map(m => (
                 <MarketCard
@@ -480,26 +805,58 @@ export default function ServiceStatusView() {
                   trend={sliceTrend(m.trend, timeRange.points)}
                   selected={selected === m.id}
                   onClick={() => setSelected(selected === m.id ? null : m.id)}
+                  fmt={fmt}
                 />
               ))}
             </div>
           )}
 
-          {/* Footer note */}
-          <div style={{ marginTop: 24, fontSize: 10, color: T.muted, textAlign: "center", lineHeight: 1.6 }}>
-            Complaint data is simulated (Downdetector-style). Auto-refreshes every 15s. Outage events auto-create incident tickets.
-          </div>
+          {!isMobile && (
+            <div style={{ marginTop: 24, fontSize: 10, color: T.muted, textAlign: "center", lineHeight: 1.8 }}>
+              🌐 LIVE markets pull real complaint counts from{" "}
+              <span style={{ fontWeight: 600, color: "#0369a1" }}>Downdetector</span>
+              {" "}· ∿ SIMULATED markets use modelled data · Auto-refreshes every 15s · Outages auto-create incident tickets
+              <br />
+              <span style={{ opacity: 0.6 }}>
+                Data sourced via Downdetector public pages for monitoring purposes only.
+                For official data, see{" "}
+                <span style={{ fontWeight: 600 }}>downdetector.com</span>.
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Right: detail panel ─────────────────────────────────────────────── */}
-      {selectedMarket && (
+      {/* ── Detail panel: side panel on desktop, full-screen overlay on mobile ── */}
+      {selectedMarket && !isMobile && (
         <DetailPanel
           market={selectedMarket}
           trend={sliceTrend(selectedMarket.trend, timeRange.points)}
           rangeLabel={timeRange.label}
+          rangePoints={timeRange.points}
           onClose={() => setSelected(null)}
+          fmt={fmt}
+          perMin={perMin}
+          onOpenTicket={onOpenTicket}
         />
+      )}
+      {selectedMarket && isMobile && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 10,
+          background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden",
+        }}>
+          <DetailPanel
+            market={selectedMarket}
+            trend={sliceTrend(selectedMarket.trend, timeRange.points)}
+            rangeLabel={timeRange.label}
+            rangePoints={timeRange.points}
+            onClose={() => setSelected(null)}
+            fmt={fmt}
+            perMin={perMin}
+            mobile
+            onOpenTicket={onOpenTicket}
+          />
+        </div>
       )}
     </div>
   );

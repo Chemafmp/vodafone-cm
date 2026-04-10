@@ -41,7 +41,7 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 
 ---
 
-## Current State — v1.4
+## Current State — v1.5
 
 **Frontend live:** https://chemafmp.github.io/vodafone-cm/
 **Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
@@ -155,6 +155,11 @@ src/
     ObservabilityView.jsx# Metrics charts
     TopologyView.jsx     # Network topology map
     NetworkInventory.jsx # Node inventory CRUD
+    ServiceStatusView.jsx# ★ PWA / service monitor. Props: mobile, onOpenTicket.
+                         # DetailChart: SVG with MA, threshold zones, crossing annotations.
+                         # DetailPanel: live value bar, zoom ×1-8, share button.
+                         # Standalone PWA: App.jsx detects navigator.standalone → renders this directly.
+                         # In-app ticket nav: onOpenTicket(id) → window.location.hash = #ticket=ID
 ```
 
 ---
@@ -317,6 +322,7 @@ Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same
 | MONITORING | `events` | EventsView ← needs Session 3 redesign |
 | MONITORING | `observability` | ObservabilityView |
 | TICKETS | `tickets` | TicketListView ★ |
+| PWA only | `service_monitor` | ServiceStatusView (standalone mode, no login) |
 
 ---
 
@@ -343,7 +349,7 @@ const [user, setUser] = useState(() => {
 
 ---
 
-## Next Work — Session 4: Automation API (Camunda / runbook integration)
+## Next Work — Session 6: Automation API (Camunda / runbook integration)
 
 **Goal:** Allow external automation tools (Camunda workflows, Nagios scripts, Ansible runbooks)
 to post information into tickets via REST API — check results, remediation actions, metrics.
@@ -382,7 +388,26 @@ Create `src/components/IncidentTimelineView.jsx` — chronological feed of:
 Rules: single view for whole team, organized by type not role.
 Filter bar: severity (All/Critical/Major/Minor), type (All/PERFORMANCE/INTERFACE/BGP/HARDWARE/CHANGE).
 
-### Session 4 (planned): Automation API
+### ✅ Session 5 — Service Monitor chart improvements (DONE, on claude/zealous-bassi, merged here)
+  - SVG chart with threshold zones (rgba fills) and dashed reference lines (baseline/2×/4.5×)
+  - Hover + touch crosshair tooltip
+  - trendDirection() helper, key metrics grid (Now/Baseline/Peak), service breakdown sorted by ratio
+  - Threshold reference table, perMin toggle
+
+### ✅ Session 5b — PWA (iPhone app) (DONE, on claude/nifty-proskuriakova)
+  - manifest.json, apple-touch-icon, display:standalone, safe-area-inset
+  - Standalone detection via navigator.standalone / display-mode media query
+  - App name: "Chema NOC", icon: navy + red band + ECG pulse line
+  - Ticket navigation fixed in PWA: onOpenTicket callback → hash routing instead of window.open
+
+### ✅ Session 5c — Chart improvements v2 (DONE, on claude/nifty-proskuriakova)
+  - Live value bar (always visible above chart, no touch needed)
+  - Zoom buttons All/2×/4×/8× within chart panel
+  - Moving average line (thick translucent band)
+  - Threshold crossing annotation markers (vertical line + label at first 2× and 4.5× crossings)
+  - Share button (⎘) copies PWA deep link to clipboard
+
+### Session 6 (planned): Automation API
 See "Next Work" section above.
 
 ### Phase 3 (after sessions): Authentication
@@ -408,6 +433,11 @@ Row-Level Security in Supabase.
   - Full-screen ticket detail (hash routing, new tab, sessionStorage auth)
   - Working state, SLA timer, log tab with operator/system split
   - Ticket badges in LiveStatusView and AlarmsView
+
+### ✅ Phase 2e — PWA / iPhone app (DONE)
+  - manifest.json, icons (Pillow-generated: navy + red + ECG), app name "Chema NOC"
+  - Standalone detection, safe-area-insets, in-app ticket navigation via hash routing
+  - Chart: live value bar, zoom ×1-8, moving average, threshold crossings, share button
 
 ### 🔲 Phase 2d — Automation API (NEXT)
   - API key auth on POST/PATCH ticket endpoints

@@ -165,6 +165,67 @@ export default function App(){
   const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
+  // ── Standalone PWA mode: hash param OR running as installed PWA ──
+  // iOS strips the hash from start_url, so we also detect via navigator.standalone
+  const standaloneView = (() => {
+    const m = window.location.hash.match(/[#&]standalone=([^&]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    // Detect installed PWA: iOS (navigator.standalone) or Android/Chrome (display-mode)
+    const isPWA = window.navigator.standalone === true ||
+      window.matchMedia("(display-mode: standalone)").matches;
+    if (isPWA) return "service_monitor";
+    return null;
+  })();
+  if (standaloneView === "service_monitor") {
+    // Ticket opened from within the PWA — render it full-screen in the same window
+    if (fullScreenTicketId) return (
+      <NodesProvider>
+        <TicketDetailView
+          ticketId={fullScreenTicketId}
+          currentUser={user}
+          users={USERS}
+          fullScreen
+          onClose={() => {
+            window.history.replaceState(null, "", window.location.pathname);
+            setFullScreenTicketId(null);
+          }}
+        />
+      </NodesProvider>
+    );
+
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", height: "100vh",
+        background: T.bg, color: T.text, fontFamily: "'Inter','Segoe UI',sans-serif",
+        fontSize: 14, overflow: "hidden",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}>
+        {/* Minimal topbar */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 16px", background: "#e60000", flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 18 }}>🔴</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", letterSpacing: "0.3px", lineHeight: 1.2 }}>
+              Vodafone NOC Monitor
+            </div>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.65)", fontWeight: 500, letterSpacing: "0.2px" }}>
+              Powered by Downdetector [COMMUNITY DATA]
+            </div>
+          </div>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", fontWeight: 600, flexShrink: 0 }}>
+            Service Status
+          </span>
+        </div>
+        <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted}}>Loading…</div>}>
+          <ServiceStatusView mobile onOpenTicket={id => { window.location.hash = `#ticket=${id}`; }} />
+        </Suspense>
+      </div>
+    );
+  }
+
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
 
   if (!user) return <LoginScreen onLogin={handleLogin} />;
