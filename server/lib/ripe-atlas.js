@@ -189,6 +189,23 @@ async function saveToSupabase(marketId, metrics) {
   } catch { /* non-fatal */ }
 }
 
+// ─── Data retention cleanup (max 36h) ────────────────────────────────────────
+// Called once per tick. Deletes rows older than 36h so the table stays small.
+// At 9 markets × 12 ticks/h × 36h the table never exceeds ~4k rows (~200KB).
+const RETENTION_H = 36;
+async function cleanupOldData(log) {
+  if (!supabase) return;
+  try {
+    const cutoff = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
+    const { count } = await supabase
+      .from("ripe_measurements")
+      .delete()
+      .lt("measured_at", cutoff)
+      .select("id", { count: "exact", head: true });
+    if (count > 0) log?.(`[ripe] cleaned up ${count} rows older than ${RETENTION_H}h`);
+  } catch { /* non-fatal */ }
+}
+
 async function loadHistory(marketId) {
   if (!supabase) return [];
   try {
@@ -259,6 +276,7 @@ export async function tickRipeAtlas(log) {
     return;
   }
   log?.("[ripe] polling RIPE Atlas measurement #1001…");
+  await cleanupOldData(log); // remove rows older than 36h
   for (const m of RIPE_MARKETS) {
     try {
       await pollMarket(m, log);
