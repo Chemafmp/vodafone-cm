@@ -1,11 +1,14 @@
-// ─── Service Status Simulator ─────────────────────────────────────────────────
-// Simulates Downdetector-style complaint volume data for 10 Vodafone markets.
-// Ticked every 30s by poller.js; auto-creates/resolves incident tickets on OUTAGE.
+// ─── Service Status — Simulator + optional Downdetector scraper ───────────────
+// Set USE_SCRAPER=1 in env to pull real data from Downdetector HTML pages.
+// Falls back to simulation if scraping fails or USE_SCRAPER is unset.
 //
 // Status thresholds (ratio = complaints / baseline):
 //   OK      < 2.0×
 //   WARNING ≥ 2.0× and < 4.5×
 //   OUTAGE  ≥ 4.5×
+
+import { scrapeAll } from "./downdetector-scraper.js";
+const USE_SCRAPER = process.env.USE_SCRAPER === "1";
 
 const MARKETS = [
   { id: "es", name: "Spain",       flag: "🇪🇸", tz: "Europe/Madrid",    baseline: 45 },
@@ -82,7 +85,49 @@ function statusForRatio(ratio) {
  *
  * @param {number} port  — poller HTTP port (for self-calls to /api/tickets)
  */
-export async function tickServiceStatus(port) {
+export async function tickServiceStatus(port, log) {
+  if (USE_SCRAPER) {
+    await tickFromScraper(port, log);
+    return;
+  }
+  await tickSimulated(port, log);
+}
+
+async function tickFromScraper(port, log) {
+  log?.("[service-status] scraping Downdetector...");
+  const results = await scrapeAll(log);
+
+  for (const r of results) {
+    const m = state.get(r.market.id);
+    if (!m) continue;
+
+    if (!r.ok) {
+      // Scrape failed for this market — keep previous values, just update trend
+      m.trend = [...m.trend.slice(1), m.complaints];
+      m.lastUpdate = Date.now();
+      continue;
+    }
+
+    const complaints = r.complaints;
+    // If we got a real baseline from the chart series, use it; otherwise keep the sim baseline
+    if (r.baseline !== null) m.baseline = r.baseline;
+    const ratio   = complaints / Math.max(1, m.baseline);
+    const status  = statusForRatio(ratio);
+
+    m.prevStatus  = m.status;
+    m.complaints  = complaints;
+    m.ratio       = Math.round(ratio * 10) / 10;
+    m.status      = status;
+    m.lastUpdate  = Date.now();
+    // Use real trend if available, otherwise append new point
+    m.trend = r.trend ? r.trend : [...m.trend.slice(1), complaints];
+
+    // Auto-ticket logic (same as simulated path)
+    await handleStatusTransition(m, port);
+  }
+}
+
+async function tickSimulated(port, log) {
   const tod = todMultiplier();
 
   for (const [marketId, m] of state) {
@@ -141,62 +186,55 @@ export async function tickServiceStatus(port) {
     m.lastUpdate  = Date.now();
     m.trend       = [...m.trend.slice(1), complaints];
 
-    // ── Auto-ticket logic ────────────────────────────────────────────────────
-    if (m.status === "outage" && m.prevStatus !== "outage") {
-      // New OUTAGE — create incident ticket
-      try {
-        const resp = await fetch(`http://localhost:${port}/api/tickets`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type:          "incident",
-            severity:      "sev2",
-            title:         `Service Outage: Vodafone ${m.name} — elevated complaint volume (${ratio.toFixed(1)}× baseline)`,
-            team:          "NOC",
-            description:   `Auto-detected via service status monitoring.\n\nComplaint volume: ${complaints}/h (${ratio.toFixed(1)}× baseline of ${m.baseline}/h)\n\nAffected market: ${m.flag} ${m.name}`,
-            tags:          ["service-status", "downdetector", m.id],
-            actor_name:    "System",
-            source:        "alarm",
-          }),
-        });
-        if (resp.ok) {
-          const ticket = await resp.json();
-          m.ticketId = ticket.id;
+    await handleStatusTransition(m, port);
+  }
+}
+
+// ─── Shared auto-ticket logic ─────────────────────────────────────────────────
+async function handleStatusTransition(m, port) {
+  if (m.status === "outage" && m.prevStatus !== "outage") {
+    try {
+      const src = USE_SCRAPER ? "Downdetector (real data)" : "service status simulator";
+      const resp = await fetch(`http://localhost:${port}/api/tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type:        "incident",
+          severity:    "sev2",
+          title:       `Service Outage: Vodafone ${m.name} — elevated complaint volume (${m.ratio}× baseline)`,
+          team:        "NOC",
+          description: `Auto-detected via service status monitoring (${src}).\n\nComplaint volume: ${m.complaints}/h (${m.ratio}× baseline of ${m.baseline}/h)\n\nAffected market: ${m.flag} ${m.name}`,
+          tags:        ["service-status", "downdetector", m.id],
+          actor_name:  "System",
+          source:      "alarm",
+        }),
+      });
+      if (resp.ok) { const t = await resp.json(); m.ticketId = t.id; }
+    } catch (_) { /* non-fatal */ }
+  } else if (m.status !== "outage" && m.prevStatus === "outage" && m.ticketId) {
+    try {
+      await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "status_change",
+          actor_name: "System",
+          content:    `Service recovered. Volume back to ${m.complaints}/h (${m.ratio}× baseline). Status: OUTAGE → ${m.status.toUpperCase()}`,
+        }),
+      });
+      const tResp = await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}`);
+      if (tResp.ok) {
+        const t = await tResp.json();
+        if (["new", "assigned"].includes(t.status)) {
+          await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "resolved", actor_name: "System" }),
+          });
         }
-      } catch (_) { /* non-fatal */ }
-    } else if (m.status !== "outage" && m.prevStatus === "outage" && m.ticketId) {
-      // Recovered from OUTAGE — add event + auto-close if ticket is still fresh
-      try {
-        await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}/events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            event_type: "status_change",
-            actor_name: "System",
-            content:    `Service recovered. Complaint volume back to ${complaints}/h (${ratio.toFixed(1)}× baseline). Status: ${m.prevStatus.toUpperCase()} → ${m.status.toUpperCase()}`,
-          }),
-        });
-        // Auto-resolve if ticket is still in new/assigned (not yet worked on)
-        const tResp = await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}`);
-        if (tResp.ok) {
-          const t = await tResp.json();
-          if (["new", "assigned"].includes(t.status)) {
-            await fetch(`http://localhost:${port}/api/tickets/${encodeURIComponent(m.ticketId)}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                status:     "resolved",
-                actor_name: "System",
-              }),
-            });
-          }
-        }
-      } catch (_) { /* non-fatal */ }
-      m.ticketId = null;
-    } else if (m.status === "outage" && m.prevStatus === "outage") {
-      // Ongoing OUTAGE — add heartbeat event if ticket exists (every ~5 ticks = 2.5 min)
-      // (skipped for brevity — the sparkline shows the trend)
-    }
+      }
+    } catch (_) { /* non-fatal */ }
+    m.ticketId = null;
   }
 }
 
@@ -217,6 +255,7 @@ export function getServiceStatus() {
       ticketId:    s.ticketId,
       lastUpdate:  s.lastUpdate,
       services:    s.services,
+      dataSource:  USE_SCRAPER ? "downdetector" : "simulated",
     };
   });
 }

@@ -406,12 +406,13 @@ export default function ServiceStatusView() {
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {usingDemo && (
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: "#b45309",
-                background: "#fffbeb", border: "1px solid #fcd34d",
-                borderRadius: 5, padding: "2px 8px", letterSpacing: "0.3px",
-              }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 8px" }}>
                 DEMO — backend offline
+              </span>
+            )}
+            {!usingDemo && markets[0]?.dataSource === "downdetector" && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 8px" }}>
+                🌐 LIVE — Downdetector
               </span>
             )}
             {lastRefresh && (
