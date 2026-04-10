@@ -1,24 +1,16 @@
 // ─── Downdetector scraper ────────────────────────────────────────────────────
-// Uses the internal Downdetector/Ookla stats API found in their Next.js bundle.
+// Fetches Downdetector status pages via ScraperAPI (render=true to bypass CF).
+// Extracts complaint count + status from the rendered HTML.
 //
-// Flow:
-//   1. GET auth token from consumer-downdetector-api.speedtest.net
-//   2. GET company stats (stats_24, baseline) from st.downdetectorapi.com/v2
-//
-// serviceId (= companyId in Ookla API) is embedded in the RSC payload on each
-// market's status page. Known IDs are hardcoded to avoid extra scrape requests.
-// For unknown markets, we fetch the page via ScraperAPI to extract the serviceId.
-//
-// Set SCRAPER_API_KEY env var to route HTML page fetches through ScraperAPI
-// (needed to extract serviceId from CF-protected pages for new markets).
-// Already-known serviceIds need NO ScraperAPI requests at all.
+// Set SCRAPER_API_KEY env var + USE_SCRAPER=1 to enable.
+// WARNING: for testing only. Use official Downdetector Partner API in production.
 
 const MARKETS = [
-  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"problemas", serviceId:"33125" },
-  { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status",    serviceId:"32659" },
-  { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status",    serviceId:"10120" },
+  { id:"es", name:"Spain",       flag:"🇪🇸", domain:"downdetector.es",     slug:"vodafone",         path:"problemas" },
+  { id:"uk", name:"UK",          flag:"🇬🇧", domain:"downdetector.co.uk",  slug:"vodafone",         path:"status" },
+  { id:"de", name:"Germany",     flag:"🇩🇪", domain:"downdetector.de",     slug:"vodafone",         path:"status" },
   { id:"it", name:"Italy",       flag:"🇮🇹", domain:"downdetector.it",     slug:"vodafone",         path:"status" },
-  { id:"pt", name:"Portugal",    flag:"🇵🇹", domain:"downdetector.pt",     slug:"vodafone",         path:"estado" },
+  { id:"pt", name:"Portugal",    flag:"🇵🇹", domain:"downdetector.pt",     slug:"vodafone",         path:"problemas" },
   { id:"nl", name:"Netherlands", flag:"🇳🇱", domain:"downdetector.nl",     slug:"vodafone",         path:"status" },
   { id:"ie", name:"Ireland",     flag:"🇮🇪", domain:"downdetector.ie",     slug:"vodafone",         path:"status" },
   { id:"gr", name:"Greece",      flag:"🇬🇷", domain:"downdetector.gr",     slug:"vodafone",         path:"status" },
@@ -27,123 +19,146 @@ const MARKETS = [
 ];
 
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY || null;
+const TIMEOUT_MS      = 55_000;
 
-// ─── Ookla / Downdetector API auth ────────────────────────────────────────────
-// API key is public — embedded in Downdetector's own JS bundles.
-const OOKLA_API_KEY   = "OadSrodvhVEPxvs8fhA3vlYQ6MVzoG";
-const OOKLA_UA        = "Speedtest/6.6.3.251114 (Android 12; Google; Pixel 6; en)";
-const STATS_BASE      = "https://st.downdetectorapi.com/v2";
-const AUTH_URL        = "https://consumer-downdetector-api.speedtest.net/v1/dd/config?latitude=51.5&longitude=-0.1";
-
-let _token     = null;
-let _tokenExp  = 0;
-
-async function getToken(log) {
-  if (_token && Date.now() < _tokenExp) return _token;
-  log?.("[downdetector] refreshing auth token...");
-  const r = await fetch(AUTH_URL, {
-    headers: { "X-Ookla-Api-Key": OOKLA_API_KEY, "User-Agent": OOKLA_UA },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!r.ok) throw new Error(`auth HTTP ${r.status}`);
-  const data = await r.json();
-  _token    = data.accessToken;
-  _tokenExp = Date.now() + 50 * 60 * 1000; // 50-min cache (tokens expire in ~1h)
-  if (!_token) throw new Error("auth response missing accessToken");
-  log?.("[downdetector] auth token ok");
-  return _token;
-}
-
-// ─── Fetch company stats from Ookla API ───────────────────────────────────────
-async function fetchCompanyStats(companyId, log) {
-  const token = await getToken(log);
-  // Try individual company endpoint first
-  const url = `${STATS_BASE}/companies/${companyId}?fields=stats_24,baseline,status,name`;
-  const r = await fetch(url, {
-    headers: { "Authorization": `Bearer ${token}`, "User-Agent": OOKLA_UA },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!r.ok) throw new Error(`company API HTTP ${r.status} for id=${companyId}`);
-  return r.json();
-}
-
-// ─── Extract serviceId from Downdetector RSC payload (via ScraperAPI) ────────
-function proxied(url) {
+function proxied(url, render = false) {
   if (!SCRAPER_API_KEY) return url;
-  return `https://api.scraperapi.com?${new URLSearchParams({ api_key: SCRAPER_API_KEY, url })}`;
+  const p = new URLSearchParams({ api_key: SCRAPER_API_KEY, url });
+  if (render) p.set("render", "true");
+  return `https://api.scraperapi.com?${p}`;
 }
 
-async function extractServiceId(m, log) {
-  const pageUrl = `https://${m.domain}/${m.path}/${m.slug}/`;
-  log?.(`[downdetector]   ${m.id}: fetching page to extract serviceId...`);
-  const r = await fetch(proxied(pageUrl), {
-    headers: SCRAPER_API_KEY ? {} : {
-      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "text/html",
-    },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!r.ok) throw new Error(`page HTTP ${r.status}`);
-  const html = await r.text();
-  // RSC wire format escapes quotes: \"serviceId\":\"12345\"
-  const m1 = html.match(/"serviceId"\s*:\s*"(\d+)"/) ||
-              html.match(/\\"serviceId\\"\s*:\s*\\"(\d+)\\"/);
-  if (!m1) throw new Error(`serviceId not found in ${html.length}-byte page`);
-  return m1[1];
+async function fetchPage(url, render = false) {
+  const ctrl = new AbortController();
+  const t    = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(proxied(url, render), {
+      headers: SCRAPER_API_KEY ? {} : {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+        "Accept":     "text/html",
+      },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ─── Extract count + status from rendered HTML ───────────────────────────────
+// Downdetector shows the 24h report count prominently on the page.
+// Patterns to find (varies by locale/version):
+function parseRenderedPage(html, m) {
+  // Pattern 1: RSC serialised data contains the count near a known key
+  // e.g. "reportsLast24h":42 or "count":42 near "status":"warning"
+  const countPatterns = [
+    /"reportsLast24h"\s*:\s*(\d+)/,
+    /"reports_last_24h"\s*:\s*(\d+)/,
+    /"totalReports"\s*:\s*(\d+)/,
+    /"reportCount"\s*:\s*(\d+)/,
+    // RSC escaped variants
+    /\\"reportsLast24h\\"\s*:\s*(\d+)/,
+    /\\"reports_last_24h\\"\s*:\s*(\d+)/,
+    /\\"totalReports\\"\s*:\s*(\d+)/,
+    /\\"reportCount\\"\s*:\s*(\d+)/,
+  ];
+  for (const pat of countPatterns) {
+    const m2 = html.match(pat);
+    if (m2) return { count: parseInt(m2[1], 10), source: "rsc-count" };
+  }
+
+  // Pattern 2: visible text in rendered page
+  // e.g. "42 reports in the last 24 hours" or "42 Meldungen in den letzten 24 Stunden"
+  const textPatterns = [
+    /(\d+)\s+reports?\s+in\s+the\s+last\s+24/i,
+    /(\d+)\s+Meldungen\s+in\s+den\s+letzten/i,
+    /(\d+)\s+segnalazioni\s+nelle\s+ultime/i,
+    /(\d+)\s+meldingen\s+in\s+de\s+afgelopen/i,
+    /(\d+)\s+denuncias?\s+en\s+las\s+[uú]ltimas/i,
+    /(\d+)\s+queixas?\s+nas\s+[uú]ltimas/i,
+    /(\d+)\s+(?:problem|report|sorun|şikâyet)/i,
+    // Generic: a standalone number followed by common report-text indicators in any lang
+    /"count"\s*:\s*(\d{1,5})(?!\d)/,
+  ];
+  for (const pat of textPatterns) {
+    const m2 = html.match(pat);
+    if (m2) return { count: parseInt(m2[1], 10), source: "text-pattern" };
+  }
+
+  // Pattern 3: status string (ok / warning / outage) — at least lets us confirm status
+  const statusMatch = html.match(/"status"\s*:\s*"(ok|warning|outage|danger)"/i) ||
+                      html.match(/\\"status\\"\s*:\s*\\"(ok|warning|outage|danger)\\"/i);
+  if (statusMatch) {
+    // We know the status but not the count — return a synthetic count based on status
+    const synth = { ok: 1, warning: 2.5, outage: 5, danger: 5 }[statusMatch[1].toLowerCase()] ?? 1;
+    return { count: null, statusHint: statusMatch[1], source: "status-only", synth };
+  }
+
+  // Log a debug snippet so we can improve patterns
+  const snippet = html.replace(/\s+/g, " ").slice(50_000, 53_000);
+  throw new Error(`could not parse rendered page (${html.length} bytes)\nDEBUG[50k]: ${snippet}`);
 }
 
 // ─── Scrape one market ────────────────────────────────────────────────────────
 async function scrapeMarket(m, log) {
-  // Ensure we have a serviceId
-  let serviceId = m.serviceId ?? null;
-  if (!serviceId) {
-    serviceId = await extractServiceId(m, log);
-    log?.(`[downdetector]   ${m.id}: serviceId=${serviceId}`);
+  const url = `https://${m.domain}/${m.path}/${m.slug}/`;
+
+  // First try without render (faster, lower ScraperAPI credit cost)
+  log?.(`[downdetector]   ${m.id}: fetching (no-render)...`);
+  let html;
+  try {
+    html = await fetchPage(url, false);
+  } catch (e) {
+    log?.(`[downdetector]   ${m.id}: no-render failed (${e.message}), trying render=true...`);
+    html = await fetchPage(url, true);
   }
 
-  // Fetch stats from Ookla API
-  const data = await fetchCompanyStats(serviceId, log);
-
-  // stats_24 is an array of 24 hourly report counts
-  const stats24 = data.stats_24 ?? data.stats24 ?? data.reports;
-  if (Array.isArray(stats24) && stats24.length > 0) {
-    const values = stats24.map(v => Math.round(typeof v === "number" ? v : v?.count ?? 0));
-    const baselineRaw = data.baseline;
-    const baseline = Array.isArray(baselineRaw)
-      ? Math.round(baselineRaw.reduce((a, b) => a + b, 0) / baselineRaw.length)
-      : (typeof baselineRaw === "number" ? baselineRaw : null);
-    return { values, baseline, source: "ookla-api" };
-  }
-
-  throw new Error(`unexpected API shape: ${JSON.stringify(data).slice(0, 200)}`);
+  const result = parseRenderedPage(html, m);
+  return result;
 }
 
-function buildResult(values, baseline, source) {
-  if (!values || values.length === 0) throw new Error("empty values");
-  const current = values[values.length - 1];
-  const mean    = baseline ?? Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+function buildResult(parsed, m) {
+  // If we only got a status hint (no count), use baseline × synth multiplier
+  if (parsed.count === null && parsed.synth) {
+    const baseline = 30; // safe default
+    return {
+      complaints: Math.round(baseline * parsed.synth),
+      baseline,
+      trend:  [],
+      source: parsed.source,
+    };
+  }
+  const count = parsed.count ?? 0;
   return {
-    complaints: current,
-    baseline:   Math.max(1, mean),
-    trend:      values.length > 20 ? values.slice(-20) : values,
-    source,
+    complaints: count,
+    baseline:   null, // unknown without history
+    trend:      [count],
+    source:     parsed.source,
   };
 }
 
 // ─── Scrape all markets ───────────────────────────────────────────────────────
 export async function scrapeAll(log) {
-  log?.(`[downdetector] using Ookla stats API${SCRAPER_API_KEY ? " (ScraperAPI for unknown serviceIds)" : ""}`);
+  if (SCRAPER_API_KEY) {
+    log?.(`[downdetector] using ScraperAPI (key: ...${SCRAPER_API_KEY.slice(-6)})`);
+  } else {
+    log?.(`[downdetector] WARNING: no SCRAPER_API_KEY — direct fetch (may hit CF 403)`);
+  }
+
   const results = [];
   for (const m of MARKETS) {
-    await new Promise(r => setTimeout(r, 300)); // polite delay
+    await new Promise(r => setTimeout(r, 500));
     try {
-      const { values, baseline, source } = await scrapeMarket(m, log);
-      const result = buildResult(values, baseline, source);
-      log?.(`[downdetector] ✓ ${m.id}: ${result.complaints} reports (baseline ~${result.baseline}, src: ${source})`);
+      const parsed = await scrapeMarket(m, log);
+      const result = buildResult(parsed, m);
+      log?.(`[downdetector] ✓ ${m.id}: ${result.complaints} reports (src: ${result.source})`);
       results.push({ market: m, ...result, ok: true });
     } catch (e) {
-      log?.(`[downdetector] ✗ ${m.id}: ${e.message}`);
-      results.push({ market: m, ok: false, error: e.message });
+      const msg = e.message.split("\n")[0]; // don't spam logs with full debug
+      log?.(`[downdetector] ✗ ${m.id}: ${msg}`);
+      if (e.message.includes("DEBUG[")) log?.(e.message.split("\n").slice(1).join("\n"));
+      results.push({ market: m, ok: false, error: msg });
     }
   }
   return results;
