@@ -113,7 +113,7 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 }
 
 // ─── Market card ──────────────────────────────────────────────────────────────
-function MarketCard({ market, trend, selected, onClick }) {
+function MarketCard({ market, trend, selected, onClick, fmt }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
 
   const svcStatuses = Object.values(market.services || {}).map(s => s.status);
@@ -141,7 +141,7 @@ function MarketCard({ market, trend, selected, onClick }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{market.name}</div>
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
-            {market.complaints}/h · {market.ratio}× baseline
+            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()} · {market.ratio}× baseline
           </div>
           {market.dataSource === "downdetector" ? (
             <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
@@ -202,7 +202,7 @@ function MarketCard({ market, trend, selected, onClick }) {
 }
 
 // ─── Detail chart (with baseline + threshold zones + hover tooltip) ───────────
-function DetailChart({ trend, baseline, status, width = 272, height = 80, rangePoints }) {
+function DetailChart({ trend, baseline, status, width = 272, height = 80, rangePoints, perMin }) {
   const [hover, setHover] = useState(null); // { x, y, value, idx, ratio }
   const svgRef = useRef(null);
 
@@ -231,8 +231,11 @@ function DetailChart({ trend, baseline, status, width = 272, height = 80, rangeP
     const clamped = Math.max(0, Math.min(trend.length - 1, idx));
     const v = trend[clamped];
     const ratio = baseline > 0 ? Math.round((v / baseline) * 10) / 10 : "—";
-    setHover({ x: toX(clamped), y: toY(v), value: v, idx: clamped, ratio });
-  }, [trend, baseline, width]); // eslint-disable-line react-hooks/exhaustive-deps
+    const display = perMin ? (v / 60 < 1 ? Math.round(v / 60 * 100) / 100 : Math.round(v / 60 * 10) / 10) : v;
+    const baseDisplay = perMin ? (baseline / 60 < 1 ? Math.round(baseline / 60 * 100) / 100 : Math.round(baseline / 60 * 10) / 10) : baseline;
+    const unit = perMin ? "/min" : "/h";
+    setHover({ x: toX(clamped), y: toY(v), value: display, baseValue: baseDisplay, unit, idx: clamped, ratio });
+  }, [trend, baseline, width, perMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tooltip position — flip to left if near right edge
   const TIP_W   = 110;
@@ -274,9 +277,9 @@ function DetailChart({ trend, baseline, status, width = 272, height = 80, rangeP
         <circle cx={hover.x} cy={hover.y} r={4} fill={hCol} stroke="#fff" strokeWidth={1.5} />
         {/* Tooltip box */}
         <rect x={tipX} y={tipY} width={TIP_W} height={TIP_H} rx={6} fill="#1e293b" stroke={hCol} strokeWidth={2} opacity={0.97} />
-        <text x={tipX + TIP_W/2} y={tipY + 15} textAnchor="middle" fontSize={14} fontWeight="700" fill="#f1f5f9" fontFamily="monospace">{hover.value}/h</text>
+        <text x={tipX + TIP_W/2} y={tipY + 15} textAnchor="middle" fontSize={14} fontWeight="700" fill="#f1f5f9" fontFamily="monospace">{hover.value}{hover.unit}</text>
         <text x={tipX + TIP_W/2} y={tipY + 30} textAnchor="middle" fontSize={10} fill={hCol}      fontFamily="monospace">{hover.ratio}× base</text>
-        <text x={tipX + TIP_W/2} y={tipY + 41} textAnchor="middle" fontSize={9}  fill="#94a3b8"   fontFamily="monospace">base: {baseline}/h</text>
+        <text x={tipX + TIP_W/2} y={tipY + 41} textAnchor="middle" fontSize={9}  fill="#94a3b8"   fontFamily="monospace">base: {hover.baseValue}{hover.unit}</text>
       </>)}
     </svg>
   );
@@ -299,7 +302,7 @@ function trendDirection(trend) {
 }
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
+function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, perMin }) {
   const sm  = STATUS_META[market.status] || STATUS_META.ok;
   const dir = trendDirection(trend);
   const peak = trend && trend.length > 0 ? Math.max(...trend) : market.complaints;
@@ -367,9 +370,9 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
         {/* ── Key metrics ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
           {[
-            { label: "Now",      value: `${market.complaints}`, unit: "/h",    color: sm.color },
-            { label: market.baselineAuto ? "Baseline ∿" : "Baseline", value: `${market.baseline}`, unit: "/h", color: T.muted },
-            { label: "Peak",     value: `${peak}`,              unit: ` (${peakRatio}×)`, color: peak > market.baseline * 2 ? "#b45309" : T.muted },
+            { label: "Now",      value: `${fmt(market.complaints).v}`, unit: fmt(market.complaints).u, color: sm.color },
+            { label: market.baselineAuto ? "Baseline ∿" : "Baseline", value: `${fmt(market.baseline).v}`, unit: fmt(market.baseline).u, color: T.muted },
+            { label: "Peak",     value: `${fmt(peak).v}`, unit: ` (${peakRatio}×)`, color: peak > market.baseline * 2 ? "#b45309" : T.muted },
           ].map(m => (
             <div key={m.label} style={{ padding: "8px 10px", background: T.bg,
               border: `1px solid ${T.border}`, borderRadius: 8, textAlign: "center" }}>
@@ -389,10 +392,10 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
           </div>
           <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px",
             border: `1px solid ${T.border}` }}>
-            <DetailChart trend={trend} baseline={market.baseline} status={market.status} width={272} height={80} rangePoints={rangePoints} />
+            <DetailChart trend={trend} baseline={market.baseline} status={market.status} width={272} height={80} rangePoints={rangePoints} perMin={perMin} />
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
               <span style={{ fontSize: 9, color: T.muted }}>{rangeLabel} ago</span>
-              <span style={{ fontSize: 9, color: T.muted }}>now · {market.complaints}/h</span>
+              <span style={{ fontSize: 9, color: T.muted }}>now · {fmt(market.complaints).v}{fmt(market.complaints).u}</span>
             </div>
             {/* Legend row */}
             <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
@@ -435,7 +438,7 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
                       <span style={{ fontSize: 13 }}>{smeta?.icon}</span>
                       <span style={{ fontSize: 11, fontWeight: 600, color: T.text, flex: 1 }}>{smeta?.name}</span>
                       <span style={{ fontSize: 9, color: T.muted, fontFamily: "monospace" }}>
-                        {svc.complaints}/h
+                        {fmt(svc.complaints).v}{fmt(svc.complaints).u}
                       </span>
                       <span style={{ fontSize: 9, fontWeight: 700, color: ssm.color,
                         background: ssm.bg, border: `1px solid ${ssm.border}`,
@@ -457,11 +460,11 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose }) {
         {/* ── Thresholds reference ── */}
         <div style={{ padding: "8px 10px", background: T.bg, borderRadius: 7, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, marginBottom: 5,
-            letterSpacing: "0.4px", textTransform: "uppercase" }}>Thresholds (baseline {market.baseline}/h)</div>
+            letterSpacing: "0.4px", textTransform: "uppercase" }}>Thresholds (baseline {fmt(market.baseline).v}{fmt(market.baseline).u})</div>
           {[
-            { label: "OK",      desc: `< ${market.baseline * 2}/h`,  sub: "< 2×", ...STATUS_META.ok },
-            { label: "WARNING", desc: `${market.baseline * 2}–${Math.round(market.baseline * 4.5)}/h`, sub: "2–4.5×", ...STATUS_META.warning },
-            { label: "OUTAGE",  desc: `> ${Math.round(market.baseline * 4.5)}/h`, sub: "> 4.5× → ticket", ...STATUS_META.outage },
+            { label: "OK",      desc: `< ${fmt(market.baseline * 2).v}${fmt(market.baseline * 2).u}`,  sub: "< 2×", ...STATUS_META.ok },
+            { label: "WARNING", desc: `${fmt(market.baseline * 2).v}–${fmt(Math.round(market.baseline * 4.5)).v}${fmt(0).u}`, sub: "2–4.5×", ...STATUS_META.warning },
+            { label: "OUTAGE",  desc: `> ${fmt(Math.round(market.baseline * 4.5)).v}${fmt(0).u}`, sub: "> 4.5× → ticket", ...STATUS_META.outage },
           ].map(row => (
             <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
@@ -487,7 +490,15 @@ export default function ServiceStatusView() {
   const [filter, setFilter]           = useState("all"); // all | outage | warning
   const [timeRange, setTimeRange]     = useState(TIME_RANGES[0]); // default 10 min
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [perMin, setPerMin]           = useState(false); // /h vs /min toggle
   const intervalRef = useRef(null);
+
+  // Convert a complaints/h value to the selected unit, with label
+  function fmt(val) {
+    if (!perMin) return { v: val, u: "/h" };
+    const m = val / 60;
+    return { v: m < 1 ? Math.round(m * 100) / 100 : Math.round(m * 10) / 10, u: "/min" };
+  }
 
   // Slice trend for given range, padding with first value if not enough history yet
   function sliceTrend(trend, points) {
@@ -589,6 +600,22 @@ export default function ServiceStatusView() {
             ))}
           </div>
 
+          {/* Unit toggle /h · /min */}
+          <div style={{ display: "flex", gap: 2, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, padding: 3 }}>
+            {[{ label: "/h", val: false }, { label: "/min", val: true }].map(opt => (
+              <button key={opt.label} onClick={() => setPerMin(opt.val)}
+                style={{
+                  padding: "3px 9px", fontSize: 10, fontWeight: 700, borderRadius: 5,
+                  cursor: "pointer", fontFamily: "inherit", border: "none",
+                  background: perMin === opt.val ? T.text : "transparent",
+                  color: perMin === opt.val ? T.surface : T.muted,
+                  transition: "all 0.12s",
+                }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
           {/* Status summary */}
           <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted }}>
             {outageCount > 0 && (
@@ -652,6 +679,7 @@ export default function ServiceStatusView() {
                   trend={sliceTrend(m.trend, timeRange.points)}
                   selected={selected === m.id}
                   onClick={() => setSelected(selected === m.id ? null : m.id)}
+                  fmt={fmt}
                 />
               ))}
             </div>
@@ -672,6 +700,8 @@ export default function ServiceStatusView() {
           rangeLabel={timeRange.label}
           rangePoints={timeRange.points}
           onClose={() => setSelected(null)}
+          fmt={fmt}
+          perMin={perMin}
         />
       )}
     </div>
