@@ -132,8 +132,8 @@ function buildResult(parsed, m) {
   const count = parsed.count ?? 0;
   return {
     complaints: count,
-    baseline:   null, // unknown without history
-    trend:      [count],
+    baseline:   null, // unknown without history — service-status.js keeps its own baseline
+    trend:      null, // null → service-status.js appends to rolling history ring buffer
     source:     parsed.source,
   };
 }
