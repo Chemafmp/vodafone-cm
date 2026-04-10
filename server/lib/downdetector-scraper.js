@@ -188,9 +188,11 @@ async function tryHtmlScrape(m) {
     return { values: [count], url, shape: "html-badge" };
   }
 
-  // DEBUG: log a slice so we can find the right pattern
-  const snippet = html.replace(/\s+/g, " ").slice(0, 1500);
-  throw new Error(`could not parse HTML from ${url} (${html.length} bytes)\nSNIPPET: ${snippet}`);
+  // DEBUG: log end of HTML (where __NEXT_DATA__ / RSC payloads typically live)
+  const tail = html.replace(/\s+/g, " ").slice(-3000);
+  const hasNextData = html.includes("__NEXT_DATA__");
+  const scriptTypes = [...html.matchAll(/<script([^>]*)>/g)].map(m => m[1].trim()).filter(Boolean).slice(0, 15).join(" | ");
+  throw new Error(`could not parse HTML from ${url} (${html.length} bytes, hasNextData=${hasNextData})\nSCRIPTS: ${scriptTypes}\nTAIL: ${tail}`);
 }
 
 // ─── Scrape one market — tries all approaches ─────────────────────────────────
