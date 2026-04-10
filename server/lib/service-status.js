@@ -52,6 +52,7 @@ function initState() {
       spikeMult:       1,
       spikeService:    null,
       lastUpdate:      Date.now(),
+      dataSource:      "simulated",
       services:        Object.fromEntries(
         SERVICES.map(s => [s.id, { complaints: Math.round(baseline * s.weight), ratio: 1.0, status: "ok" }])
       ),
@@ -105,14 +106,12 @@ async function tickFromScraper(port, log) {
     if (!m) continue;
 
     if (!r.ok) {
-      // Scrape failed for this market — keep previous values, just update trend
-      m.trend = [...m.trend.slice(1), m.complaints];
-      m.lastUpdate = Date.now();
+      // Scrape failed — run simulation tick so this market stays lively
+      await tickOneSimulated(m, port);
       continue;
     }
 
     const complaints = r.complaints;
-    // If we got a real baseline from the chart series, use it; otherwise keep the sim baseline
     if (r.baseline !== null) m.baseline = r.baseline;
     const ratio   = complaints / Math.max(1, m.baseline);
     const status  = statusForRatio(ratio);
@@ -122,74 +121,64 @@ async function tickFromScraper(port, log) {
     m.ratio       = Math.round(ratio * 10) / 10;
     m.status      = status;
     m.lastUpdate  = Date.now();
-    // Use real trend if available, otherwise append new point
-    m.trend = r.trend ? r.trend : [...m.trend.slice(1), complaints];
+    m.dataSource  = "downdetector";
+    m.trend       = r.trend ? r.trend : [...m.trend.slice(1), complaints];
 
-    // Auto-ticket logic (same as simulated path)
     await handleStatusTransition(m, port);
   }
 }
 
-async function tickSimulated(port, log) {
+async function tickOneSimulated(m, port) {
   const tod = todMultiplier();
+  // Spike state machine
+  if (m.spikeRemaining > 0) {
+    m.spikeRemaining--;
+    if (m.spikeRemaining === 0) m.spikeMult = 1;
+  } else if (Math.random() < 0.03) {
+    m.spikeMult      = rand(5.0, 12.0);
+    m.spikeRemaining = Math.round(rand(1, 4));
+    m.spikeService   = SERVICES[Math.floor(Math.random() * SERVICES.length)].id;
+  }
+  const noise      = rand(0.80, 1.20);
+  let   totalMult  = tod * noise;
+  if (m.spikeRemaining > 0) totalMult *= m.spikeMult;
 
-  for (const [marketId, m] of state) {
-    // ── Spike state machine ──────────────────────────────────────────────────
-    if (m.spikeRemaining > 0) {
-      m.spikeRemaining--;
-      if (m.spikeRemaining === 0) m.spikeMult = 1;
+  const complaints = Math.round(m.baseline * totalMult);
+  const ratio      = complaints / m.baseline;
+  const status     = statusForRatio(ratio);
+
+  let remaining = complaints;
+  SERVICES.forEach((s, i) => {
+    let svcComplaints;
+    if (i === SERVICES.length - 1) {
+      svcComplaints = remaining;
     } else {
-      // 3% chance of a new spike per tick
-      if (Math.random() < 0.03) {
-        m.spikeMult        = rand(5.0, 12.0);
-        m.spikeRemaining   = Math.round(rand(1, 4)); // 1–4 ticks (30s–2min)
-        m.spikeService     = SERVICES[Math.floor(Math.random() * SERVICES.length)].id;
-      }
+      let w = s.weight;
+      if (m.spikeService === s.id && m.spikeRemaining > 0) w *= m.spikeMult;
+      svcComplaints = Math.round(complaints * (w / SERVICES.reduce((acc, sv) => {
+        let ww = sv.weight;
+        if (m.spikeService === sv.id && m.spikeRemaining > 0) ww *= m.spikeMult;
+        return acc + ww;
+      }, 0)));
+      remaining -= svcComplaints;
     }
+    const svcRatio = svcComplaints / (m.baseline * s.weight || 1);
+    m.services[s.id] = { complaints: svcComplaints, ratio: Math.round(svcRatio * 10) / 10, status: statusForRatio(svcRatio) };
+  });
 
-    // ── Compute total complaints ─────────────────────────────────────────────
-    const noise  = rand(0.80, 1.20);
-    let totalMult = tod * noise;
-    if (m.spikeRemaining > 0) totalMult *= m.spikeMult;
+  m.complaints = complaints;
+  m.ratio      = Math.round(ratio * 10) / 10;
+  m.prevStatus = m.status;
+  m.status     = status;
+  m.lastUpdate = Date.now();
+  m.dataSource = "simulated";
+  m.trend      = [...m.trend.slice(1), complaints];
+  await handleStatusTransition(m, port);
+}
 
-    const complaints = Math.round(m.baseline * totalMult);
-    const ratio      = complaints / m.baseline;
-    const status     = statusForRatio(ratio);
-
-    // ── Per-service split ────────────────────────────────────────────────────
-    let remaining = complaints;
-    SERVICES.forEach((s, i) => {
-      let svcComplaints;
-      if (i === SERVICES.length - 1) {
-        svcComplaints = remaining;
-      } else {
-        // Amplify the spiked service; others share the rest proportionally
-        let w = s.weight;
-        if (m.spikeService === s.id && m.spikeRemaining > 0) w *= m.spikeMult;
-        svcComplaints = Math.round(complaints * (w / SERVICES.reduce((acc, sv) => {
-          let ww = sv.weight;
-          if (m.spikeService === sv.id && m.spikeRemaining > 0) ww *= m.spikeMult;
-          return acc + ww;
-        }, 0)));
-        remaining -= svcComplaints;
-      }
-      const svcRatio = svcComplaints / (m.baseline * s.weight || 1);
-      m.services[s.id] = {
-        complaints: svcComplaints,
-        ratio:      Math.round(svcRatio * 10) / 10,
-        status:     statusForRatio(svcRatio),
-      };
-    });
-
-    // ── Update trend ─────────────────────────────────────────────────────────
-    m.complaints  = complaints;
-    m.ratio       = Math.round(ratio * 10) / 10;
-    m.prevStatus  = m.status;
-    m.status      = status;
-    m.lastUpdate  = Date.now();
-    m.trend       = [...m.trend.slice(1), complaints];
-
-    await handleStatusTransition(m, port);
+async function tickSimulated(port, log) {
+  for (const [, m] of state) {
+    await tickOneSimulated(m, port);
   }
 }
 
@@ -258,7 +247,7 @@ export function getServiceStatus() {
       ticketId:    s.ticketId,
       lastUpdate:  s.lastUpdate,
       services:    s.services,
-      dataSource:  USE_SCRAPER ? "downdetector" : "simulated",
+      dataSource:  s.dataSource ?? (USE_SCRAPER ? "downdetector" : "simulated"),
     };
   });
 }

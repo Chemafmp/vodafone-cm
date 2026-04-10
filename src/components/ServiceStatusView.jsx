@@ -143,6 +143,9 @@ function MarketCard({ market, trend, selected, onClick }) {
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
             {market.complaints}/h · {market.ratio}× baseline
           </div>
+          {market.dataSource === "downdetector" && (
+            <div style={{ fontSize: 8, fontWeight: 700, color: "#0369a1", letterSpacing: "0.3px", marginTop: 2 }}>🌐 LIVE</div>
+          )}
         </div>
         <div style={{
           fontSize: 9, fontWeight: 800, letterSpacing: "0.5px",
@@ -440,11 +443,15 @@ export default function ServiceStatusView() {
                 DEMO — backend offline
               </span>
             )}
-            {!usingDemo && markets[0]?.dataSource === "downdetector" && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 8px" }}>
-                🌐 LIVE — Downdetector
-              </span>
-            )}
+            {!usingDemo && (() => {
+              const liveCount = markets.filter(m => m.dataSource === "downdetector").length;
+              if (liveCount === 0) return null;
+              return (
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 5, padding: "2px 8px" }}>
+                  🌐 {liveCount}/{markets.length} LIVE — Downdetector
+                </span>
+              );
+            })()}
             {lastRefresh && (
               <span style={{ fontSize: 10, color: T.muted }}>
                 Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
