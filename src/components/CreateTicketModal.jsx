@@ -17,12 +17,17 @@ const SEV_COLORS = {
   sev4: { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db" },
 };
 
-export default function CreateTicketModal({ currentUser, onClose, onCreated, prefill = {} }) {
-  const [type, setType] = useState(prefill.type || "incident");
+// parentTicketId: if set, this modal creates a child ticket.
+// The parent badge is shown at the top and parent_id is sent with the create call.
+// When creating a child, default type is "project" (Request) since it's usually a dependency task.
+// Owner and team are intentionally NOT pre-filled — the child belongs to a different team.
+export default function CreateTicketModal({ currentUser, onClose, onCreated, prefill = {}, parentTicketId = null }) {
+  const isChild = Boolean(parentTicketId);
+  const [type, setType] = useState(prefill.type || (isChild ? "project" : "incident"));
   const [title, setTitle] = useState(prefill.title || "");
   const [severity, setSeverity] = useState(prefill.severity || "sev3");
-  const [ownerName, setOwnerName] = useState(prefill.owner_name || currentUser?.name || "");
-  const [team, setTeam] = useState(prefill.team || currentUser?.team || "Core Transport");
+  const [ownerName, setOwnerName] = useState(isChild ? "" : (prefill.owner_name || currentUser?.name || ""));
+  const [team, setTeam] = useState(isChild ? "" : (prefill.team || currentUser?.team || "Core Transport"));
   const [nodes, setNodes] = useState((prefill.impacted_nodes || []).join(", "));
   const [description, setDescription] = useState(prefill.description || "");
   const [tags, setTags] = useState((prefill.tags || []).join(", "));
@@ -40,10 +45,11 @@ export default function CreateTicketModal({ currentUser, onClose, onCreated, pre
         title: title.trim(),
         severity: type === "incident" ? severity : undefined,
         owner_name: ownerName || undefined,
-        team,
+        team: team || undefined,
         description: description || undefined,
         impacted_nodes: nodes ? nodes.split(",").map(s => s.trim()).filter(Boolean) : [],
         tags: tags ? tags.split(",").map(s => s.trim()).filter(Boolean) : [],
+        parent_id: parentTicketId || undefined,
         actor_name: currentUser?.name || "System",
       });
       onCreated(ticket);
@@ -66,8 +72,13 @@ export default function CreateTicketModal({ currentUser, onClose, onCreated, pre
         {/* Header */}
         <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Ticket</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Create an incident, problem, or request ticket</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{isChild ? "New Child Ticket" : "New Ticket"}</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+              {isChild
+                ? <span>⛓ Child of <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#0369a1" }}>{parentTicketId}</span> — will be tracked under the parent ticket</span>
+                : "Create an incident, problem, or request ticket"
+              }
+            </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: T.muted, cursor: "pointer", padding: "4px 8px", lineHeight: 1 }}>✕</button>
         </div>

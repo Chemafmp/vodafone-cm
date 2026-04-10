@@ -314,7 +314,10 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
                       onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
                       onMouseLeave={e => e.currentTarget.style.background = rowBg(t)}>
                       <td style={{ padding: "10px 14px" }}>
-                        <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: T.primary }}>{t.id}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          {t.parent_id && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }} title={`Child of ${t.parent_id}`}>↳</span>}
+                          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: T.primary }}>{t.id}</span>
+                        </div>
                       </td>
                       <td style={{ padding: "10px 14px" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

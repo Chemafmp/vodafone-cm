@@ -3,9 +3,10 @@ import { T } from "../data/constants.js";
 import {
   TICKET_COLORS, SEV_META, TICKET_STATUS_META, TICKET_TEAMS,
   fetchTicket, updateTicket, addTicketEvent, addTicketEvidence, deleteTicketEvidence,
-  slaCountdown,
+  fetchTicketChildren, slaCountdown,
 } from "../utils/ticketsDb.js";
 import { uploadEvidenceFile, deleteEvidenceFile } from "../utils/db.js";
+import CreateTicketModal from "./CreateTicketModal.jsx";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
@@ -290,6 +291,10 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(initialTicket?.description || "");
   const [closureModal, setClosureModal] = useState(null);
+  const [closeChildrenModal, setCloseChildrenModal] = useState(null); // { targetStatus, openChildren }
+  const [children, setChildren] = useState([]);
+  const [loadingChildren, setLoadingChildren] = useState(false);
+  const [createChildOpen, setCreateChildOpen] = useState(false);
   const notesEndRef = useRef();
 
   // Full-screen mode: load ticket by ID on mount
@@ -311,6 +316,16 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     notesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
 
+  // Load child tickets whenever the ticket ID is known
+  useEffect(() => {
+    if (!ticket?.id) return;
+    setLoadingChildren(true);
+    fetchTicketChildren(ticket.id)
+      .then(c => setChildren(c))
+      .catch(() => setChildren([]))
+      .finally(() => setLoadingChildren(false));
+  }, [ticket?.id]);
+
   const refresh = useCallback(async () => {
     const id = ticket?.id;
     if (!id) return;
@@ -322,10 +337,10 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
     } catch { /* ignore */ }
   }, [ticket?.id]);
 
-  async function patchTicket(updates) {
+  async function patchTicket(updates, { force = false } = {}) {
     setSaving(true);
     try {
-      const updated = await updateTicket(ticket.id, { ...updates, actor_name: currentUser?.name });
+      const updated = await updateTicket(ticket.id, { ...updates, actor_name: currentUser?.name }, { force });
       setTicket(updated);
       onUpdated?.(updated);
       await refresh();
@@ -338,7 +353,12 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
 
   function handleStatusChange(newStatus) {
     if (["resolved", "closed"].includes(newStatus)) {
-      setClosureModal({ targetStatus: newStatus });
+      const openChildren = children.filter(c => !["resolved","closed"].includes(c.status));
+      if (openChildren.length > 0) {
+        setCloseChildrenModal({ targetStatus: newStatus, openChildren });
+      } else {
+        setClosureModal({ targetStatus: newStatus });
+      }
     } else {
       patchTicket({ status: newStatus });
     }
@@ -568,6 +588,21 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
           </div>
         )}
 
+        {/* ── PARENT LINK BANNER ──────────────────────────────────────────── */}
+        {ticket.parent_id && (
+          <div style={{ padding: "6px 20px", background: "#f0f9ff", borderBottom: "1px solid #bae6fd", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: "#0369a1" }}>↑</span>
+            <span style={{ fontSize: 11, color: "#0369a1" }}>
+              Child of{" "}
+              <button
+                onClick={() => window.open(`${window.location.pathname}#ticket=${ticket.parent_id}`, "_blank")}
+                style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#0369a1", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                {ticket.parent_id}
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* ── BODY ────────────────────────────────────────────────────────── */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
@@ -727,6 +762,55 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
             {/* Tab bar */}
+            {/* ── CHILD TICKETS ─────────────────────────────────────────────── */}
+            {(() => {
+              const openKids = children.filter(c => !["resolved","closed"].includes(c.status));
+              return (
+                <div style={{ flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                  <div style={{ padding: "8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.4px" }}>⛓ Child tickets</span>
+                    {children.length > 0 && (
+                      <span style={{ fontSize: 10, color: T.muted }}>
+                        {openKids.length} open · {children.length - openKids.length} closed
+                      </span>
+                    )}
+                    {loadingChildren && <span style={{ fontSize: 10, color: T.muted }}>Loading…</span>}
+                    <button onClick={() => setCreateChildOpen(true)}
+                      style={{ marginLeft: "auto", padding: "3px 10px", fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: `1px solid ${T.border}`, color: T.muted }}>
+                      + Add child
+                    </button>
+                  </div>
+                  {children.length > 0 && (
+                    <div style={{ padding: "0 14px 8px" }}>
+                      {children.map(child => {
+                        const cTC = TICKET_COLORS[child.type] || TICKET_COLORS.incident;
+                        const cSev = child.severity ? SEV_META[child.severity] : null;
+                        const cStatus = TICKET_STATUS_META[child.status] || { label: child.status, color: T.muted };
+                        const isDone = ["resolved","closed"].includes(child.status);
+                        return (
+                          <div key={child.id}
+                            onClick={() => window.open(`${window.location.pathname}#ticket=${child.id}`, "_blank")}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 6, cursor: "pointer", opacity: isDone ? 0.55 : 1, transition: "background 0.12s" }}
+                            onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700, color: T.primary, flexShrink: 0 }}>{child.id}</span>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: cTC.text, background: cTC.bg, border: `1px solid ${cTC.border}`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>
+                              {child.type === "project" ? "REQ" : child.type.slice(0,3).toUpperCase()}
+                            </span>
+                            <span style={{ fontSize: 11, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{child.title}</span>
+                            {child.team && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{child.team}</span>}
+                            {cSev && <span style={{ fontSize: 9, fontWeight: 700, color: cSev.color, flexShrink: 0 }}>{cSev.label}</span>}
+                            <span style={{ fontSize: 9, fontWeight: 700, color: cStatus.color, background: `${cStatus.color}14`, border: `1px solid ${cStatus.color}33`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>{cStatus.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── TABS ──────────────────────────────────────────────────────── */}
             <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
               {[
                 { key: "work",        label: `Work (${notes.length})` },
@@ -1041,9 +1125,64 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
           targetStatus={closureModal.targetStatus}
           onConfirm={async (fields) => {
             setClosureModal(null);
-            await patchTicket({ status: closureModal.targetStatus, ...fields });
+            await patchTicket({ status: closureModal.targetStatus, ...fields }, { force: true });
           }}
           onCancel={() => setClosureModal(null)}
+        />
+      )}
+
+      {/* ── CLOSE WITH OPEN CHILDREN CONFIRMATION ───────────────────────────── */}
+      {closeChildrenModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 28, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.5)", fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 8 }}>⚠️ Open child tickets</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+              This ticket has <strong style={{ color: T.text }}>{closeChildrenModal.openChildren.length}</strong> open child ticket{closeChildrenModal.openChildren.length !== 1 ? "s" : ""}. These won't be closed automatically — close them if needed, or confirm below to continue.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 20, maxHeight: 200, overflowY: "auto" }}>
+              {closeChildrenModal.openChildren.map(c => {
+                const cStatus = TICKET_STATUS_META[c.status] || { label: c.status, color: T.muted };
+                return (
+                  <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 10px", background: T.bg, borderRadius: 6 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700, color: T.primary, flexShrink: 0 }}>{c.id}</span>
+                    <span style={{ fontSize: 11, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+                    {c.team && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{c.team}</span>}
+                    <span style={{ fontSize: 9, fontWeight: 700, color: cStatus.color, flexShrink: 0 }}>{cStatus.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setCloseChildrenModal(null)}
+                style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "transparent", border: `1px solid ${T.border}`, color: T.text }}>
+                Cancel
+              </button>
+              <button onClick={() => { const ts = closeChildrenModal.targetStatus; setCloseChildrenModal(null); setClosureModal({ targetStatus: ts }); }}
+                style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "#dc2626", border: "none", color: "#fff" }}>
+                Close anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CREATE CHILD TICKET MODAL ────────────────────────────────────────── */}
+      {createChildOpen && (
+        <CreateTicketModal
+          currentUser={currentUser}
+          parentTicketId={ticket.id}
+          prefill={{
+            impacted_nodes: ticket.impacted_nodes || [],
+            country: ticket.country,
+            related_change_id: ticket.related_change_id,
+          }}
+          onClose={() => setCreateChildOpen(false)}
+          onCreated={async (newTicket) => {
+            setCreateChildOpen(false);
+            // Reload children to show the new one
+            const updated = await fetchTicketChildren(ticket.id).catch(() => children);
+            setChildren(updated);
+          }}
         />
       )}
     </div>

@@ -121,11 +121,16 @@ export async function createTicket(data) {
   return apiFetch("/api/tickets", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function updateTicket(id, data) {
-  return apiFetch(`/api/tickets/${encodeURIComponent(id)}`, {
+export async function updateTicket(id, data, { force = false } = {}) {
+  const qs = force ? "?force=true" : "";
+  return apiFetch(`/api/tickets/${encodeURIComponent(id)}${qs}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
+}
+
+export async function fetchTicketChildren(id) {
+  return apiFetch(`/api/tickets/${encodeURIComponent(id)}/children`);
 }
 
 export async function addTicketEvent(id, event) {

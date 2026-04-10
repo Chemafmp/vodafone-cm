@@ -159,6 +159,18 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "type must be incident, problem, or project" });
     }
 
+    // Validate parent_id: must exist and must not itself be a child (max depth = 1)
+    if (parent_id) {
+      const { data: parent, error: pErr } = await db
+        .from("tickets").select("id,parent_id").eq("id", parent_id).maybeSingle();
+      if (pErr || !parent) {
+        return res.status(400).json({ error: `Parent ticket ${parent_id} not found` });
+      }
+      if (parent.parent_id) {
+        return res.status(400).json({ error: "Child tickets cannot have children (maximum depth is 1)" });
+      }
+    }
+
     const id = await generateTicketId(type);
 
     const { data: ticket, error } = await db
@@ -185,6 +197,16 @@ router.post("/", async (req, res) => {
 
     // Auto-create 'created' event
     await insertEvent(id, "created", actor_name || "System", owner_id || null, `Ticket created: ${title}`);
+
+    // Cross-events when child ticket is created
+    if (parent_id) {
+      await insertEvent(id, "parent_linked", "System", null,
+        `Created as child of ${parent_id}`,
+        { parent_id });
+      await insertEvent(parent_id, "child_created", actor_name || "System", owner_id || null,
+        `Child ticket ${id} created${team ? ` — ${team}` : ""}`,
+        { child_id: id, child_type: type, child_team: team || null });
+    }
 
     res.status(201).json(ticket);
   } catch (e) {
@@ -323,6 +345,21 @@ router.patch("/:id", async (req, res) => {
     // Fetch current ticket to check existing timestamps
     const { data: current, error: fetchErr } = await db.from("tickets").select("*").eq("id", id).single();
     if (fetchErr || !current) return res.status(404).json({ error: "Ticket not found" });
+
+    // Guard: closing a parent with open children requires explicit confirmation (?force=true)
+    const isClosing = status && ["resolved","closed"].includes(status) && !["resolved","closed"].includes(current.status);
+    if (isClosing && req.query.force !== "true") {
+      const { data: openChildren } = await db
+        .from("tickets").select("id,title,status,team")
+        .eq("parent_id", id)
+        .not("status", "in", "(resolved,closed)");
+      if (openChildren && openChildren.length > 0) {
+        return res.status(409).json({
+          error: `This ticket has ${openChildren.length} open child ticket(s). Close them first or confirm with ?force=true.`,
+          open_children: openChildren,
+        });
+      }
+    }
 
     const updates = {};
     const now = new Date().toISOString();
