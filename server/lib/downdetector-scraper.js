@@ -95,9 +95,9 @@ async function tryJsonEndpoint(m, serviceId = null) {
   for (const url of endpoints) {
     try {
       const r = await timedFetch(url, { ...JSON_HEADERS, Referer: `${base}/${m.path}/${m.slug}/` }, {});
-      if (!r.ok) continue;
-
       const ct = r.headers.get("content-type") || "";
+      if (!r.ok) { log?.(`[downdetector]   ${m.id}: ${url.replace(base,"")} → HTTP ${r.status}`); continue; }
+      if (!ct.includes("json") && !ct.includes("javascript")) { log?.(`[downdetector]   ${m.id}: ${url.replace(base,"")} → wrong ct: ${ct}`); continue; }
       if (!ct.includes("json") && !ct.includes("javascript")) continue;
 
       const json = await r.json();
@@ -158,8 +158,9 @@ async function tryHtmlScrape(m) {
   }
 
   // Pattern 2: Extract serviceId from RSC payload (Downdetector App Router)
-  // The RSC payload contains "serviceId":"12345" which we can use to call the stats API
-  const serviceIdMatch = html.match(/"serviceId"\s*:\s*"(\d+)"/);
+  // In the RSC wire format quotes are escaped: \"serviceId\":\"12345\"
+  const serviceIdMatch = html.match(/"serviceId"\s*:\s*"(\d+)"/) ||
+                         html.match(/\\"serviceId\\"\s*:\s*\\"(\d+)\\"/);
   if (serviceIdMatch) {
     return { values: null, url, shape: "rsc", serviceId: serviceIdMatch[1] };
   }
