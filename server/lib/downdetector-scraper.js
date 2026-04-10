@@ -25,7 +25,8 @@ const MARKETS = [
 ];
 
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY || null;
-const TIMEOUT_MS = 20_000; // ScraperAPI can be slower than direct fetch
+// ScraperAPI with render=true spins up a headless browser — needs extra time
+const TIMEOUT_MS = SCRAPER_API_KEY ? 55_000 : 14_000;
 
 /** Wrap a URL through ScraperAPI when a key is configured. */
 function proxied(url, opts = {}) {
@@ -153,20 +154,22 @@ async function tryHtmlScrape(m) {
 
 // ─── Scrape one market — tries all approaches ─────────────────────────────────
 async function scrapeMarket(m, log) {
-  // Try JSON endpoint first (faster, less CF)
+  // Try JSON endpoint first (faster, no render needed)
+  log?.(`[downdetector]   ${m.id}: trying JSON endpoint...`);
   try {
     const j = await tryJsonEndpoint(m);
     if (j) {
-      log?.(`[downdetector] ✓ ${m.id}: JSON ${j.shape} from ${j.url} → ${j.values.length} points`);
+      log?.(`[downdetector] ✓ ${m.id}: JSON ${j.shape} → ${j.values.length} points`);
       return buildResult(j.values, `json-${j.shape}`);
     }
   } catch (e) {
-    log?.(`[downdetector]   ${m.id} json attempt error: ${e.message}`);
+    log?.(`[downdetector]   ${m.id}: JSON failed (${e.message}), trying HTML...`);
   }
 
-  // Fallback: HTML scrape
+  // Fallback: rendered HTML scrape (slow — headless browser)
+  log?.(`[downdetector]   ${m.id}: trying HTML (render=true)...`);
   const h = await tryHtmlScrape(m);
-  log?.(`[downdetector] ✓ ${m.id}: HTML ${h.shape} from ${h.url}`);
+  log?.(`[downdetector] ✓ ${m.id}: HTML ${h.shape}`);
   return buildResult(h.values, h.shape);
 }
 
