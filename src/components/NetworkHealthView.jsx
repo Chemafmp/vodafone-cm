@@ -44,12 +44,26 @@ const KROOT_NEARBY = {
 };
 
 // ─── Zoom filter ──────────────────────────────────────────────────────────────
-// zoom = 1 (all) | 2 | 4 | 8 — slices last history.length/zoom points.
-// Same model as Downdetector / ServiceStatusView.
+// Time-window filter using measured_at timestamps.
+// History has up to 432 points (36h at 5min/tick).
+const ZOOM_WINDOWS = {
+  "10m":  10 * 60 * 1000,
+  "30m":  30 * 60 * 1000,
+  "1h":    1 * 3600 * 1000,
+  "6h":    6 * 3600 * 1000,
+  "12h":  12 * 3600 * 1000,
+  "24h":  24 * 3600 * 1000,
+  "36h":  36 * 3600 * 1000,
+};
+
 function applyZoom(history, zoom) {
   if (!history || !history.length) return history || [];
-  if (zoom === 1) return history;
-  return history.slice(-Math.max(4, Math.ceil(history.length / zoom)));
+  if (zoom === "36h") return history;
+  const ms = ZOOM_WINDOWS[zoom];
+  if (!ms) return history;
+  const since = Date.now() - ms;
+  const filtered = history.filter(h => new Date(h.measured_at).getTime() >= since);
+  return filtered.length >= 1 ? filtered : history.slice(-2);
 }
 
 // ─── Interactive chart ────────────────────────────────────────────────────────
@@ -344,10 +358,13 @@ function MetricsGlossary() {
 
 // ─── Zoom selector ────────────────────────────────────────────────────────────
 const ZOOM_OPTIONS = [
-  { key: 1, label: "All" },
-  { key: 2, label: "2×"  },
-  { key: 4, label: "4×"  },
-  { key: 8, label: "8×"  },
+  { key: "10m", label: "10m" },
+  { key: "30m", label: "30m" },
+  { key: "1h",  label: "1h"  },
+  { key: "6h",  label: "6h"  },
+  { key: "12h", label: "12h" },
+  { key: "24h", label: "24h" },
+  { key: "36h", label: "36h" },
 ];
 
 function ZoomSelector({ value, onChange }) {
@@ -377,7 +394,7 @@ function ZoomSelector({ value, onChange }) {
 function DetailPanel({ market, onClose }) {
   const meta   = sm(market.status);
   const cur    = market.current;
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState("6h");
 
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;

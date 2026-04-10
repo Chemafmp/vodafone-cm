@@ -21,7 +21,7 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 const RIPE_BASE       = "https://atlas.ripe.net/api/v2";
 const MSM_ID          = 1001;      // built-in: continuous ICMP ping to k.root-servers.net
-const HISTORY_POINTS  = 48;        // 4 h at 5 min/tick
+const HISTORY_POINTS  = 432;       // 36 h at 5 min/tick (12 ticks/h × 36)
 const PROBE_REFRESH_H = 24;        // re-fetch probe IDs every 24 h
 const RESULT_WINDOW_M = 15;        // look back 15 min for latest results
 const FETCH_TIMEOUT   = 20_000;
@@ -209,7 +209,7 @@ async function cleanupOldData(log) {
 async function loadHistory(marketId) {
   if (!supabase) return [];
   try {
-    const since = new Date(Date.now() - 4 * 3600 * 1000).toISOString();
+    const since = new Date(Date.now() - 36 * 3600 * 1000).toISOString();
     const { data } = await supabase
       .from("ripe_measurements")
       .select("avg_rtt, p95_rtt, loss_pct, probe_count, measured_at")
