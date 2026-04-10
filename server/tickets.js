@@ -131,6 +131,17 @@ async function insertEvent(ticketId, eventType, actorName, actorId, content, met
 // ─── Router ───────────────────────────────────────────────────────────────────
 const router = Router();
 
+// ── x-api-key middleware (automation-facing endpoints only) ──────────────────
+// No-op if AUTOMATION_API_KEY env var is not set (dev mode).
+// When set, requires header `x-api-key: <key>` to match.
+function requireAutomationKey(req, res, next) {
+  const expected = process.env.AUTOMATION_API_KEY;
+  if (!expected) return next(); // dev: no key configured → allow
+  const provided = req.get("x-api-key");
+  if (provided && provided === expected) return next();
+  return res.status(401).json({ error: "Invalid or missing x-api-key header" });
+}
+
 // ── POST /api/tickets ─────────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
@@ -374,6 +385,54 @@ router.post("/:id/events", async (req, res) => {
     const { data, error } = await db
       .from("ticket_events")
       .insert({ ticket_id: req.params.id, event_type, content, actor_name, actor_id, metadata: metadata || {} })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.status(201).json(data);
+  } catch (e) {
+    if (e.message.includes("not configured")) return res.status(503).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/tickets/:id/notes ───────────────────────────────────────────────
+// Clean alias for external automation (Camunda, Nagios, Ansible). Inserts a
+// ticket_events row with event_type="automation_note" so it renders in the
+// Worklog tab of TicketDetailView (🤖 icon, blue tint). Protected by x-api-key
+// when AUTOMATION_API_KEY is set in the environment.
+//
+// Body: { content: string, source?: string, metadata?: object }
+//   - content  : markdown/plain text (required). Rendered as pre-wrap.
+//   - source   : human label shown as the event author (e.g. "Camunda — Node Health Check")
+//   - metadata : free-form JSON. TicketDetailView surfaces `source`, `workflow_id`, `node` as pills.
+router.post("/:id/notes", requireAutomationKey, async (req, res) => {
+  try {
+    const db = getDb();
+    const { content, source, metadata } = req.body || {};
+    if (!content || typeof content !== "string") {
+      return res.status(400).json({ error: "content is required (string)" });
+    }
+
+    // Ticket must exist — fail clearly if not
+    const { data: ticket, error: tErr } = await db.from("tickets").select("id").eq("id", req.params.id).maybeSingle();
+    if (tErr) return res.status(500).json({ error: tErr.message });
+    if (!ticket) return res.status(404).json({ error: `Ticket ${req.params.id} not found` });
+
+    // Fold `source` into metadata so the UI can show it as a pill even if omitted
+    const md = { ...(metadata && typeof metadata === "object" ? metadata : {}) };
+    if (source && !md.source) md.source = source;
+
+    const { data, error } = await db
+      .from("ticket_events")
+      .insert({
+        ticket_id: req.params.id,
+        event_type: "automation_note",
+        actor_name: source || "Automation",
+        actor_id: null,
+        content,
+        metadata: md,
+      })
       .select()
       .single();
 
