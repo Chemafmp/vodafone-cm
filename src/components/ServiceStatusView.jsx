@@ -235,8 +235,10 @@ function DetailChart({ trend, baseline, status, width = 272, height = 80, rangeP
   }, [trend, baseline, width]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tooltip position — flip to left if near right edge
-  const tipX    = hover ? (hover.x > width * 0.65 ? hover.x - 72 : hover.x + 8) : 0;
-  const tipY    = hover ? Math.max(2, hover.y - 28) : 0;
+  const TIP_W   = 110;
+  const TIP_H   = 42;
+  const tipX    = hover ? (hover.x > width * 0.6 ? hover.x - TIP_W - 8 : hover.x + 10) : 0;
+  const tipY    = hover ? Math.max(2, hover.y - TIP_H / 2) : 0;
   const hStatus = hover ? (hover.ratio >= 4.5 ? "outage" : hover.ratio >= 2.0 ? "warning" : "ok") : "ok";
   const hCol    = STATUS_META[hStatus]?.dot || col;
 
@@ -271,9 +273,10 @@ function DetailChart({ trend, baseline, status, width = 272, height = 80, rangeP
         <line x1={hover.x} y1={0} x2={hover.x} y2={height} stroke="#94a3b8" strokeWidth={1} strokeDasharray="2,2" opacity={0.6} />
         <circle cx={hover.x} cy={hover.y} r={4} fill={hCol} stroke="#fff" strokeWidth={1.5} />
         {/* Tooltip box */}
-        <rect x={tipX} y={tipY} width={64} height={24} rx={4} fill={T.surface} stroke={T.border} strokeWidth={1} opacity={0.95} />
-        <text x={tipX + 32} y={tipY + 9}  textAnchor="middle" fontSize={9}  fill={T.muted} fontFamily="monospace">{hover.value}/h</text>
-        <text x={tipX + 32} y={tipY + 19} textAnchor="middle" fontSize={8}  fill={hCol}    fontFamily="monospace">{hover.ratio}× baseline</text>
+        <rect x={tipX} y={tipY} width={TIP_W} height={TIP_H} rx={6} fill="#1e293b" stroke={hCol} strokeWidth={2} opacity={0.97} />
+        <text x={tipX + TIP_W/2} y={tipY + 15} textAnchor="middle" fontSize={14} fontWeight="700" fill="#f1f5f9" fontFamily="monospace">{hover.value}/h</text>
+        <text x={tipX + TIP_W/2} y={tipY + 30} textAnchor="middle" fontSize={10} fill={hCol}      fontFamily="monospace">{hover.ratio}× base</text>
+        <text x={tipX + TIP_W/2} y={tipY + 41} textAnchor="middle" fontSize={9}  fill="#94a3b8"   fontFamily="monospace">base: {baseline}/h</text>
       </>)}
     </svg>
   );
