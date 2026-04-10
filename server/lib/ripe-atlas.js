@@ -23,7 +23,8 @@ const RIPE_BASE       = "https://atlas.ripe.net/api/v2";
 const MSM_ID          = 1001;      // built-in: continuous ICMP ping to k.root-servers.net
 const HISTORY_POINTS  = 432;       // 36 h at 5 min/tick (12 ticks/h × 36)
 const PROBE_REFRESH_H = 24;        // re-fetch probe IDs every 24 h
-const RESULT_WINDOW_M = 15;        // look back 15 min for latest results
+const RESULT_WINDOW_M = 15;        // primary look-back window (minutes)
+const FALLBACK_WINDOW_M = 60;      // fallback for markets with sparse probes (e.g. TR with 1 probe)
 const FETCH_TIMEOUT   = 20_000;
 
 // Verified Vodafone ASNs (consumer/broadband networks, not global backbone)
@@ -114,11 +115,11 @@ function percentile(values, pct) {
 }
 
 // ─── Fetch + parse measurement results ───────────────────────────────────────
-// Queries msm 1001 results for given probe IDs over the last RESULT_WINDOW_M minutes.
-async function fetchResults(probeIds) {
+// Queries msm 1001 results for given probe IDs over the given window (minutes).
+async function fetchResults(probeIds, windowMinutes = RESULT_WINDOW_M) {
   if (!probeIds.length) return [];
   const stop  = Math.floor(Date.now() / 1000);
-  const start = stop - RESULT_WINDOW_M * 60;
+  const start = stop - windowMinutes * 60;
 
   const CHUNK = 500; // RIPE API limit per request
   const all   = [];
@@ -288,12 +289,17 @@ async function pollMarket(m, log) {
     return;
   }
 
-  const results = await fetchResults(s.probes.map(p => p.id));
+  let results = await fetchResults(s.probes.map(p => p.id));
+  // Sparse markets (e.g. TR with 1 probe) may not report every 15 min — try wider window
+  if (!results.length && s.probes.length <= 3) {
+    log?.(`[ripe] ${m.id}: no results in ${RESULT_WINDOW_M}min, trying ${FALLBACK_WINDOW_M}min fallback…`);
+    results = await fetchResults(s.probes.map(p => p.id), FALLBACK_WINDOW_M);
+  }
   const metrics = computeMetrics(results);
 
   if (!metrics) {
     s.ok    = false;
-    s.error = `No measurement results in last ${RESULT_WINDOW_M} min for AS${m.asn}`;
+    s.error = `No measurement results in last ${FALLBACK_WINDOW_M} min for AS${m.asn} (${s.probes.length} probe${s.probes.length !== 1 ? "s" : ""})`;
     return;
   }
 

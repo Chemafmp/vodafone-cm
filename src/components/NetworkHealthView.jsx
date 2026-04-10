@@ -970,6 +970,95 @@ function DetailPanel({ market, onClose }) {
   );
 }
 
+// ─── Ratio tooltip ────────────────────────────────────────────────────────────
+function RatioTooltip({ market, meta }) {
+  const [show, setShow] = useState(false);
+  const ratio = market.ratio;
+
+  // Human-readable interpretation of current ratio
+  const ratioLine = (() => {
+    if (ratio === null || !market.ok) return null;
+    const pct = Math.round(Math.abs(ratio - 1) * 100);
+    if (ratio === 1.0) return "Latency exactly at baseline.";
+    if (ratio < 1.0)  return `Latency ${pct}% below baseline — faster than usual.`;
+    if (ratio < 2.0)  return `Latency ${pct}% above baseline — normal variation.`;
+    if (ratio < 4.5)  return `Latency ${pct}% above baseline — degraded.`;
+    return `Latency ${pct}% above baseline — likely outage.`;
+  })();
+
+  return (
+    <div
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={e => { e.stopPropagation(); setShow(true); }}
+      onMouseLeave={() => setShow(false)}
+      onClick={e => e.stopPropagation()}
+    >
+      <span style={{
+        fontSize: 9, fontWeight: 800, letterSpacing: "0.4px",
+        color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`,
+        borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap",
+        cursor: "help",
+      }}>
+        {meta.label}{ratio !== null && market.ok ? ` ${ratio}×` : ""}
+      </span>
+
+      {show && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 9999,
+          background: "#1e293b", border: "1px solid #334155", borderRadius: 8,
+          padding: "10px 12px", minWidth: 220, maxWidth: 270,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+          pointerEvents: "none",
+        }}>
+          {/* Ratio explanation */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", marginBottom: 6, letterSpacing: "0.4px" }}>
+            LATENCY RATIO
+          </div>
+          <div style={{ fontSize: 11, color: "#e2e8f0", lineHeight: 1.5, marginBottom: 8 }}>
+            <span style={{ color: "#f8fafc", fontWeight: 600 }}>{ratio !== null && market.ok ? `${ratio}×` : "—"}</span>
+            {" = current avg RTT ÷ 4h rolling baseline"}
+            {market.baseline_rtt ? ` (${market.baseline_rtt} ms)` : ""}.
+          </div>
+          {ratioLine && (
+            <div style={{ fontSize: 11, color: meta.color, fontWeight: 600, marginBottom: 8 }}>
+              {ratioLine}
+            </div>
+          )}
+
+          {/* Thresholds */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", marginBottom: 4, letterSpacing: "0.4px" }}>
+            THRESHOLDS
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {[
+              { label: "OK",      range: "< 2×",   color: "#22c55e" },
+              { label: "WARNING", range: "≥ 2×",   color: "#f59e0b" },
+              { label: "OUTAGE",  range: "≥ 4.5×", color: "#ef4444" },
+            ].map(t => (
+              <div key={t.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 800, color: t.color,
+                  background: `${t.color}18`, border: `1px solid ${t.color}44`,
+                  borderRadius: 3, padding: "1px 5px", minWidth: 46, textAlign: "center",
+                }}>{t.label}</span>
+                <span style={{ fontSize: 10, color: "#94a3b8" }}>{t.range} above baseline</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Probe info */}
+          {market.totalProbes > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #334155",
+              fontSize: 10, color: "#64748b" }}>
+              {market.totalProbes} Vodafone AS{market.asn} probe{market.totalProbes !== 1 ? "s" : ""} · RIPE Atlas msm #1001
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Market card ──────────────────────────────────────────────────────────────
 function MarketCard({ market, onClick }) {
   const meta = sm(market.status);
@@ -1002,13 +1091,7 @@ function MarketCard({ market, onClick }) {
           <div style={{ fontWeight: 700, fontSize: 13, color: T.text }}>{market.name}</div>
           <div style={{ fontSize: 9, color: T.muted }}>AS{market.asn}</div>
         </div>
-        <span style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: "0.4px",
-          color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`,
-          borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap",
-        }}>
-          {meta.label}{market.ratio !== null && market.ok ? ` ${market.ratio}×` : ""}
-        </span>
+        <RatioTooltip market={market} meta={meta} />
       </div>
 
       {/* Metrics */}
