@@ -1153,7 +1153,8 @@ function RatioTooltip({ market, meta }) {
 // Shown on hover of the X/Y peers value in the card. Explains the metric with
 // a concrete normal example and an incident example using the current market's flag.
 function BgpPeersTooltip({ market }) {
-  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ref = useRef(null);
   const bgp   = market.bgp?.current;
   const color = market.bgp?.status === "ok"      ? "#16a34a"
               : market.bgp?.status === "warning" ? "#b45309"
@@ -1162,11 +1163,22 @@ function BgpPeersTooltip({ market }) {
   const seeing = bgp?.ris_peers_seeing ?? null;
   const pct    = bgp?.visibility_pct   ?? null;
 
+  function handleEnter(e) {
+    e.stopPropagation();
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      // Prefer below; clamp so it doesn't overflow right edge
+      const left = Math.min(r.left, window.innerWidth - 276);
+      setPos({ top: r.bottom + 6, left });
+    }
+  }
+
   return (
     <div
+      ref={ref}
       style={{ position: "relative" }}
-      onMouseEnter={e => { e.stopPropagation(); setShow(true); }}
-      onMouseLeave={() => setShow(false)}
+      onMouseEnter={handleEnter}
+      onMouseLeave={() => setPos(null)}
       onClick={e => e.stopPropagation()}
     >
       <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, cursor: "help" }}>BGP VISIBLE ⓘ</div>
@@ -1175,11 +1187,11 @@ function BgpPeersTooltip({ market }) {
       </div>
       {pct != null && <div style={{ fontSize: 9, color: T.muted }}>{pct}% visible</div>}
 
-      {show && (
+      {pos && (
         <div style={{
-          position: "absolute", bottom: "calc(100% + 8px)", left: "-10px", zIndex: 9999,
+          position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
           background: "#1e293b", border: "1px solid #334155", borderRadius: 10,
-          padding: "11px 13px", width: 250,
+          padding: "11px 13px", width: 260,
           boxShadow: "0 10px 28px rgba(0,0,0,0.4)", pointerEvents: "none",
         }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.5px", marginBottom: 7 }}>
