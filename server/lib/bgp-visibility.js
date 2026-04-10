@@ -41,6 +41,11 @@ function initState() {
       ok:         false,
       error:      null,
       lastUpdate: null,
+      // Extended BGP metrics (polled less frequently)
+      prefixes:        null,   // { v4_count, v6_count, sample: string[] }
+      rpki:            null,   // { valid, invalid, unknown, coverage_pct, sampled }
+      pathLength:      null,   // { avg, min, max, rrc_count }
+      extLastUpdate:   0,      // timestamp of last extended poll
     });
   }
 }
@@ -67,6 +72,75 @@ function statusForVisibility(pct) {
   if (pct >= 95)  return "ok";
   if (pct >= 80)  return "warning";
   return "outage";
+}
+
+// ─── Extended BGP metrics ─────────────────────────────────────────────────────
+
+// Fetch announced prefixes count + sample list (for RPKI check)
+async function fetchAnnouncedPrefixes(asn) {
+  const url = `${RIPE_STAT_BASE}/announced-prefixes/data.json?resource=AS${asn}`;
+  const json = await statFetch(url);
+  const prefixes = json?.data?.prefixes || [];
+  const v4 = prefixes.filter(p => !p.prefix.includes(":"));
+  const v6 = prefixes.filter(p =>  p.prefix.includes(":"));
+  return {
+    v4_count: v4.length,
+    v6_count: v6.length,
+    sample:   v4.slice(0, 10).map(p => p.prefix), // first 10 v4 prefixes for RPKI check
+  };
+}
+
+// Check RPKI validity for a sample of prefixes
+async function fetchRpkiCoverage(asn, prefixSample) {
+  if (!prefixSample?.length) return null;
+  let valid = 0, invalid = 0, unknown = 0;
+  for (const prefix of prefixSample) {
+    try {
+      const url = `${RIPE_STAT_BASE}/rpki-validation/data.json?resource=AS${asn}&prefix=${prefix}`;
+      const json = await statFetch(url);
+      const status = json?.data?.status;
+      if (status === "valid")   valid++;
+      else if (status === "invalid") invalid++;
+      else                      unknown++;
+    } catch { unknown++; }
+    await new Promise(r => setTimeout(r, 200)); // 200ms between calls
+  }
+  const total = valid + invalid + unknown;
+  return {
+    valid,
+    invalid,
+    unknown,
+    sampled:      total,
+    coverage_pct: total > 0 ? Math.round((valid / total) * 1000) / 10 : null,
+  };
+}
+
+// Fetch average AS path length (weighted across all RRCs)
+async function fetchAsPathLength(asn) {
+  const url = `${RIPE_STAT_BASE}/as-path-length/data.json?resource=AS${asn}`;
+  const json = await statFetch(url);
+  const stats = json?.data?.stats || [];
+  if (!stats.length) return null;
+  let totalCount = 0, weightedSum = 0, globalMin = Infinity, globalMax = 0;
+  for (const s of stats) {
+    const count = s.count || 0;
+    const avg   = s.stripped?.avg;
+    const min   = s.stripped?.min;
+    const max   = s.stripped?.max;
+    if (count && avg) {
+      weightedSum += count * avg;
+      totalCount  += count;
+    }
+    if (min != null && min < globalMin) globalMin = min;
+    if (max != null && max > globalMax) globalMax = max;
+  }
+  if (!totalCount) return null;
+  return {
+    avg:       Math.round((weightedSum / totalCount) * 100) / 100,
+    min:       globalMin === Infinity ? null : globalMin,
+    max:       globalMax || null,
+    rrc_count: stats.length,
+  };
 }
 
 // ─── Supabase persistence ─────────────────────────────────────────────────────
@@ -154,6 +228,20 @@ async function pollMarket(m) {
   s.error      = null;
   s.lastUpdate = Date.now();
 
+  // Poll extended metrics every 30 min (not every 5 min tick)
+  const extAgeMin = (Date.now() - s.extLastUpdate) / 60_000;
+  if (extAgeMin > 30 || s.extLastUpdate === 0) {
+    try {
+      const pfx = await fetchAnnouncedPrefixes(m.asn);
+      s.prefixes = pfx;
+      s.rpki      = await fetchRpkiCoverage(m.asn, pfx.sample);
+      s.pathLength = await fetchAsPathLength(m.asn);
+      s.extLastUpdate = Date.now();
+    } catch (e) {
+      // Non-fatal — extended metrics are best-effort
+    }
+  }
+
   await saveToSupabase(m.id, metrics);
 }
 
@@ -193,6 +281,9 @@ export function getBgpVisibility() {
       ok:         s.ok,
       error:      s.error,
       lastUpdate: s.lastUpdate,
+      prefixes:   s.prefixes,
+      rpki:       s.rpki,
+      pathLength: s.pathLength,
     };
   });
 }

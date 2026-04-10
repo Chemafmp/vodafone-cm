@@ -328,6 +328,9 @@ function MetricsGlossary() {
               { icon: "📦", title: "Packet Loss",   body: "% of ICMP pings with no reply: (sent−received)/sent×100, aggregated over all probes. 0% is normal. >1% signals degradation. >5% indicates a serious connectivity problem." },
               { icon: "🔬", title: "Active Probes", body: "Physical RIPE Atlas devices inside Vodafone's AS reporting in the last 15 min. A sudden drop may indicate widespread access failure — or just few probes in that country (fewer = lower statistical confidence)." },
               { icon: "🔗", title: "BGP Visibility", body: null, bgpEntry: true },
+              { icon: "🔏", title: "RPKI Coverage", body: "Route Origin Authorization (ROA) coverage. RPKI lets Vodafone cryptographically sign 'I own these prefixes from this ASN'. If a rogue network announces Vodafone's IPs (BGP hijack), other routers with RPKI enabled will reject it. Coverage % = valid ROAs / sampled prefixes. <80% = meaningful hijack exposure. Near 100% = well-protected." },
+              { icon: "📋", title: "Announced Prefixes", body: "Number of IPv4 and IPv6 route blocks Vodafone announces to the global BGP table. v4 prefixes = CIDR blocks of IPv4 address space. A sudden drop (e.g. 42 → 5 prefixes) is a major incident signal — even if BGP visibility stays at 329/329, affected customers on missing prefix blocks would lose connectivity." },
+              { icon: "↔️", title: "AS Path Length", body: "Average number of Autonomous System hops it takes to reach Vodafone from RIPE's BGP route collectors worldwide. 3–4 hops is typical for a Tier-2 ISP. If it jumps (e.g. 3.4 → 6.1), traffic is being rerouted through longer paths — could indicate a peering failure or route leak forcing traffic through suboptimal routes." },
               { icon: "🔍", title: "DNS RTT (msm #10001)", body: "Round-trip time for a DNS SOA query to k.root-servers.net, measured from the same Vodafone probes. Unlike the ICMP ping (which tests raw IP reachability), this tests the full DNS query path including Vodafone's local resolver. If DNS RTT >> ICMP RTT, Vodafone's resolver is slow or overloaded — customers experience slow page loads even if the network path is healthy." },
             ].map(m => (
               <div key={m.title} style={{
@@ -555,9 +558,46 @@ function ProbeBreakdown({ market, onClose }) {
                       </div>
                     </div>
                   </div>
-                  <div style={{ fontSize: 10, color: "#166534", opacity: 0.8, fontStyle: "italic", flex: 1, minWidth: 180 }}>
-                    RIPE RIS external observers checking if the Internet can reach Vodafone&apos;s AS.
-                    ~100% is normal. A drop = routing incident visible to all of Internet.
+                  {/* Extended BGP metrics */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, flex: 1 }}>
+                    {market.bgp?.prefixes && (
+                      <div style={{ minWidth: 100 }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "#16a34a", letterSpacing: "0.4px" }}>PREFIXES</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#166534", fontFamily: "monospace" }}>
+                          v4 {market.bgp.prefixes.v4_count} · v6 {market.bgp.prefixes.v6_count}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#166534", opacity: 0.75 }}>announced routes</div>
+                      </div>
+                    )}
+                    {market.bgp?.rpki && (
+                      <div style={{ minWidth: 100 }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "#16a34a", letterSpacing: "0.4px" }}>RPKI COVERAGE</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "monospace",
+                          color: (market.bgp.rpki.coverage_pct ?? 0) >= 80 ? "#166534" : "#dc2626" }}>
+                          {market.bgp.rpki.coverage_pct != null ? `${market.bgp.rpki.coverage_pct}%` : "—"}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#166534", opacity: 0.75 }}>
+                          {market.bgp.rpki.valid}✓ {market.bgp.rpki.invalid}✗ {market.bgp.rpki.unknown}? of {market.bgp.rpki.sampled} sampled
+                        </div>
+                      </div>
+                    )}
+                    {market.bgp?.pathLength && (
+                      <div style={{ minWidth: 100 }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "#16a34a", letterSpacing: "0.4px" }}>AS PATH LENGTH</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#166534", fontFamily: "monospace" }}>
+                          avg {market.bgp.pathLength.avg}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#166534", opacity: 0.75 }}>
+                          min {market.bgp.pathLength.min} · max {market.bgp.pathLength.max} · {market.bgp.pathLength.rrc_count} RRCs
+                        </div>
+                      </div>
+                    )}
+                    {!market.bgp?.prefixes && !market.bgp?.rpki && !market.bgp?.pathLength && (
+                      <div style={{ fontSize: 10, color: "#166534", opacity: 0.8, fontStyle: "italic" }}>
+                        RIPE RIS external observers checking if the Internet can reach Vodafone&apos;s AS.
+                        ~100% is normal. A drop = routing incident visible to all of Internet.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -155,11 +155,14 @@ app.get("/api/network-health", (req, res) => {
   res.json(atlas.map(m => ({
     ...m,
     bgp: bgpMap[m.id] ? {
-      current:  bgpMap[m.id].current,
-      history:  bgpMap[m.id].history,
-      status:   bgpMap[m.id].status,
-      ok:       bgpMap[m.id].ok,
-      error:    bgpMap[m.id].error,
+      current:    bgpMap[m.id].current,
+      history:    bgpMap[m.id].history,
+      status:     bgpMap[m.id].status,
+      ok:         bgpMap[m.id].ok,
+      error:      bgpMap[m.id].error,
+      prefixes:   bgpMap[m.id].prefixes   || null,
+      rpki:       bgpMap[m.id].rpki       || null,
+      pathLength: bgpMap[m.id].pathLength || null,
     } : null,
     dns: dnsMap[m.id] ? {
       current:      dnsMap[m.id].current,

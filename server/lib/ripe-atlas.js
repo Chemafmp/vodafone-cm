@@ -37,7 +37,8 @@ export const RIPE_MARKETS = [
   { id: "nl", name: "Netherlands", flag: "🇳🇱", asn: 33915 },
   { id: "ie", name: "Ireland",     flag: "🇮🇪", asn: 15502 },
   { id: "gr", name: "Greece",      flag: "🇬🇷", asn: 3329  },
-  { id: "tr", name: "Turkey",      flag: "🇹🇷", asn: 15924 },
+  { id: "tr",  name: "Turkey",        flag: "🇹🇷", asn: 15924 },
+  { id: "int", name: "International", flag: "🌐",  asn: 1273  },
 ];
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
