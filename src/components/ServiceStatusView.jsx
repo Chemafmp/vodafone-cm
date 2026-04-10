@@ -112,7 +112,7 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 }
 
 // ─── Market card ──────────────────────────────────────────────────────────────
-function MarketCard({ market, trend, selected, onClick, fmt }) {
+function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
 
   return (
@@ -178,7 +178,7 @@ function MarketCard({ market, trend, selected, onClick, fmt }) {
             </div>
           );
         })}
-        {market.ticketId && (
+        {market.ticketId && !hideTickets && (
           <div
             title={`Open ticket: ${market.ticketId}`}
             onClick={e => { e.stopPropagation(); window.open(`#ticket=${market.ticketId}`, "_blank"); }}
@@ -335,7 +335,7 @@ function trendDirection(trend) {
 }
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, perMin, mobile = false, onOpenTicket }) {
+function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, perMin, mobile = false, onOpenTicket, hideTickets = false }) {
   const [zoom, setZoom]           = useState(1);   // 1=full, 2=50%, 4=25%, 8=12.5%
   const [copied, setCopied]       = useState(false);
 
@@ -398,7 +398,7 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {market.ticketId && (
+            {market.ticketId && !hideTickets && (
               <button
                 onClick={() => onOpenTicket
                   ? onOpenTicket(market.ticketId)
@@ -591,7 +591,7 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
 }
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export default function ServiceStatusView({ mobile = false, onOpenTicket }) {
+export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTickets = false }) {
   const [markets, setMarkets]         = useState(() => makeDemoData());
   const [loading, setLoading]         = useState(true);
   const [_error, setError]            = useState(null);
@@ -806,6 +806,7 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket }) {
                   selected={selected === m.id}
                   onClick={() => setSelected(selected === m.id ? null : m.id)}
                   fmt={fmt}
+                  hideTickets={hideTickets}
                 />
               ))}
             </div>
@@ -838,6 +839,7 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket }) {
           fmt={fmt}
           perMin={perMin}
           onOpenTicket={onOpenTicket}
+          hideTickets={hideTickets}
         />
       )}
       {selectedMarket && isMobile && (
@@ -855,6 +857,7 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket }) {
             perMin={perMin}
             mobile
             onOpenTicket={onOpenTicket}
+            hideTickets={hideTickets}
           />
         </div>
       )}

@@ -177,22 +177,6 @@ export default function App(){
     return null;
   })();
   if (standaloneView === "service_monitor") {
-    // Ticket opened from within the PWA — render it full-screen in the same window
-    if (fullScreenTicketId) return (
-      <NodesProvider>
-        <TicketDetailView
-          ticketId={fullScreenTicketId}
-          currentUser={user}
-          users={USERS}
-          fullScreen
-          onClose={() => {
-            window.history.replaceState(null, "", window.location.pathname);
-            setFullScreenTicketId(null);
-          }}
-        />
-      </NodesProvider>
-    );
-
     return (
       <div style={{
         display: "flex", flexDirection: "column", height: "100vh",
@@ -209,7 +193,7 @@ export default function App(){
           <span style={{ fontSize: 18 }}>🔴</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", letterSpacing: "0.3px", lineHeight: 1.2 }}>
-              Vodafone NOC Monitor
+              Chema NOC
             </div>
             <div style={{ fontSize: 9, color: "rgba(255,255,255,0.65)", fontWeight: 500, letterSpacing: "0.2px" }}>
               Powered by Downdetector [COMMUNITY DATA]
@@ -220,7 +204,7 @@ export default function App(){
           </span>
         </div>
         <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted}}>Loading…</div>}>
-          <ServiceStatusView mobile onOpenTicket={id => { window.location.hash = `#ticket=${id}`; }} />
+          <ServiceStatusView mobile hideTickets />
         </Suspense>
       </div>
     );
