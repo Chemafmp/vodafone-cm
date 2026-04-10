@@ -73,7 +73,7 @@ async function timedFetch(url, headers, proxyOpts = null) {
 // Downdetector (new Next.js App Router version) exposes a stats API.
 // The serviceId is embedded in the RSC payload on the status page.
 // API endpoints to try (varies by deployment):
-async function tryJsonEndpoint(m, serviceId = null) {
+async function tryJsonEndpoint(m, serviceId = null, log = null) {
   const base = `https://${m.domain}`;
   const endpoints = [];
 
@@ -208,7 +208,7 @@ async function scrapeMarket(m, log) {
   // Step 2: call stats API with serviceId (or legacy chart-data endpoints)
   log?.(`[downdetector]   ${m.id}: trying stats API (serviceId=${serviceId})...`);
   try {
-    const j = await tryJsonEndpoint(m, serviceId);
+    const j = await tryJsonEndpoint(m, serviceId, log);
     if (j) {
       log?.(`[downdetector] ✓ ${m.id}: API ${j.shape} → ${j.values.length} points`);
       return buildResult(j.values, `api-${j.shape}`);
