@@ -2,9 +2,12 @@
 // Tries three approaches in order, from lightest to heaviest:
 //   1. JSON chart-data endpoint  (/status/slug/chart-data/ or /estado/slug/chart-data/)
 //      → returns [{x: epoch_ms, y: count}, ...] or [[epoch, count], ...]
-//      → usually NOT behind Cloudflare (API call, not page load)
-//   2. HTML + Highcharts regex   (the full page — may hit CF 403)
+//   2. HTML + Highcharts regex   (the full page)
 //   3. HTML + reports-badge      (simple number embedded in page)
+//
+// Set SCRAPER_API_KEY env var to route requests through ScraperAPI
+// (bypasses Cloudflare — required when running on datacenter IPs).
+// Also set USE_SCRAPER=1 to enable this module.
 //
 // WARNING: fragile — for testing only. Replace with official Downdetector API.
 
@@ -21,7 +24,16 @@ const MARKETS = [
   { id:"tr", name:"Turkey",      flag:"🇹🇷", domain:"downdetector.com.tr", slug:"vodafone",         path:"durum"  },
 ];
 
-const TIMEOUT_MS = 14_000;
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY || null;
+const TIMEOUT_MS = 20_000; // ScraperAPI can be slower than direct fetch
+
+/** Wrap a URL through ScraperAPI when a key is configured. */
+function proxied(url, opts = {}) {
+  if (!SCRAPER_API_KEY) return url;
+  const params = new URLSearchParams({ api_key: SCRAPER_API_KEY, url });
+  if (opts.render) params.set("render", "true");
+  return `https://api.scraperapi.com?${params}`;
+}
 
 const HTML_HEADERS = {
   "User-Agent":      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -42,11 +54,14 @@ const JSON_HEADERS = {
   "Referer":     "", // set per-request below
 };
 
-async function timedFetch(url, headers) {
+async function timedFetch(url, headers, proxyOpts = null) {
+  const finalUrl = proxyOpts !== null ? proxied(url, proxyOpts) : url;
+  // When routing through ScraperAPI, it handles headers internally — only pass ours for direct calls
+  const finalHeaders = SCRAPER_API_KEY && proxyOpts !== null ? {} : headers;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const r = await fetch(url, { headers, signal: ctrl.signal });
+    const r = await fetch(finalUrl, { headers: finalHeaders, signal: ctrl.signal });
     return r;
   } finally {
     clearTimeout(t);
@@ -69,7 +84,7 @@ async function tryJsonEndpoint(m) {
 
   for (const url of endpoints) {
     try {
-      const r = await timedFetch(url, { ...JSON_HEADERS, Referer: `${base}/${m.path}/${m.slug}/` });
+      const r = await timedFetch(url, { ...JSON_HEADERS, Referer: `${base}/${m.path}/${m.slug}/` }, {});
       if (!r.ok) continue;
 
       const ct = r.headers.get("content-type") || "";
@@ -100,7 +115,8 @@ async function tryJsonEndpoint(m) {
 // ─── Approach 2 & 3: HTML scraping ───────────────────────────────────────────
 async function tryHtmlScrape(m) {
   const url = `https://${m.domain}/${m.path}/${m.slug}/`;
-  const r = await timedFetch(url, HTML_HEADERS);
+  // render=true tells ScraperAPI to execute JS (needed for Cloudflare JS challenges)
+  const r = await timedFetch(url, HTML_HEADERS, { render: true });
   if (!r.ok) throw new Error(`HTTP ${r.status} on ${url}`);
   const html = await r.text();
 
@@ -165,6 +181,11 @@ function buildResult(values, source) {
 
 // ─── Scrape all markets ───────────────────────────────────────────────────────
 export async function scrapeAll(log) {
+  if (SCRAPER_API_KEY) {
+    log?.(`[downdetector] using ScraperAPI proxy (key: ...${SCRAPER_API_KEY.slice(-6)})`);
+  } else {
+    log?.(`[downdetector] WARNING: no SCRAPER_API_KEY — direct fetch (may hit CF 403)`);
+  }
   const results = [];
   for (const m of MARKETS) {
     await new Promise(r => setTimeout(r, 800));
