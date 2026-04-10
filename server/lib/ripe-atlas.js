@@ -58,6 +58,7 @@ function initState() {
       probesFetchedAt: 0,
       current:         null,
       history:         [],   // rolling HISTORY_POINTS × { avg_rtt, p95_rtt, loss_pct, probe_count, measured_at }
+      probeDetails:    [],   // latest per-probe breakdown [{ id, description, avg_rtt, ... }]
       baseline_rtt:    null,
       ratio:           null,
       status:          "unknown",
@@ -168,6 +169,48 @@ function computeMetrics(results) {
   };
 }
 
+// ─── Per-probe breakdown ──────────────────────────────────────────────────────
+// Groups raw results by probe ID, computes per-probe avg/min/max/loss.
+// probes: [{ id, description, lat, lon, country }] — the registered probes for this AS.
+function computeProbeDetails(results, probes) {
+  const byProbe = new Map();
+  for (const r of results) {
+    const id = r.prb_id;
+    if (!id) continue;
+    if (!byProbe.has(id)) byProbe.set(id, []);
+    byProbe.get(id).push(r);
+  }
+
+  const details = [];
+  for (const [id, pResults] of byProbe) {
+    const meta    = probes.find(p => p.id === id);
+    const avgRtts = pResults.map(r => r.avg).filter(v => typeof v === "number" && v > 0);
+    const allRtts = pResults.flatMap(r =>
+      (r.result || []).map(pt => pt.rtt).filter(v => typeof v === "number" && v > 0)
+    );
+    const sent = pResults.reduce((s, r) => s + (r.sent || 0), 0);
+    const rcvd = pResults.reduce((s, r) => s + (r.rcvd || 0), 0);
+
+    if (!avgRtts.length) continue;
+    const avg_rtt = avgRtts.reduce((a, b) => a + b, 0) / avgRtts.length;
+
+    details.push({
+      id,
+      description: meta?.description || null,
+      country:     meta?.country     || null,
+      lat:         meta?.lat         ?? null,
+      lon:         meta?.lon         ?? null,
+      avg_rtt:     Math.round(avg_rtt * 10) / 10,
+      min_rtt:     allRtts.length ? Math.round(Math.min(...allRtts) * 10) / 10 : null,
+      max_rtt:     allRtts.length ? Math.round(Math.max(...allRtts) * 10) / 10 : null,
+      loss_pct:    sent > 0 ? Math.round(((sent - rcvd) / sent) * 1000) / 10 : 0,
+    });
+  }
+
+  // Sort by avg RTT ascending (fastest probe first)
+  return details.sort((a, b) => (a.avg_rtt ?? 999) - (b.avg_rtt ?? 999));
+}
+
 // ─── Ratio → status (same thresholds as Downdetector) ────────────────────────
 function statusForRatio(ratio) {
   if (ratio >= 4.5) return "outage";
@@ -259,10 +302,11 @@ async function pollMarket(m, log) {
     ? Math.round((baseValues.reduce((a, b) => a + b, 0) / baseValues.length) * 10) / 10
     : metrics.avg_rtt;
 
-  s.ratio      = Math.round((metrics.avg_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
-  s.status     = statusForRatio(s.ratio);
-  s.current    = metrics;
-  s.ok         = true;
+  s.ratio        = Math.round((metrics.avg_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
+  s.status       = statusForRatio(s.ratio);
+  s.current      = metrics;
+  s.probeDetails = computeProbeDetails(results, s.probes);
+  s.ok           = true;
   s.error      = null;
   s.lastUpdate = Date.now();
 
@@ -318,6 +362,8 @@ export function getNetworkHealth() {
       lastUpdate:   s.lastUpdate,
       // Total probes discovered for this ASN (0 = no probes found / RIPE key missing)
       totalProbes:  s.probes.length,
+      // Latest per-probe breakdown (sorted fastest→slowest, from last tick)
+      probeDetails:   s.probeDetails,
       // Probe location metadata — descriptions (typically city/ISP info) for display
       // Capped at 20 to keep response size reasonable
       probeLocations: s.probes.slice(0, 20).map(p => ({
