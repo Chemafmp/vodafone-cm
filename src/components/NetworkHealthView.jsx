@@ -1373,10 +1373,16 @@ function BgpPeersTooltip({ market }) {
   function handleEnter(e) {
     e.stopPropagation();
     if (ref.current) {
-      const r = ref.current.getBoundingClientRect();
-      // Prefer below; clamp so it doesn't overflow right edge
-      const left = Math.min(r.left, window.innerWidth - 276);
-      setPos({ top: r.bottom + 6, left });
+      const r    = ref.current.getBoundingClientRect();
+      const TIP_H = 315;  // estimated tooltip height
+      const TIP_W = 268;
+      const left  = Math.min(Math.max(8, r.left), window.innerWidth - TIP_W - 8);
+      // Flip above if not enough space below
+      const spaceBelow = window.innerHeight - r.bottom - 8;
+      const top = spaceBelow >= TIP_H
+        ? r.bottom + 6
+        : Math.max(8, r.top - TIP_H - 6);
+      setPos({ top, left });
     }
   }
 
