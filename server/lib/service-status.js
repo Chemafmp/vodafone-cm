@@ -8,6 +8,7 @@
 //   OUTAGE  ≥ 4.5×
 
 import { scrapeAll } from "./downdetector-scraper.js";
+import { getSupabase } from "./supabase.js";
 const USE_SCRAPER = process.env.USE_SCRAPER === "1";
 
 const MARKETS = [
@@ -79,6 +80,18 @@ function statusForRatio(ratio) {
   return "ok";
 }
 
+// ─── Supabase persistence ─────────────────────────────────────────────────────
+
+/** Fire-and-forget write. Never blocks the tick. Never throws. */
+function persistTick(m) {
+  const db = getSupabase();
+  if (!db) return;
+  db.from("service_status_history")
+    .insert({ market_id: m.id, complaints: m.complaints, ratio: m.ratio, status: m.status, data_source: m.dataSource })
+    .then(({ error }) => { if (error) console.warn(`[service-status] persist failed (${m.id}): ${error.message}`); })
+    .catch(e => console.warn(`[service-status] persist exception (${m.id}): ${e.message}`));
+}
+
 // ─── Tick function ────────────────────────────────────────────────────────────
 /**
  * Called every 30s. Updates all market states and triggers auto-ticket
@@ -127,6 +140,7 @@ async function tickFromScraper(port, log) {
     m.dataSource  = "downdetector";
     m.trend       = r.trend ? r.trend : [...m.trend.slice(1), complaints];
 
+    persistTick(m);
     await handleStatusTransition(m, port);
   }
 }
@@ -176,6 +190,7 @@ async function tickOneSimulated(m, port) {
   m.lastUpdate = Date.now();
   m.dataSource = "simulated";
   m.trend      = [...m.trend.slice(1), complaints];
+  persistTick(m);
   await handleStatusTransition(m, port);
 }
 
@@ -253,6 +268,48 @@ export function getServiceStatus() {
       dataSource:  s.dataSource ?? (USE_SCRAPER ? "downdetector" : "simulated"),
     };
   });
+}
+
+// ─── DB restore + retention ───────────────────────────────────────────────────
+
+/**
+ * Reads last 24h of rows from Supabase and hydrates each market's ring buffer.
+ * Called once at startup before the first tick so historical trend is preserved
+ * across server restarts.
+ */
+export async function restoreHistoryFromDb(log) {
+  const db = getSupabase();
+  if (!db) { log?.("[service-status] no Supabase — skipping history restore"); return; }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await db
+    .from("service_status_history")
+    .select("market_id, complaints, recorded_at")
+    .gte("recorded_at", since)
+    .order("recorded_at", { ascending: true });
+
+  if (error) { log?.(`[service-status] history restore failed: ${error.message}`); return; }
+
+  const byMarket = {};
+  for (const row of data) {
+    (byMarket[row.market_id] ??= []).push(row.complaints);
+  }
+  for (const [marketId, values] of Object.entries(byMarket)) {
+    const m = state.get(marketId);
+    if (!m) continue;
+    const slice = values.slice(-HISTORY_LEN);
+    m.trend.splice(HISTORY_LEN - slice.length, slice.length, ...slice);
+    log?.(`[service-status] restored ${slice.length} pts for ${marketId}`);
+  }
+}
+
+/** Deletes rows older than 25h. Call hourly. Non-fatal on error. */
+export async function pruneHistory() {
+  const db = getSupabase();
+  if (!db) return;
+  const cutoff = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  const { error } = await db.from("service_status_history").delete().lt("recorded_at", cutoff);
+  if (error) console.warn(`[service-status] prune failed: ${error.message}`);
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────

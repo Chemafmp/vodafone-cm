@@ -26,7 +26,7 @@ import { eventFromAlarm, eventFromResolution, getRecentEvents } from "./lib/even
 import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
 import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
-import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
+import { tickServiceStatus, getServiceStatus, restoreHistoryFromDb, pruneHistory } from "./lib/service-status.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -492,15 +492,22 @@ server.listen(PORT, BIND_HOST, () => {
   // Start polling loop
   setInterval(runPollCycle, POLL_INTERVAL);
 
-  // Service status simulation — tick every 30s
+  // Service status — restore history from DB then start ticking
   const SERVICE_STATUS_INTERVAL = 30_000;
   const useScraper = process.env.USE_SCRAPER === "1";
   log(chalk.cyan(`[service-status] starting — mode: ${useScraper ? chalk.bold("SCRAPER (Downdetector)") : "simulator"} (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
-  setInterval(() => {
-    tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
-  }, SERVICE_STATUS_INTERVAL);
-  // Fire first tick immediately so logs appear right away
-  setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+
+  restoreHistoryFromDb(log)
+    .catch(e => log(chalk.yellow(`[service-status] restore error: ${e.message}`)))
+    .finally(() => {
+      setInterval(() => {
+        tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
+      }, SERVICE_STATUS_INTERVAL);
+      setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+    });
+
+  // Purge rows older than 25h — hourly
+  setInterval(() => pruneHistory().catch(() => {}), 60 * 60 * 1000);
 });
 
 function log(msg) {
