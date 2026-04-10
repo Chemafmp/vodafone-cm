@@ -975,6 +975,173 @@ function DetailPanel({ market, onClose }) {
             ))}
           </div>
 
+          {/* ── BGP Deep Metrics ─────────────────────────────────────────── */}
+          {market.bgp?.ok && (
+            <div style={{ marginTop: 20, borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontWeight: 700, fontSize: 11, color: T.text }}>
+                  📡 BGP Deep Metrics
+                </span>
+                <span style={{
+                  fontSize: 9, color: T.muted, background: T.bg,
+                  border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px",
+                }}>
+                  refreshed every 30 min
+                </span>
+              </div>
+
+              {/* Stat row: Prefixes / RPKI / AS Path */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14,
+              }}>
+                {/* Announced Prefixes */}
+                {(() => {
+                  const total = market.bgp.prefixes
+                    ? market.bgp.prefixes.v4_count + market.bgp.prefixes.v6_count
+                    : (market.bgp.current?.announced_prefixes ?? null);
+                  return (
+                    <div style={{
+                      padding: "9px 11px", background: T.bg,
+                      border: `1px solid ${T.border}`, borderRadius: 7,
+                    }}>
+                      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 3 }}>
+                        PREFIXES
+                      </div>
+                      <div style={{
+                        fontSize: 20, fontWeight: 800, fontFamily: "monospace",
+                        color: "#0891b2", lineHeight: 1,
+                      }}>
+                        {total != null
+                          ? total
+                          : <span style={{ fontSize: 14, color: "#9ca3af" }}>—</span>}
+                      </div>
+                      {market.bgp.prefixes && (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>
+                          v4: {market.bgp.prefixes.v4_count} · v6: {market.bgp.prefixes.v6_count}
+                        </div>
+                      )}
+                      {!market.bgp.prefixes && (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>
+                          from routing-status
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* RPKI Coverage */}
+                {(() => {
+                  const rpki = market.bgp.rpki;
+                  const color = rpki?.coverage_pct != null
+                    ? rpki.coverage_pct >= 90 ? "#16a34a"
+                    : rpki.coverage_pct >= 60 ? "#b45309"
+                    : "#dc2626"
+                    : "#9ca3af";
+                  return (
+                    <div style={{
+                      padding: "9px 11px", background: T.bg,
+                      border: `1px solid ${T.border}`, borderRadius: 7,
+                    }}>
+                      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 3 }}>
+                        RPKI COVERAGE
+                      </div>
+                      <div style={{
+                        fontSize: 20, fontWeight: 800, fontFamily: "monospace",
+                        color, lineHeight: 1,
+                      }}>
+                        {rpki?.coverage_pct != null
+                          ? <>{rpki.coverage_pct}<span style={{ fontSize: 10, fontWeight: 600 }}>%</span></>
+                          : <span style={{ fontSize: 14, color: "#9ca3af" }}>—</span>}
+                      </div>
+                      {rpki ? (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>
+                          ✓{rpki.valid} ✗{rpki.invalid} ?{rpki.unknown} / {rpki.sampled}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>pending…</div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* AS Path Length */}
+                {(() => {
+                  const pl = market.bgp.pathLength;
+                  return (
+                    <div style={{
+                      padding: "9px 11px", background: T.bg,
+                      border: `1px solid ${T.border}`, borderRadius: 7,
+                    }}>
+                      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 3 }}>
+                        AVG AS PATH
+                      </div>
+                      <div style={{
+                        fontSize: 20, fontWeight: 800, fontFamily: "monospace",
+                        color: "#6366f1", lineHeight: 1,
+                      }}>
+                        {pl?.avg != null
+                          ? <>{pl.avg}<span style={{ fontSize: 10, fontWeight: 600 }}> hops</span></>
+                          : <span style={{ fontSize: 14, color: "#9ca3af" }}>—</span>}
+                      </div>
+                      {pl ? (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>
+                          {pl.min}–{pl.max} range · {pl.rrc_count} RRCs
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>pending…</div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Announced prefixes history chart — real 5-min time-series */}
+              {(market.bgp.history?.length ?? 0) > 1 && (
+                <div>
+                  <div style={{
+                    fontSize: 10, color: T.muted, fontWeight: 600, marginBottom: 6,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    <span>Announced prefixes — evolution</span>
+                    <span style={{ color: "#9ca3af", fontWeight: 400 }}>
+                      ({applyZoom(market.bgp.history, zoom).length} pts · 5 min interval)
+                    </span>
+                  </div>
+                  <MetricChart
+                    data={applyZoom(market.bgp.history, zoom)}
+                    valueKey="announced_prefixes"
+                    label="Announced Prefixes"
+                    unit=" routes"
+                    color="#0891b2"
+                    warnLevel={null}
+                    critLevel={null}
+                    baseline={null}
+                    width={170}
+                    height={60}
+                  />
+                  <div style={{
+                    fontSize: 9, color: T.muted, marginTop: 5, lineHeight: 1.5,
+                    padding: "5px 8px", background: T.bg,
+                    border: `1px solid ${T.border}`, borderRadius: 5,
+                  }}>
+                    💡 A sudden drop signals prefix withdrawal — routes to {market.name} become unreachable
+                    even if BGP peer visibility (329/329) stays normal.
+                  </div>
+                </div>
+              )}
+
+              {/* No extended data yet */}
+              {!market.bgp.prefixes && !market.bgp.rpki && !market.bgp.pathLength && (
+                <div style={{
+                  fontSize: 11, color: T.muted, textAlign: "center",
+                  padding: "10px 0",
+                }}>
+                  Extended metrics loading… (first poll up to 30 min after backend start)
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Single per-probe button */}
           {market.probeDetails && market.probeDetails.length > 0 && (
             <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
