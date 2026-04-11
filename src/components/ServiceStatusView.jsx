@@ -78,6 +78,25 @@ const TIME_RANGES = [
   { key: "24h",  label: "24 h",    points: 2880 },
 ];
 
+// ─── Scraper health helpers (module-level so MarketCard can use them) ─────────
+/**
+ * Returns true when a market claims dataSource="downdetector" but its trend has
+ * zero variance — the fingerprint of a failing scraper (expired token) that
+ * keeps repeating the same baseline value. Real Downdetector data always has
+ * natural noise; a flat line means no real data is coming in.
+ */
+function isScraperStale(market) {
+  if (market.dataSource !== "downdetector") return false;
+  const t = market.trend;
+  if (!t || t.length < 3) return false;
+  return t.every(v => v === t[0]); // all identical → zero variance → stale
+}
+
+/** Returns "downdetector" only when scrape actually succeeded with real data. */
+function effectiveDataSource(market) {
+  return isScraperStale(market) ? "simulated" : market.dataSource;
+}
+
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 function Sparkline({ trend = [], status, width = 80, height = 28 }) {
   if (!trend || trend.length < 2) return <div style={{ width, height }} />;
@@ -635,24 +654,6 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTi
     if (trend.length >= points) return trend.slice(-points);
     const pad = Array(points - trend.length).fill(trend[0]);
     return [...pad, ...trend];
-  }
-
-  /**
-   * Returns true when a market claims dataSource="downdetector" but its trend
-   * has zero variance — the fingerprint of a failing scraper (expired token)
-   * that keeps repeating the same baseline value.
-   * Real Downdetector data always has natural noise; a flat line means no real
-   * data is coming in. In that case, show the card as SIMULATED, not LIVE.
-   */
-  function isScraperStale(market) {
-    if (market.dataSource !== "downdetector") return false;
-    const t = market.trend;
-    if (!t || t.length < 3) return false; // not enough data to judge
-    return t.every(v => v === t[0]);       // all identical → zero variance → stale
-  }
-
-  function effectiveDataSource(market) {
-    return isScraperStale(market) ? "simulated" : market.dataSource;
   }
 
   async function load() {
