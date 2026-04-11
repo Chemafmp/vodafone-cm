@@ -2616,7 +2616,17 @@ export default function NetworkHealthView() {
         </div>
       )}
 
-      {!loading && (
+      {!loading && markets.length === 0 && (
+        <div style={{
+          padding: "32px 0", textAlign: "center", color: T.muted, fontSize: 13,
+        }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: T.text }}>No data yet</div>
+          <div>Backend poller is starting or unreachable — retrying every 30s.</div>
+        </div>
+      )}
+
+      {!loading && markets.length > 0 && (
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(248px, 1fr))",
