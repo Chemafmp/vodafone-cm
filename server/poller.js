@@ -33,6 +33,7 @@ import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
+import { notifyAlarm, notifyResolved, notifyTest } from "./lib/notifier.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
@@ -413,13 +414,15 @@ async function runPollCycle() {
   summary += chalk.gray(` · ${alarmCount} active · ${elapsed}ms`);
   log(summary);
 
-  // Log new alarms
+  // Log new alarms + notify Slack for Critical
   for (const a of allNewAlarms) {
     const sevColor = a.severity === "Critical" ? chalk.red : chalk.yellow;
     log(sevColor(`  🔔 ${a.severity} [${a.type}] ${a.nodeId}: ${a.message}`));
+    notifyAlarm(a);
   }
   for (const a of allResolvedAlarms) {
     log(chalk.green(`  ✓  RESOLVED [${a.type}] ${a.nodeId}: ${a.message}`));
+    notifyResolved(a);
   }
 
   // Broadcast to WebSocket clients
@@ -704,6 +707,9 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Correlation history — load from Supabase on boot, persist each tick
   initCorrelationHistory(log).catch(e => log(chalk.yellow(`[corr-hist] init error: ${e.message}`)));
+
+  // Slack notifications — send a test message on startup to confirm webhook works
+  notifyTest();
 });
 
 // ─── Save correlation scores for all markets to Supabase ─────────────────────
