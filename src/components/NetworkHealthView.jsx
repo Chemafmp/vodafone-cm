@@ -2358,6 +2358,7 @@ function SummaryBar({ markets }) {
 
 // ─── Correlation Analysis panel (always visible below market cards) ───────────
 function CorrelationPanel({ markets }) {
+  const [collapsed, setCollapsed] = useState(false);
   const signals = [
     { key: "atlas",  label: "Atlas",  getStatus: m => m.status },
     { key: "bgp",    label: "BGP",    getStatus: m => m.bgp?.status },
@@ -2375,9 +2376,10 @@ function CorrelationPanel({ markets }) {
       background: T.surface, overflow: "hidden",
     }}>
       {/* Header */}
-      <div style={{
-        padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
-        display: "flex", alignItems: "center", gap: 10,
+      <div onClick={() => setCollapsed(c => !c)} style={{
+        padding: "12px 18px", borderBottom: collapsed ? "none" : `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+        userSelect: "none",
       }}>
         <span style={{ fontSize: 16 }}>🔗</span>
         <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
@@ -2386,9 +2388,12 @@ function CorrelationPanel({ markets }) {
         <span style={{ fontSize: 11, color: T.muted }}>
           · {markets.filter(m => m.ok).length}/{markets.length} markets · 5 signal layers
         </span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>
+          {collapsed ? "▼ expand" : "▲ collapse"}
+        </span>
       </div>
 
-      <div style={{ padding: "14px 18px" }}>
+      {!collapsed && <div style={{ padding: "14px 18px" }}>
         {/* Signal matrix */}
         <div style={{ overflowX: "auto", marginBottom: 10 }}>
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 2px" }}>
@@ -2529,7 +2534,7 @@ function CorrelationPanel({ markets }) {
             </div>
           )}
         </div>
-      </div>
+      </div>)}
     </div>
   );
 }

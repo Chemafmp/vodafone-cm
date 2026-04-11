@@ -41,7 +41,7 @@ function initState() {
       announcements1h:  0,
       announcements6h:  0,
       lastEvent:        null,
-      status:           "unknown",
+      status:           "ok",     // 0 withdrawals = ok; updated by recompute() each tick
       connected:        false,
     });
   }
