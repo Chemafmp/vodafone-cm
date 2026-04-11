@@ -93,7 +93,7 @@ function initState() {
       ratio:           1.0,
       status:          "ok",
       prevStatus:      "ok",
-      trend:           Array(HISTORY_LEN).fill(Math.round(baseline)),
+      trend:           [],   // fills with real measured values only — no fake baseline padding
       history:         [],   // [{ts, value, ratio}] — loaded from Supabase on boot
       ticketId:        null,
       spikeRemaining:  0,
@@ -152,7 +152,7 @@ async function tickFromScraper(port, log) {
 
     if (!r.ok) {
       // Scrape failed for this market — keep previous values, just update trend
-      m.trend = [...m.trend.slice(1), m.complaints];
+      m.trend = [...m.trend.slice(-(HISTORY_LEN - 1)), m.complaints];
       m.lastUpdate = Date.now();
       continue;
     }
@@ -169,7 +169,7 @@ async function tickFromScraper(port, log) {
     m.status      = status;
     m.lastUpdate  = Date.now();
     // Use real trend if available, otherwise append new point
-    m.trend = r.trend ? r.trend : [...m.trend.slice(1), complaints];
+    m.trend = r.trend ? r.trend : [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
     // Persist to Supabase + update in-memory history
     const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
@@ -238,7 +238,7 @@ async function tickSimulated(port, log) {
     m.prevStatus  = m.status;
     m.status      = status;
     m.lastUpdate  = Date.now();
-    m.trend       = [...m.trend.slice(1), complaints];
+    m.trend       = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
     // Persist to Supabase + append to in-memory history
     const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
@@ -334,6 +334,8 @@ export async function initServiceStatus(log) {
       if (hist.length > 0) {
         const s = state.get(m.id);
         s.history = hist;
+        // Seed trend[] from Supabase history so sparkline has real data on boot
+        s.trend = hist.slice(-HISTORY_LEN).map(p => p.value);
         // Also seed the last value into current state
         const last = hist.at(-1);
         if (last) {
