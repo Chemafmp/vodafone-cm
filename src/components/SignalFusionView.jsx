@@ -7,7 +7,7 @@
 //   2. Event Feed     — chronological stream, incident clustering
 //   3. Market Detail  — right panel on row click
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { T } from "../data/constants.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -524,8 +524,19 @@ const CORR_SERIES = [
   { key: "iodaPing", label: "IODA ping",  color: "#06b6d4", area: false },
 ];
 
+// Units shown in tooltip per series key
+const CORR_UNITS = {
+  smon:     { unit: "rep",   fmt: v => Math.round(v) },
+  atlas:    { unit: "ms",    fmt: v => v.toFixed(1) },
+  bgp:      { unit: "%",     fmt: v => v.toFixed(1) },
+  iodaBgp:  { unit: "",      fmt: v => v.toFixed(1) },
+  iodaPing: { unit: "/24s",  fmt: v => Math.round(v) },
+};
+
 function CorrelationChart({ market, svc }) {
-  const [zoom, setZoom] = useState("2h");
+  const [zoom, setZoom]     = useState("2h");
+  const [hover, setHover]   = useState(null); // { svgX, ts, rows:[{key,label,color,rawVal,unit}] }
+  const svgRef              = useRef(null);
 
   const windowMs = CORR_ZOOMS.find(z => z.label === zoom)?.ms || 2 * 3600_000;
   const now      = Date.now();
@@ -581,14 +592,14 @@ function CorrelationChart({ market, svc }) {
     </div>
   );
 
-  // ── SVG helpers ────────────────────────────────────────────────────────────
+  // ── SVG geometry ───────────────────────────────────────────────────────────
   const W = 380, H = 160;
   const PAD = { top: 10, right: 10, bottom: 22, left: 10 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  const tx = ts  => PAD.left + ((ts - startMs) / windowMs) * plotW;
-  const ty = n   => PAD.top + plotH - n * plotH;
+  const tx = ts => PAD.left + ((ts - startMs) / windowMs) * plotW;
+  const ty = n  => PAD.top + plotH - n * plotH;
 
   function linePath(pts) {
     if (pts.length < 2) return "";
@@ -604,9 +615,40 @@ function CorrelationChart({ market, svc }) {
   const tickCount = 5;
   const xTicks = Array.from({ length: tickCount }, (_, i) => {
     const ts = startMs + (i / (tickCount - 1)) * windowMs;
-    const label = i === tickCount - 1 ? "now" : fmtHHMM(ts);
-    return { ts, label, anchor: i === 0 ? "start" : i === tickCount - 1 ? "end" : "middle" };
+    return { ts, label: i === tickCount - 1 ? "now" : fmtHHMM(ts), anchor: i === 0 ? "start" : i === tickCount - 1 ? "end" : "middle" };
   });
+
+  // ── Hover handler ──────────────────────────────────────────────────────────
+  function handleMouseMove(e) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    // Scale clientX → viewBox X
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const clampedX = Math.max(PAD.left, Math.min(PAD.left + plotW, svgX));
+    const hoverTs = startMs + ((clampedX - PAD.left) / plotW) * windowMs;
+
+    // Nearest raw value per series (within reasonable tolerance)
+    const rows = CORR_SERIES.map(s => {
+      const pts = seriesData[s.key];
+      if (!pts.length) return null;
+      const nearest = pts.reduce((best, p) =>
+        Math.abs(p.ts - hoverTs) < Math.abs(best.ts - hoverTs) ? p : best
+      );
+      // Only show if within 10% of window from cursor
+      if (Math.abs(nearest.ts - hoverTs) > windowMs * 0.1) return null;
+      const u = CORR_UNITS[s.key];
+      return { key: s.key, label: s.label, color: s.color, val: `${u.fmt(nearest.v)} ${u.unit}`.trim() };
+    }).filter(Boolean);
+
+    // RIS markers nearby
+    const nearRis = risTimes.filter(ts => Math.abs(ts - hoverTs) < windowMs * 0.05);
+
+    setHover({ svgX: clampedX, ts: hoverTs, rows, risCount: nearRis.length });
+  }
+
+  // Tooltip left/right flip so it doesn't go off-edge
+  const tooltipOnRight = hover ? hover.svgX < W * 0.65 : true;
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -648,37 +690,100 @@ function CorrelationChart({ market, svc }) {
       </div>
 
       {/* SVG chart */}
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        {/* Grid */}
-        {[0, 0.25, 0.5, 0.75, 1].map(f => (
-          <line key={f} x1={PAD.left} y1={ty(f)} x2={PAD.left + plotW} y2={ty(f)}
-            stroke={f === 0 || f === 1 ? "#d1d5db" : "#f3f4f6"} strokeWidth="0.5" />
-        ))}
+      <div style={{ position: "relative" }}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          style={{ width: "100%", height: "auto", display: "block", cursor: "crosshair" }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          {/* Grid */}
+          {[0, 0.25, 0.5, 0.75, 1].map(f => (
+            <line key={f} x1={PAD.left} y1={ty(f)} x2={PAD.left + plotW} y2={ty(f)}
+              stroke={f === 0 || f === 1 ? "#d1d5db" : "#f3f4f6"} strokeWidth="0.5" />
+          ))}
 
-        {/* Area fill for community */}
-        {CORR_SERIES.filter(s => s.area && normData[s.key]?.length > 1).map(s => (
-          <path key={`${s.key}-area`} d={areaPath(normData[s.key])} fill={s.color + "22"} stroke="none" />
-        ))}
+          {/* Area fills */}
+          {CORR_SERIES.filter(s => s.area && normData[s.key]?.length > 1).map(s => (
+            <path key={`${s.key}-area`} d={areaPath(normData[s.key])} fill={s.color + "22"} stroke="none" />
+          ))}
 
-        {/* Lines */}
-        {CORR_SERIES.filter(s => normData[s.key]?.length > 1).map(s => (
-          <path key={s.key} d={linePath(normData[s.key])} fill="none" stroke={s.color} strokeWidth="1.5" />
-        ))}
+          {/* Lines */}
+          {CORR_SERIES.filter(s => normData[s.key]?.length > 1).map(s => (
+            <path key={s.key} d={linePath(normData[s.key])} fill="none" stroke={s.color} strokeWidth="1.5" />
+          ))}
 
-        {/* RIS withdrawal markers */}
-        {risTimes.map((ts, i) => (
-          <line key={i} x1={tx(ts)} y1={PAD.top} x2={tx(ts)} y2={PAD.top + plotH}
-            stroke="#dc2626" strokeWidth="1" strokeDasharray="3,2" opacity="0.75" />
-        ))}
+          {/* Dot on each series at hover position */}
+          {hover && CORR_SERIES.map(s => {
+            const pts = seriesData[s.key];
+            if (!pts.length) return null;
+            const nearest = pts.reduce((b, p) => Math.abs(p.ts - hover.ts) < Math.abs(b.ts - hover.ts) ? p : b);
+            const nd = normData[s.key]?.find(p => p.ts === nearest.ts);
+            if (!nd) return null;
+            return (
+              <circle key={s.key}
+                cx={tx(nearest.ts)} cy={ty(nd.norm)}
+                r="3" fill={s.color} stroke="#fff" strokeWidth="1.5" />
+            );
+          })}
 
-        {/* X-axis */}
-        <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH}
-          stroke="#d1d5db" strokeWidth="0.5" />
-        {xTicks.map((t, i) => (
-          <text key={i} x={tx(t.ts)} y={H - 5}
-            textAnchor={t.anchor} fontSize="7" fill="#9ca3af">{t.label}</text>
-        ))}
-      </svg>
+          {/* RIS withdrawal markers */}
+          {risTimes.map((ts, i) => (
+            <line key={i} x1={tx(ts)} y1={PAD.top} x2={tx(ts)} y2={PAD.top + plotH}
+              stroke="#dc2626" strokeWidth="1" strokeDasharray="3,2" opacity="0.75" />
+          ))}
+
+          {/* Hover crosshair */}
+          {hover && (
+            <line x1={hover.svgX} y1={PAD.top} x2={hover.svgX} y2={PAD.top + plotH}
+              stroke="#64748b" strokeWidth="0.75" strokeDasharray="3,2" />
+          )}
+
+          {/* X-axis */}
+          <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH}
+            stroke="#d1d5db" strokeWidth="0.5" />
+          {xTicks.map((t, i) => (
+            <text key={i} x={tx(t.ts)} y={H - 5}
+              textAnchor={t.anchor} fontSize="7" fill="#9ca3af">{t.label}</text>
+          ))}
+        </svg>
+
+        {/* Hover tooltip — rendered as HTML div over the SVG */}
+        {hover && hover.rows.length > 0 && (
+          <div style={{
+            position: "absolute",
+            top: 6,
+            ...(tooltipOnRight
+              ? { left: `${(hover.svgX / W) * 100 + 2}%` }
+              : { right: `${((W - hover.svgX) / W) * 100 + 2}%` }),
+            background: "rgba(15,23,42,0.92)",
+            border: "1px solid #334155",
+            borderRadius: 6,
+            padding: "6px 9px",
+            pointerEvents: "none",
+            zIndex: 10,
+            minWidth: 130,
+          }}>
+            <div style={{ fontSize: 8, color: "#94a3b8", marginBottom: 5, fontFamily: "monospace" }}>
+              {fmtHHMM(hover.ts)}
+            </div>
+            {hover.rows.map(r => (
+              <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 9, color: "#cbd5e1", flex: 1 }}>{r.label}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, fontFamily: "monospace", color: "#f1f5f9" }}>{r.val}</span>
+              </div>
+            ))}
+            {hover.risCount > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3, paddingTop: 3, borderTop: "1px solid #334155" }}>
+                <span style={{ width: 6, height: 6, borderRadius: 1, background: "#dc2626", flexShrink: 0 }} />
+                <span style={{ fontSize: 9, color: "#fca5a5" }}>BGP withdraw ×{hover.risCount}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
