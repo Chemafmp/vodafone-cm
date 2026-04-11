@@ -348,6 +348,10 @@ function MetricsGlossary() {
               { icon: "📋", title: "Announced Prefixes", body: "Number of IPv4 and IPv6 route blocks Vodafone announces to the global BGP table. v4 prefixes = CIDR blocks of IPv4 address space. A sudden drop (e.g. 42 → 5 prefixes) is a major incident signal — even if BGP visibility stays at 329/329, affected customers on missing prefix blocks would lose connectivity." },
               { icon: "↔️", title: "AS Path Length", body: "Average number of Autonomous System hops it takes to reach Vodafone from RIPE's BGP route collectors worldwide. 3–4 hops is typical for a Tier-2 ISP. If it jumps (e.g. 3.4 → 6.1), traffic is being rerouted through longer paths — could indicate a peering failure or route leak forcing traffic through suboptimal routes." },
               { icon: "🔍", title: "DNS RTT (msm #10001)", body: "Round-trip time for a DNS SOA query to k.root-servers.net, measured from the same Vodafone probes. Unlike the ICMP ping (which tests raw IP reachability), this tests the full DNS query path including Vodafone's local resolver. If DNS RTT >> ICMP RTT, Vodafone's resolver is slow or overloaded — customers experience slow page loads even if the network path is healthy." },
+              { icon: "🌐", title: "CAIDA IODA", body: "Internet Outage Detection and Analysis (IODA) monitors Internet outages using three independent signals: BGP prefix withdrawals, active probing (UCSD Network Telescope), and Merit Network Telescope (darknet traffic). When multiple IODA datasources agree on an anomaly, confidence of an outage is high. IODA monitors Vodafone by ASN — an active IODA event alongside BGP/Atlas degradation is a strong corroboration of an actual outage. Free service by CAIDA (UC San Diego)." },
+              { icon: "🔄", title: "RIS Live (BGP stream)", body: "RIPE Routing Information Service Live streams real-time BGP UPDATE messages from ~30 global route collectors (RRCs) peered with hundreds of ASes. We filter for Vodafone ASNs in the AS path. WITHDRAW events mean a prefix has been pulled from global routing — every withdrawal counts. Thresholds: ≥5 withdrawals/1h = WARNING · ≥20 withdrawals/1h = ALERT. A spike in withdrawals without corresponding ANNOUNCE events suggests route instability or partial outage." },
+              { icon: "☁️", title: "Cloudflare Radar", body: "Cloudflare has visibility into ~20% of global Internet traffic and actively monitors BGP events. We query two endpoints per Vodafone ASN: BGP hijack events (another AS announcing Vodafone prefixes without authorisation) and route leak events (Vodafone prefixes appearing in unexpected AS paths). Requires a Cloudflare Radar API token (CF_RADAR_TOKEN). An active hijack alert combined with RPKI INVALID prefixes is a critical incident signal." },
+              { icon: "📊", title: "Correlation Score", body: "A 0–100 composite health score computed from all signal layers per market. Starts at 100 and deducts points per layer: Atlas outage −35, BGP outage −25, IODA alert −20, RIS alert −20, Radar alert −10. Extra cross-penalties apply when layers agree: Atlas+BGP (−10), Atlas+IODA (−10), BGP+RIS (−5), 3+ layers (−10). Score ≥90 = OK · ≥70 = Degraded · ≥40 = Warning · <40 = Incident. Lower score = higher confidence that something real is happening." },
             ].map(m => (
               <div key={m.title} style={{
                 padding: "9px 11px", background: T.bg,
@@ -412,7 +416,12 @@ function MetricsGlossary() {
             <span style={{ color: "#22c55e" }}>green dashed</span> = 4h rolling baseline ·{" "}
             <span style={{ color: "#f59e0b" }}>amber dashed</span> = warning threshold ·{" "}
             <span style={{ color: "#ef4444" }}>red dashed</span> = critical threshold.
-            Status: OK &lt;2× · WARNING ≥2× · OUTAGE ≥4.5× above baseline.
+            Status: OK &lt;2× · WARNING ≥2× · OUTAGE ≥4.5× above baseline.{" "}
+            <strong style={{ color: T.text }}>Signal dots:</strong>{" "}
+            <span style={{ color: "#16a34a" }}>●</span> OK ·{" "}
+            <span style={{ color: "#f59e0b" }}>●</span> Warning ·{" "}
+            <span style={{ color: "#dc2626" }}>●</span> Alert · grey = no data.
+            Score 0–100 aggregates all 5 layers.
           </div>
         </div>
       )}
