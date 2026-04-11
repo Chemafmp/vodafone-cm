@@ -23,9 +23,9 @@ cp /Users/josemafernandez/vodafone-cm/.env.production .env.production
 ```
 > ⚠️ Without `.env.production`, the build uses `ws://localhost:4000` instead of `wss://api.chemafmp.dev`.
 
-**Deploy to GitHub Pages (manual fallback — use this if `npm run deploy` fails):**
+**Deploy to GitHub Pages (always build from MAIN repo, not worktree):**
 ```bash
-# Run from the worktree root (e.g. /Users/josemafernandez/vodafone-cm/.claude/worktrees/zen-fermi)
+cd /Users/josemafernandez/vodafone-cm   # ← ALWAYS from here
 npm run build
 DIST=$(pwd)/dist
 cd /tmp && rm -rf gh-deploy && mkdir gh-deploy && cd gh-deploy
@@ -34,14 +34,12 @@ cp -r $DIST/. . && touch .nojekyll
 git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-pages --force
 ```
 
-> ⚠️ **Worktree deploy gotcha:** `npm run deploy` previously used a hardcoded absolute path
-> (`/Users/josemafernandez/vodafone-cm/dist/`) which is the MAIN repo dist, not the worktree dist.
-> Fixed in package.json to use `$INIT_CWD/dist` so it always copies from where the build ran.
-> When in doubt, use the manual fallback above with `DIST=$(pwd)/dist`.
+> ⚠️ **Critical:** Always build from `/Users/josemafernandez/vodafone-cm` (main repo). Worktrees
+> have separate working trees — files created in main repo won't be in worktree builds.
 
 ---
 
-## Current State — v1.8
+## Current State — v1.9
 
 **Frontend live:** https://chemafmp.github.io/vodafone-cm/
 **Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
@@ -50,21 +48,19 @@ React 19 + Vite SPA. Supabase DB backend (Phase 2 complete). Live poller backend
 
 **Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
 Tables: `changes` (JSONB), `freeze_periods` (JSONB), `tickets`, `ticket_events`, `ticket_evidence`,
-        `ripe_measurements`, `bgp_visibility`, `dns_measurements`, `correlation_scores`, `ioda_signals`
+        `ripe_measurements`, `bgp_visibility`, `dns_measurements`, `correlation_scores`,
+        `ioda_signals`, `community_signals`
 Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
-          `RIPE_ATLAS_KEY` — RIPE Atlas API key (in `.env` on droplet, enables network health polling)
+          `RIPE_ATLAS_KEY` — RIPE Atlas API key (in `.env` on droplet)
           `CF_RADAR_TOKEN` — Cloudflare Radar API token (in `.env.supabase` on droplet)
-          `AUTOMATION_API_KEY` — protects `/api/tickets/:id/notes` (ioda-push endpoint removed)
+          `AUTOMATION_API_KEY` — protects `/api/tickets/:id/notes`
 `.env.production` sets `VITE_POLLER_WS=wss://api.chemafmp.dev` (not committed)
 
-**Droplet deploy — always use the alias:**
+**Droplet deploy:**
 ```bash
-# On the droplet (alias set in ~/.bashrc):
-deploy
-# expands to: git pull && docker compose build --no-cache && docker compose up -d
+ssh root@159.89.17.36
+cd ~/vodafone-cm && git pull && docker compose up -d --build
 ```
-> ⚠️ Never use `docker compose up -d --build` alone — Docker caches `COPY server ./server`
-> and the new code won't be picked up. Always use `--no-cache` or the `deploy` alias.
 
 **Pending DB migrations** (run in Supabase SQL Editor if not yet applied):
 ```sql
@@ -92,6 +88,11 @@ CREATE TABLE IF NOT EXISTS ioda_signals (
   bgp_score numeric, ping_count numeric,
   measured_at timestamptz DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS community_signals (
+  id bigserial PRIMARY KEY, market_id text,
+  complaints numeric, ratio numeric,
+  measured_at timestamptz DEFAULT now()
+);
 ```
 
 ---
@@ -108,12 +109,6 @@ App dir: `/root/vodafone-cm/`
 
 **Caddyfile** (on droplet): `api.chemafmp.dev { reverse_proxy poller:4000 }`
 
-**Update backend after git push:**
-```bash
-# on the droplet
-cd ~/vodafone-cm && git pull && docker compose up -d --build
-```
-
 **Key backend endpoints:**
 ```
 GET  /health                          → fleet status
@@ -121,27 +116,35 @@ GET  /api/status                      → registered nodes
 GET  /api/alarms                      → active alarms
 GET  /api/events                      → recent events
 WS   wss://api.chemafmp.dev           → live poll-result stream
+
 GET  /api/control/nodes               → fleet node list + status
 POST /api/control/kill/:nodeId        → SIGTERM a simulated node
 POST /api/control/revive/:nodeId      → re-fork a killed node
 POST /api/control/scenario/:nodeId    → trigger chaos scenario (body: {scenario})
      valid scenarios: cascade | maintenance | linkflap | bgpleak | thermal
 
-# Network Health API (server/poller.js + lib/ripe-atlas.js + bgp-visibility.js + dns-measurements.js):
-GET  /api/network-health              → array of 9 markets, each:
-     { id, name, flag, asn, ok, error, current, baseline_rtt, ratio, status,
-       history[], totalProbes, probeDetails[], probeLocations[],
-       bgp: { current:{visibility_pct, ris_peers_seeing, total_ris_peers, announced_prefixes},
-              history[], status, ok, error },
-       dns: { current:{dns_rtt, p95_dns_rtt, probe_count}, history[], baseline_rtt, ratio,
-              status, ok, error, probeDetails[] } }
+# Poller pause/resume (runtime, no restart needed):
+GET  /api/control/poller/status          → {ripe:"running", bgp:"paused", ...}
+POST /api/control/poller/pause/:module   → pause one module
+POST /api/control/poller/resume/:module  → resume one module
+POST /api/control/poller/pause-all       → pause all 7 modules
+POST /api/control/poller/resume-all      → resume all modules
+     modules: ripe · bgp · dns · ioda · ris · radar · service-status
+
+# Network Health API:
+GET  /api/network-health              → array of 9 markets (see shape below)
+
+# Service Status (Downdetector / simulator):
+GET  /api/service-status              → array of 10 markets:
+     { id, name, flag, baseline, complaints, ratio, status, trend[], history[], services, dataSource }
+     history[]: [{ts, value, ratio}] — Supabase-persisted, survives restarts
 
 # Ticketing API (server/tickets.js):
 POST   /api/tickets                   → create ticket
 GET    /api/tickets                   → list (filters: type,status,severity,country,node,team,sla_at_risk)
 GET    /api/tickets/:id               → ticket + events + evidence
 GET    /api/tickets/sla               → tickets at risk or breached
-PATCH  /api/tickets/:id               → update fields (status, owner, working_state, tags, etc.)
+PATCH  /api/tickets/:id               → update fields
 POST   /api/tickets/:id/events        → add log event
 POST   /api/tickets/:id/evidence      → add evidence link
 POST   /api/tickets/:id/notes         → automation alias (x-api-key header, body: {content, source, metadata})
@@ -149,18 +152,43 @@ POST   /api/tickets/:id/notes         → automation alias (x-api-key header, bo
 
 ---
 
+## Poller Control — Cheat Sheet
+
+```bash
+# Status
+curl https://api.chemafmp.dev/api/control/poller/status
+
+# Pause all (zero external traffic)
+curl -X POST https://api.chemafmp.dev/api/control/poller/pause-all
+
+# Resume all
+curl -X POST https://api.chemafmp.dev/api/control/poller/resume-all
+
+# Per module (ripe · bgp · dns · ioda · ris · radar · service-status)
+curl -X POST https://api.chemafmp.dev/api/control/poller/pause/ioda
+curl -X POST https://api.chemafmp.dev/api/control/poller/resume/ioda
+```
+
+> Pause is in-memory — container restart resumes all modules automatically.
+
+---
+
 ## File Structure
 
 ```
 server/
-  poller.js              # Express + WS server. Manages fleet (fleetMap), polls nodes,
-                         # broadcasts poll-result via WebSocket. Chaos Control API here.
+  poller.js              # Express + WS server. Fleet management, poll cycle, WebSocket broadcast,
+                         # Chaos Control API, Poller Control pause/resume API.
                          # Auto-creates tickets from alarms sequentially (race condition fix).
   tickets.js             # ★ Ticketing router — all /api/tickets/* endpoints.
                          # generateTicketId uses LIKE on id column (not seq_number).
                          # autoCreateTicketFromAlarm exported and called by poller.js.
   node-sim.js            # Simulated SNMP node (child_process.fork). Sends metrics to poller.
   lib/
+    poller-control.js    # ★ Runtime pause/resume per module. Singleton Set<string>.
+                         # Exports: isPaused(m), pauseModule(m), resumeModule(m),
+                         # pauseAll(), resumeAll(), getPollerStatus(), POLLER_MODULES[].
+                         # Every tick function imports isPaused() and returns early if paused.
     scenarios.js         # Chaos scenarios: cascade, maintenance, linkFlap, bgpLeak, thermalRunaway
     alarm-engine.js      # Threshold-based alarm detection + dedup
     events.js            # Event log builder
@@ -174,22 +202,45 @@ server/
                          #   announced_prefixes. Static thresholds: ok≥95%, warn≥80%.
                          #   Exports: initBgpVisibility, tickBgpVisibility, getBgpVisibility.
     dns-measurements.js  # ★ RIPE Atlas msm #10001 (DNS SOA to k-root). Same probe selection
-                         #   as ripe-atlas.js. DNS result shape: {prb_id, result:{rt, rcode}}.
-                         #   Per-probe breakdown (computeDnsProbeDetails). Dynamic baseline.
+                         #   as ripe-atlas.js. Per-probe breakdown. Dynamic baseline.
                          #   Exports: initDnsMeasurements, tickDnsMeasurements, getDnsMeasurements.
+    ioda.js              # ★ CAIDA IODA v2. Base: api.ioda.inetintel.cc.gatech.edu/v2
+                         #   3 API calls per market per tick (1.2s apart):
+                         #     /v2/outages/events → macroscopic outage events
+                         #     /v2/signals/raw/asn/{asn}?datasource=bgp → BGP score history
+                         #     /v2/signals/raw/asn/{asn}?datasource=ping-slash24 → /24 up count
+                         #   Turkey override: IODA uses AS15897, RIPE Atlas keeps AS15924.
+                         #   Supabase: ioda_signals table, 36h retention, preloaded on boot.
+                         #   Exports: initIoda (async), tickIoda, getIoda.
+    ris-live.js          # ★ RIPE RIS Live WebSocket stream. Real-time BGP UPDATE messages.
+                         #   Dedup: (type, prefix, 60s bucket) — one withdrawal per prefix per minute.
+                         #   Thresholds: WARN ≥3 wd/h · ALERT ≥10 wd/h.
+                         #   Exports: initRisLive, tickRisLive, getRisLive, stopRisLive.
+    cf-radar.js          # ★ Cloudflare Radar BGP hijack/leak events. Requires CF_RADAR_TOKEN.
+                         #   Exports: initCfRadar, tickCfRadar, getCfRadar.
+    correlation.js       # ★ Health score 0-100. Penalties per signal + cross-penalties.
+                         #   score=100 nominal, <40 = incident. insight text generated.
+    correlation-history.js # Supabase persistence for correlation_scores. 36h retention.
+    service-status.js    # ★ Downdetector simulator (USE_SCRAPER=0) or real scraper (=1).
+                         #   trend[]: starts EMPTY on boot, fills with real measured values only
+                         #   (no flat baseline padding). Max HISTORY_LEN=2880 (24h at 30s/tick).
+                         #   history[]: [{ts,value,ratio}] persisted to Supabase community_signals,
+                         #   preloaded on boot via initServiceStatus(). Survives restarts.
+                         #   Supabase: community_signals table, 36h retention.
+                         #   Exports: initServiceStatus (async), tickServiceStatus, getServiceStatus.
 
 src/
   App.jsx                # Main app — state, navigation, layout.
-                         # fullScreenTicketId detection via window.location.hash (#ticket=ID).
-                         # User state persisted in sessionStorage (works across new tabs).
+                         # NetworkHealthView gets onOpenSignalFusion prop.
+                         # SignalFusionView gets onOpenNetworkHealth prop.
+                         # PWA: 3 tiles (Service Monitor, Network Health, Signal Fusion).
   context/
     ChangesContext.jsx   # Supabase CRUD + all change state
     NodesContext.jsx     # Network inventory state (localStorage)
   hooks/
     usePollerSocket.js   # WebSocket hook → { connected, liveAlarms, liveEvents, nodeSnapshots }
   data/
-    seed.js              # SEED_CHANGES, DEMO_CHANGES (affectedDeviceIds links changes to nodes),
-                         # PEAK_PERIODS
+    seed.js              # SEED_CHANGES, DEMO_CHANGES, PEAK_PERIODS
     constants.js         # T (theme), TEAMS, DEPTS, DIRECTORS, MANAGERS, SYSTEMS,
                          # COUNTRIES, RISK_LEVELS, STATUS_META, RISK_C, EXEC_RESULTS
     inventory/           # Node inventory seed data
@@ -198,15 +249,14 @@ src/
     helpers.js           # fmt, fmtDT, genId, genChangeId, applyVars, exportAuditCSV, etc.
     tickets.js           # fetchTickets, fetchTicket, patchTicket (Supabase direct from frontend)
   components/
-    ui/index.jsx         # Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag,
-                         # Btn, Inp, Sel, Card, Modal
+    ui/index.jsx         # Badge, RiskPill, FreezeTag, TypeTag, IntrusionTag, Btn, Inp, Sel, Card, Modal
     LiveStatusView.jsx   # Per-node incident aggregation. Ticket badge on alarm rows.
     ChaosControlPanel.jsx# Kill/revive/scenario modal (opened from sidebar LIVE pill)
     AlarmsView.jsx       # Flat alarm table. Ticket badge in detail drawer.
     TicketListView.jsx   # ★ Ticket list — opens tickets in new tab via window.open('#ticket=ID')
     TicketDetailView.jsx # ★ Full-screen ticket detail (hash routing + fullScreen prop).
                          # Working state dropdown, SLA timer, log tab with 3 categories.
-    EventsView.jsx       # Event log (needs redesign — Session 3)
+    EventsView.jsx       # Event log (placeholder — needs redesign)
     ChangeDetail.jsx     # Full change panel
     CreateChange.jsx     # New change wizard
     FreezeManager.jsx    # Freeze period CRUD
@@ -215,75 +265,91 @@ src/
     TopologyView.jsx     # Network topology map
     NetworkInventory.jsx # Node inventory CRUD
     ServiceStatusView.jsx# ★ PWA / service monitor. Props: mobile, onOpenTicket.
+                         # Sparkline uses svc.trend[] (real measured values only, no fake baseline).
                          # DetailChart: SVG with MA, threshold zones, crossing annotations.
-                         # DetailPanel: live value bar, zoom ×1-8, share button.
-                         # Standalone PWA: App.jsx detects navigator.standalone → renders this directly.
-                         # In-app ticket nav: onOpenTicket(id) → window.location.hash = #ticket=ID
+                         # Standalone PWA: App.jsx detects navigator.standalone → renders directly.
     NetworkHealthView.jsx# ★ RIPE Atlas Network Health. GET /api/network-health every 30s.
-                         # MarketCard: 3×2 metric grid (AVG/P95 Latency, Packet Loss,
-                         #   BGP Visible [X/Y peers], DNS RTT, Active Probes).
-                         #   Alert badge row: compact badges above dots for warn/alert signals.
-                         #   RatioTooltip: hover status pill → ×ratio explained + thresholds.
-                         # DetailPanel: 6 charts (avg/p95/loss/bgp/dns history), 7 zoom options,
-                         #   ProbeBreakdown button (opens per-probe modal).
-                         # ProbeBreakdown: per-probe table — ICMP latency bar (min/avg/max),
-                         #   P95, loss, DNS RTT column (purple/orange), K-ROOT inference.
-                         #   BGP summary panel (peer counts + explanation).
-                         # SignalDetailModal: click any signal row → full NOC troubleshooting guide.
-                         # MetricsGlossary: explains all 6 metrics with measurement source.
-                         # RIPE_MARKETS: ES/UK/DE/IT/PT/NL/IE/GR/TR (9 markets).
-                         #   All have active probes except TR (AS15924 — 1 probe, not reporting).
-    SignalFusionView.jsx # ★ Cross-signal correlation. Fetches /api/network-health + /api/service-status.
-                         # Signal Matrix: 9 markets × 6 signals (Atlas/BGP/RIS/Radar/IODA/Community).
-                         #   Each cell: status dot + key metric. "Degraded only" toggle.
+                         # Props: onOpenSignalFusion() — shows "Open Signal Fusion →" CTA.
+                         # MarketCard: 3×2 metric grid + alert badge row (warn/alert signals).
+                         # DetailPanel: 6 charts, 7 zoom options, ProbeBreakdown modal.
+                         # CorrelationPanel + MetricsGlossary REMOVED (moved to Signal Fusion).
+    SignalFusionView.jsx # ★ Cross-signal correlation view.
+                         # Fetches /api/network-health + /api/service-status every 30s.
+                         # Signal Matrix: 9 markets × 6 signals (Atlas·BGP·RIS·Radar·IODA·DD).
+                         #   "Downdetector" col (shortLabel "DD"), not "Community".
+                         #   "Degraded only" toggle. Health score (0-100) per market.
                          # Event Feed: chronological stream. ⚡ clusters = 2+ signals / market / 30min.
-                         # Market Detail Panel: metrics grid, signal layers, community reports, insight.
-                         # Props: onOpenNetworkHealth() — navigates to network_health view.
-                         # PWA: 3rd tile on landing page (purple, 🔀).
+                         # Market Detail Panel (400px wide): opens on row click.
+                         #   CorrelationChart: 5 series SVG (Downdetector amber area, Atlas RTT blue,
+                         #   BGP vis% orange, IODA BGP purple, IODA ping cyan) + RIS red markers.
+                         #   Zoom selector: 30m · 1h · 2h · 6h · 12h · 24h.
+                         #   Hover tooltip: crosshair + dots on each series + raw values + time.
+                         #   Uses svc.history[] (Supabase) with svc.trend[] fallback.
+                         # AboutMetrics: collapsible section at bottom. 8 concepts explained.
+                         # Props: onOpenNetworkHealth() — "Open in Network Health →" button.
+                         # PWA: 3rd tile (purple 🔀).
 ```
+
+---
+
+## Signal Fusion — How it works
+
+`src/components/SignalFusionView.jsx` — view id `"signal_fusion"`, sidebar "🔀 Signal Fusion" under MONITORING.
+
+**6 signal columns:**
+| Key | Icon | Label | Source | Metric |
+|---|---|---|---|---|
+| atlas | 📡 | Atlas | RIPE Atlas msm#1001 | avg RTT ms, ratio |
+| bgp | 🔗 | BGP | RIPE Stat routing-status | visibility % |
+| ris | 🔄 | RIS Live | RIPE RIS WebSocket | withdrawals/h |
+| radar | ☁️ | Radar | Cloudflare Radar | event count |
+| ioda | 🌐 | IODA | CAIDA IODA v2 | active events |
+| smon | 👥 | Downdetector | service-status API | reports, ratio |
+
+**Health Score (0-100):** Atlas WARNING −10/OUTAGE −25 · BGP WARNING −8/OUTAGE −20 ·
+RIS WARNING −5/ALERT −15 · Radar ALERT −10 · IODA ALERT −10 · DD WARNING −5/OUTAGE −15.
+Cross-penalty: 2+ signals degrade together → additional −10.
+
+**Incident clustering:** 2+ signal events on same market within 30min → "PROBABLE INCIDENT" in feed.
+
+**CorrelationChart series:**
+- 🟡 Downdetector — `svc.history[].value` (Supabase) or `svc.trend[]` fallback. 30s resolution.
+- 🔵 Atlas RTT — `market.history[].avg_rtt` (5min resolution, 36h)
+- 🟠 BGP vis% — `market.bgp.history[].visibility_pct`
+- 🟣 IODA BGP — `market.ioda.signals.bgp.history[].value`
+- 🩵 IODA ping — `market.ioda.signals.ping.history[].value`
+- 🔴 RIS markers — `market.ris.recentWithdrawals[].ts` (vertical dashes)
+All series normalised to [0,1] independently. Zoom: 30m/1h/2h/6h/12h/24h.
+Hover: crosshair + dots on each series + tooltip with raw values + timestamp.
 
 ---
 
 ## Ticketing System — How it works
 
 ### Supabase tables
-- `tickets` — main ticket record. Key fields: `id` (BNOC-INC-XXXXXXXX), `type` (incident/problem/project),
-  `severity` (sev1–sev4), `status`, `working_state`, `owner_name`, `team`, `impacted_nodes[]`,
-  `alarm_id`, `alarm_type`, `tags[]`, `closure_code`, `resolution_summary`, `related_change_id`.
-- `ticket_events` — timeline log. Fields: `ticket_id`, `event_type`, `actor_name`, `actor_id`,
-  `content`, `metadata` (JSONB), `created_at`.
-- `ticket_evidence` — attachments/links. Fields: `ticket_id`, `type`, `label`, `url`, `metadata`, `uploaded_by`.
+- `tickets` — `id` (BNOC-INC-XXXXXXXX), `type`, `severity`, `status`, `working_state`,
+  `owner_name`, `team`, `impacted_nodes[]`, `alarm_id`, `alarm_type`, `tags[]`, etc.
+- `ticket_events` — timeline log: `ticket_id`, `event_type`, `actor_name`, `content`, `metadata`
+- `ticket_evidence` — `ticket_id`, `type`, `label`, `url`, `metadata`, `uploaded_by`
 
 ### ID generation (`server/tickets.js`)
-Uses LIKE on the `id` column (not `seq_number` which may be null on auto-created tickets):
 ```js
 const { data } = await db.from("tickets").select("id").like("id", `BNOC-${prefix}-%`)
   .order("id", { ascending: false }).limit(1);
 ```
 
-### Auto-create from alarms (`server/poller.js`)
-After each poll cycle, new alarms are processed **sequentially** (not in parallel) to avoid
-concurrent `generateTicketId` calls colliding on the same ID:
+### Auto-create from alarms
+Sequential (not parallel) to avoid ID collisions:
 ```js
-for (const alarm of allNewAlarms) {
-  await autoCreateTicketFromAlarm(alarm, nodeMeta);
-}
+for (const alarm of allNewAlarms) { await autoCreateTicketFromAlarm(alarm, nodeMeta); }
 ```
-Dedup check: existing open ticket for same `alarm_type + nodeId` → links alarm, no new ticket.
 
 ### Hash routing for full-screen ticket
-`window.open('#ticket=BNOC-INC-XXXXXXXX', '_blank')` — App.jsx reads `window.location.hash` on load
-and renders `<TicketDetailView fullScreen>` instead of the normal shell.
-User session persisted via `sessionStorage` so the new tab knows who is logged in.
+`window.open('#ticket=BNOC-INC-XXXXXXXX', '_blank')` — App.jsx reads hash on load.
+User session in `sessionStorage` so new tabs keep the login.
 
-### Working state (separate from lifecycle status)
-Values: `unassigned | acknowledged | active_work | waiting | at_risk | stalled`
-Stored as `working_state` text column in `tickets`. Dropdown in ticket header, colour-coded.
-
-### Log tab categories in TicketDetailView
-- **Operator Actions** — `actor_name` is not "System" and not null. Avatar, full prominence.
-- **System Events** — `actor_name === "System"` or null. Muted, compact, opacity 0.75.
-- *(Planned) Automated Actions* — `event_type === "automation_note"`. Robot icon 🤖, pre-wrap content, light blue tint.
+### Working state
+`unassigned | acknowledged | active_work | waiting | at_risk | stalled`
 
 ### SLA tiers
 | Severity | Ack | Mitigate | Resolve |
@@ -293,8 +359,6 @@ Stored as `working_state` text column in `tickets`. Dropdown in ticket header, c
 | sev3 | 60 min | 1440 min | 4320 min |
 | sev4 | 240 min | 4320 min | 10080 min |
 
-SLA timer shown quietly when <75% elapsed; turns prominent (orange/red) at >75% or breached.
-
 ---
 
 ## WebSocket Data Shape (`usePollerSocket`)
@@ -302,88 +366,13 @@ SLA timer shown quietly when <75% elapsed; turns prominent (orange/red) at >75% 
 ```js
 // poll-result message broadcast every ~10s:
 {
-  type: "poll-result",
-  cycle: number,
-  timestamp: ISO string,
-  nodes: {
-    [nodeId]: {
-      reachable: boolean,
-      cpu: number,      // %
-      mem: number,      // %
-      temp: number,     // °C
-      uptime: number,
-      interfaces: [{ name, speed, operStatus: "UP"|"DOWN" }],
-      bgpPeers: [{ ip, description, state: "Established"|"Idle", prefixesRx }],
-    }
-  },
-  newAlarms: Alarm[],
-  resolvedAlarms: Alarm[],
-  newEvents: Event[],
-  activeAlarmCount: number,
+  type: "poll-result", cycle: number, timestamp: ISO string,
+  nodes: { [nodeId]: { reachable, cpu, mem, temp, uptime, interfaces[], bgpPeers[] } },
+  newAlarms: Alarm[], resolvedAlarms: Alarm[], newEvents: Event[], activeAlarmCount: number,
 }
-
-// Alarm shape:
-{ id, key, nodeId, type, severity, status, message, since, resolvedAt }
+// Alarm: { id, key, nodeId, type, severity, status, message, since, resolvedAt }
 // types: PERFORMANCE | INTERFACE | HARDWARE | BGP | REACHABILITY
-// severity: Critical | Major | Minor | Warning | Info
 ```
-
----
-
-## LiveStatusView — How it works
-
-`src/components/LiveStatusView.jsx` — view id `"livestatus"`, sidebar item "◉ Live Status" under MONITORING.
-
-**Props:** `{ liveAlarms, nodeSnapshots, pollerConnected, crs, onSelectChange }`
-
-**Health classification (per node, worst wins):**
-- `DOWN`     → `!reachable` OR any Critical alarm
-- `DEGRADED` → any Major alarm OR cpu≥85 OR mem≥90 OR temp≥70
-- `WARNING`  → any alarm OR cpu≥70 OR mem≥80
-- `HEALTHY`  → otherwise
-
-**Incident label** derived from alarm type combination (CASCADE FAILURE, BGP INSTABILITY, THERMAL EVENT, LINK FLAP STORM, etc.)
-
-**Change cross-reference:** for each incident node, finds `crs` entries where `c.affectedDeviceIds.includes(nodeId)` AND `c.status` is one of `["Scheduled","Preflight","Approved","In Execution"]`. Shows as yellow (In Execution) or blue (Scheduled) banner on the card. Clicking opens the change detail panel.
-
-**Ticket badge:** each alarm row shows a 🎫 badge if an open ticket exists for that alarm (keyed by `nodeId::alarmType`). Clicking opens ticket in new tab.
-
----
-
-## ChaosControlPanel — How it works
-
-`src/components/ChaosControlPanel.jsx` — opened by clicking the LIVE pill in the sidebar.
-HTTP base URL derived from `VITE_POLLER_WS` (wss→https, ws→http).
-3s polling to keep node state fresh. Kill/Revive/Scenario via REST to `/api/control/*`.
-
----
-
-## ID System
-
-| Type | Format | Example |
-|---|---|---|
-| Operational changes | `BNOC-0000000001-A` | `BNOC-0000000003-A` |
-| Template blueprints | `BNOC-TEM-00000001-A` | `BNOC-TEM-00000003-A` |
-| Freeze periods / misc | `BNOC-XXXXXXXX` (random) | `BNOC-87351209` |
-| Incident tickets | `BNOC-INC-XXXXXXXX` | `BNOC-INC-00000042` |
-| Problem tickets | `BNOC-PRB-XXXXXXXX` | `BNOC-PRB-00000001` |
-| Project tickets | `BNOC-PRJ-XXXXXXXX` | `BNOC-PRJ-00000001` |
-
-Node IDs (inventory + poller fleet):
-`fj-suva-cr-01`, `fj-suva-pe-01`, `hw-hnl1-cr-01`, `hw-hnl1-pe-01`, `ib-town-cr-01`, `ib-town-pe-01`
-(plus many more in inventory that are NOT in the live fleet)
-
-Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same IDs.
-
----
-
-## Key Domain Concepts
-
-- **Change record** — `status` (Draft → Preflight → Pending Approval → Approved → In Execution → Completed/Failed/Aborted/etc.), `category` (Normal/Standard/Emergency), `risk` (Low/Medium/High/Critical), `approvalLevel` (L1/L2/L3), `steps[]`, `preflightResults`, `approvals[]`, `auditLog[]`, `comments[]`
-- **Templates** — `isTemplate:true`, `variables:[{key,label,type,required,defaultValue}]`, `{{key}}` placeholders. Changes from templates have `sourceTemplateId`.
-- **Freeze periods** — `severity:"orange"` = Manager approval, `severity:"red"` = Director approval.
-- **Users** (`USERS` in App.jsx) — roles: Engineer, Manager, Director, NOC/SAC, Bar Raiser.
-- **Approval levels** — L1 (Engineer), L2 (Manager/Director), L3 (Director only).
 
 ---
 
@@ -399,262 +388,123 @@ Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same
 | NETWORK | `topology` | TopologyView |
 | MONITORING | `livestatus` | LiveStatusView |
 | MONITORING | `alarms` | AlarmsView |
-| MONITORING | `events` | EventsView ← needs Session 3 redesign |
+| MONITORING | `events` | EventsView ← placeholder, needs redesign |
 | MONITORING | `observability` | ObservabilityView |
 | MONITORING | `network_health` | NetworkHealthView ★ |
-| MONITORING | `signal_fusion`  | SignalFusionView ★  |
-| TICKETS | `tickets` | TicketListView ★ |
-| PWA only | `service_monitor` | ServiceStatusView (standalone mode, no login) |
-| PWA only | `network_health` | NetworkHealthView (PWA tile from landing page) |
-| PWA only | `signal_fusion`  | SignalFusionView (PWA tile from landing page) |
+| MONITORING | `signal_fusion` | SignalFusionView ★ |
+| TICKETS | `tickets_*` | TicketListView, TicketDetailView |
+| PWA only | `service_monitor` | ServiceStatusView |
+| PWA only | `network_health` | NetworkHealthView |
+| PWA only | `signal_fusion` | SignalFusionView |
 
 ---
 
-## App.jsx Top-level State
+## ID System
 
-```js
-const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
-const [view, setView] = useState("changes");
-const [chaosOpen, setChaosOpen] = useState(false);
-
-// Full-screen ticket routing (hash-based)
-const [fullScreenTicketId, setFullScreenTicketId] = useState(() => {
-  const m = window.location.hash.match(/[#&]ticket=([^&]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
-});
-
-// User session — persisted in sessionStorage so new tabs (ticket windows) keep the login
-const [user, setUser] = useState(() => {
-  try { return JSON.parse(sessionStorage.getItem("bnocUser")) || null; } catch { return null; }
-});
-
-// crs = changes.filter(c => !c.isTemplate)  — passed to LiveStatusView for cross-reference
-```
+| Type | Format | Example |
+|---|---|---|
+| Operational changes | `BNOC-0000000001-A` | `BNOC-0000000003-A` |
+| Template blueprints | `BNOC-TEM-00000001-A` | `BNOC-TEM-00000003-A` |
+| Freeze periods / misc | `BNOC-XXXXXXXX` (random) | `BNOC-87351209` |
+| Incident tickets | `BNOC-INC-XXXXXXXX` | `BNOC-INC-00000042` |
+| Problem tickets | `BNOC-PRB-XXXXXXXX` | `BNOC-PRB-00000001` |
+| Project tickets | `BNOC-PRJ-XXXXXXXX` | `BNOC-PRJ-00000001` |
 
 ---
 
-## Next Work — Session 7: EventsView → Incident Timeline
+## Key Domain Concepts
 
-**Goal:** Replace the placeholder `EventsView` with a real chronological incident timeline.
-
-**What to build (`src/components/IncidentTimelineView.jsx`):**
-1. Chronological feed merging:
-   - Network events from `liveEvents` WS stream (alarm open/resolve, interface flap, BGP changes)
-   - Change management events from `crs` (status transitions: Approved → In Execution → Completed)
-2. Correlation badge: if a change was "In Execution" when an alarm fired on one of its `affectedDeviceIds`, show a ⚡ correlation badge linking the two.
-3. Filter bar: severity (All/Critical/Major/Minor), type (All/PERFORMANCE/INTERFACE/BGP/HARDWARE/CHANGE).
-4. Single feed for the whole team, newest first.
-
-**Also consider:**
-- Network Health → real-world validation once droplet is updated (BGP/DNS data flowing)
-- Turkey market: AS15924 has 1 probe not reporting. Might stay as "no data" permanently.
-- Downdetector official API: user's token expired. Contact `enterprise.downdetector.com` for renewal.
+- **Change record** — `status` (Draft → Preflight → Pending Approval → Approved → In Execution → Completed/Failed/Aborted), `category` (Normal/Standard/Emergency), `risk` (Low/Medium/High/Critical), `approvalLevel` (L1/L2/L3)
+- **Templates** — `isTemplate:true`, `variables[]`, `{{key}}` placeholders, `sourceTemplateId`
+- **Freeze periods** — `severity:"orange"` = Manager approval, `"red"` = Director approval
+- **Users** (`USERS` in App.jsx) — roles: Engineer, Manager, Director, NOC/SAC, Bar Raiser
+- **Approval levels** — L1 (Engineer), L2 (Manager/Director), L3 (Director only)
 
 ---
 
-## Backlog / Next Sessions
+## Backlog / Session History
 
-### Session 3 (planned): EventsView → Incident Timeline
-See "Next Work — Session 7" section above.
+### ✅ Sessions 1-4 — Core platform
+  Change management CRUD, Supabase migration, templates, freeze periods, timeline, topology
 
-### ✅ Session 5 — Service Monitor chart improvements (DONE, claude/zealous-bassi → main)
-  - SVG chart with threshold zones (rgba fills) and dashed reference lines (baseline/2×/4.5×)
-  - Hover + touch crosshair tooltip
-  - trendDirection() helper, key metrics grid (Now/Baseline/Peak), service breakdown sorted by ratio
-  - Threshold reference table, perMin toggle
+### ✅ Session 5 — Service Monitor + PWA
+  SVG chart (threshold zones, MA, crossings), live value bar, zoom, PWA (iPhone app), share button
 
-### ✅ Session 5b — PWA (iPhone app) (DONE, claude/nifty-proskuriakova → main)
-  - manifest.json, apple-touch-icon, display:standalone, safe-area-inset
-  - Standalone detection via navigator.standalone / display-mode media query
-  - App name: "Chema NOC", icon: navy + red band + ECG pulse line
-  - Ticket navigation fixed in PWA: onOpenTicket callback → hash routing instead of window.open
-  - PWA landing page: two tiles (🌐 Service Monitor + 📡 Network Health)
+### ✅ Session 6 — Ticketing + Automation API
+  Supabase tickets, auto-create from alarms, SLA timer, working state, automation POST /notes
 
-### ✅ Session 5c — Chart improvements v2 (DONE, claude/nifty-proskuriakova → main)
-  - Live value bar (always visible above chart, no touch needed)
-  - Zoom buttons All/2×/4×/8× within chart panel
-  - Moving average line (thick translucent band)
-  - Threshold crossing annotation markers (vertical line + label at first 2× and 4.5× crossings)
-  - Share button (⎘) copies PWA deep link to clipboard
+### ✅ Session 6b — Network Health View
+  RIPE Atlas latency, BGP visibility, DNS RTT, 9 markets, ratio model, probe breakdown
 
-### ✅ Session 6 — Automation API (DONE, already merged to main)
-  - POST /api/tickets/:id/notes alias for Camunda/Nagios/Ansible
-  - x-api-key middleware (AUTOMATION_API_KEY env var), scoped to /notes only
-  - Frontend: automation_note events rendered in Worklog tab (🤖 icon, blue tint)
+### ✅ Session 7 — Correlation Layer
+  Cloudflare Radar, CAIDA IODA, RIPE RIS Live, correlation score 0-100, CorrelationPanel,
+  SignalDetailModal, RIS dedup fix, droplet deploy alias
 
-### ✅ Session 7 — Correlation Layer + Signal Detail Modal (DONE 2026-04-11)
-  - Cloudflare Radar: `server/lib/cf-radar.js` — BGP hijack/leak events per Vodafone ASN (CF_RADAR_TOKEN)
-  - CAIDA IODA: `server/lib/ioda.js` — outage detection (BGP+probing+darknet telescope)
-  - RIPE RIS Live: `server/lib/ris-live.js` — real-time BGP UPDATE stream, withdrawals/announces per market
-  - Correlation engine: `server/lib/correlation.js` — score 0-100, penalties per signal + cross-penalties
-  - Correlation history: `server/lib/correlation-history.js` — Supabase persistence (36h), in-memory fallback
-  - NetworkHealthView: signal dots (Atlas·BGP·IODA·Radar·RIS), score badge, CorrelationPanel matrix
-  - SignalDetailModal: click any signal row → full NOC troubleshooting guide (what it means, thresholds, events, action steps)
-  - CorrelationPanel: collapsible, always-visible matrix below market cards
-  - RIS fix: separate recentWithdrawals/recentAnnouncements arrays (high announce volume was crowding withdrawals)
-  - RIS fix: initial status "ok" (was "unknown" for first 5 min after restart)
-  - RIS fix (dedup): one real withdrawal propagates through many RIS collectors/peers as separate
-    UPDATE messages, inflating `withdrawals1h` by 100-1000×. Now deduplicated by
-    `(type, prefix, 60s time bucket)` in `ris-live.js` — `seenBuckets: Set` sibling to `events[]`,
-    rebuilt inside `recompute()` after 6h pruning so it can't grow unbounded. Thresholds recalibrated:
-    **WARN ≥3/h · ALERT ≥10/h** (was 5/20). A later re-withdrawal of the same prefix (>60s later)
-    is counted separately so real route-flap activity is still visible. `correlation_scores.ris_wd_1h`
-    history has a step-down at deploy time (no migration needed).
-  - Scroll fix: removed display:flex from scrollable container, added minHeight:0
-  - IODA workaround (superseded): `scripts/ioda-sync.py` Mac cron + `/api/ioda-push` endpoint.
-    Old CAIDA URL `api.ioda.caida.org` blocked cloud IPs; new v2 URL does not. Removed in Session 8.
-  - Droplet deploy alias: `deploy` = `git pull && docker compose build --no-cache && docker compose up -d`
-  - CF_RADAR_TOKEN: added to `.env.supabase` on droplet (token name: vodafone-noc, Account.Radar.Read)
+### ✅ Session 8 — Signal Fusion + Persistence (2026-04-11)
 
-### ✅ Session 8 — IODA v2 native + Signal Fusion view (DONE 2026-04-11)
+  **IODA v2 native** (`server/lib/ioda.js` rewrite):
+  - New URL: `api.ioda.inetintel.cc.gatech.edu/v2` (no cloud IP block)
+  - 3 API calls/market: outage events + BGP signal + ping-slash24 signal
+  - Turkey: AS15897 for IODA (vs AS15924 for RIPE Atlas)
+  - Supabase `ioda_signals` table, 36h persistence, preloaded on boot
+  - Removed: Mac cron `ioda-sync.py`, `/api/ioda-push` endpoint
 
-#### IODA v2 native integration (`server/lib/ioda.js` rewrite)
-  - New API base: `https://api.ioda.inetintel.cc.gatech.edu/v2/` (Georgia Tech, not CAIDA)
-    No cloud IP block. No authentication. Rate limit ~1 req/s. Swagger docs at `/v2/`.
-  - Per-market, 3 API calls per tick (1.2s apart):
-    1. `/v2/outages/events?entityType=asn&entityCode=ASN&from=T&until=T&overall=true`
-       → macroscopic outage events (merged across datasources). Each event: id, start, duration, score.
-    2. `/v2/signals/raw/asn/{asn}?datasource=bgp&maxPoints=24`
-       → BGP visibility score time series (number of full-feed peers seeing the AS's prefixes).
-       Higher = more globally visible. Drop → prefixes withdrawn from routing table.
-    3. `/v2/signals/raw/asn/{asn}?datasource=ping-slash24&maxPoints=24`
-       → Active probing /24 count (Trinocular technique, Georgia Tech fleet of 20 probers).
-       Number of /24 blocks answering probes. Drop → address space becoming unreachable.
-  - Turkey ASN override: IODA uses **AS15897** (VodafoneTurkey, 772K IPs) not AS15924
-    (which has 1 RIPE Atlas probe and negligible IODA coverage). RIPE Atlas still uses AS15924.
-    Implemented via `IODA_ASN_OVERRIDE = { tr: 15897 }` in ioda.js. iodaAsn field in API response.
-  - Supabase persistence: `ioda_signals` table (same pattern as ripe_measurements):
-    `{ id, market_id, ioda_asn, bgp_score, ping_count, measured_at }`
-    36h retention with auto-cleanup. 36h history preloaded on boot so charts work after restart.
-  - Removed: `injectIodaData()` export, `/api/ioda-push` endpoint, `scripts/ioda-sync.py`
-  - Removed: Mac cron job (`crontab -e` — ioda-sync entry deleted)
-  - `initIoda()` is now async (was sync). `poller.js` calls it with `.catch()`.
-  - API response now includes `ioda.iodaAsn` and `ioda.signals` fields.
+  **Signal Fusion view** (`src/components/SignalFusionView.jsx`):
+  - Signal Matrix: 9 markets × 6 signals, health score, "Degraded only" toggle
+  - Event Feed: chronological + ⚡ incident clustering
+  - Market Detail Panel (400px): metrics, signal layers, CorrelationChart, About
+  - CorrelationChart: 5 series + RIS markers, zoom 30m-24h, hover tooltip with raw values
+  - AboutMetrics: collapsible, explains all 8 concepts
+  - PWA: 3rd tile (purple)
 
-#### Signal Fusion view (`src/components/SignalFusionView.jsx`)
-  - New sidebar item 🔀 Signal Fusion under MONITORING (view id: `signal_fusion`)
-  - Fetches both `/api/network-health` AND `/api/service-status` every 30s
-  - Signal Matrix: 9 markets × 6 signals (Atlas · BGP · RIS · Radar · IODA · Community)
-    Each cell: status dot + key metric (e.g. "22 ms", "82%", "3 wd/h", "142 rep")
-    Toggle: "Degraded only" hides healthy markets
-  - Event Feed: chronological stream of all signal events with ⚡ incident clustering
-    (2+ signals on same market within 30 min → grouped as "PROBABLE INCIDENT")
-  - Market Detail Panel (right side, 320px): opens on row click
-    Metrics grid (6 cells), signal layers, community reports breakdown, correlation insight,
-    "Open in Network Health →" button (calls `onOpenNetworkHealth` prop)
-  - PWA: 3rd tile on landing page (purple, 🔀 Signal Fusion)
-  - `onOpenNetworkHealth` prop: App.jsx passes `() => setView("network_health")` (desktop)
-    or `() => setPwaView("network_health")` (PWA)
+  **NetworkHealthView cleanup**:
+  - Removed CorrelationPanel + MetricsGlossary (moved to Signal Fusion)
+  - Added "Open Signal Fusion →" CTA banner
+  - `onOpenSignalFusion` prop wired from App.jsx
 
-#### MarketCard alert badge row (NetworkHealthView)
-  - Compact badge row above signal dots — only shown when ≥1 signal is warn/alert
-  - Badges: `📡 Atlas ×2.1` · `🔗 BGP 82%` · `🔄 RIS 12 wd/h` · `☁️ Radar 3 evt` · `🌐 IODA 2 active`
-  - Amber background = warning · Red background = alert/outage · Healthy cards unchanged
+  **community_signals Supabase persistence**:
+  - `service-status.js`: saveCommunitySignal() every 30s tick, loadCommunityHistory() on boot
+  - `trend[]` starts empty (no fake baseline padding) — sparklines show real data only
+  - `svc.history[]` returned in API, used by CorrelationChart (Supabase-backed)
 
-### ✅ Session 6b — Network Health View (DONE, claude/nifty-proskuriakova → main 2026-04-10)
-  - RIPE Atlas msm #1001 (ICMP ping to k-root) per Vodafone market, 9 countries
-  - 3×2 card: AVG/P95 Latency, Packet Loss, BGP Visible (peer counts), DNS RTT, Active Probes
-  - 6-chart DetailPanel with 7 time window options (10m→36h)
-  - Per-probe breakdown modal: ICMP bars (min/avg/max), P95, DNS RTT column, BGP summary
-  - BGP Visibility: RIPE Stat routing-status API — ris_peers_seeing/total, prefixes announced
-  - DNS RTT: RIPE Atlas msm #10001 (DNS SOA), per-probe breakdown, dynamic baseline
-  - Ratio tooltip on status pill: explains ×ratio, thresholds, probe count
-  - MetricsGlossary: all 6 metrics explained (ICMP, P95, loss, BGP, DNS, probes)
-  - Probe coverage: 8/9 markets active (Turkey AS15924 has 1 probe not reporting — no fix available)
-  - 60-min fallback window for sparse markets (≤3 probes)
+  **Poller Control** (`server/lib/poller-control.js`):
+  - Runtime pause/resume per module without container restart
+  - All 7 tick functions check `isPaused()` at entry
+  - REST endpoints: GET/POST /api/control/poller/*
 
-### Phase 3 (after sessions): Authentication
-Supabase Auth (email magic link or SSO). `currentUser` from real session.
-
-### Phase 4: RBAC with RLS
-Row-Level Security in Supabase.
-
----
-
-## Production Migration Roadmap
-
-### ✅ Phase 0 — Prototype (DONE)
-### ✅ Phase 1 — localStorage (DONE)
-### ✅ Phase 2 — Supabase DB (DONE)
-### ✅ Phase 2b — Live Poller Backend on DigitalOcean (DONE)
-  - Docker + Caddy + Let's Encrypt on `api.chemafmp.dev`
-  - Chaos Control API for live demos
-  - WebSocket live feed to frontend
-### ✅ Phase 2c — Ticketing System (DONE)
-  - Supabase tables: tickets, ticket_events, ticket_evidence
-  - Auto-ticket creation from alarms (sequential, dedup, race-condition-safe)
-  - Full-screen ticket detail (hash routing, new tab, sessionStorage auth)
-  - Working state, SLA timer, log tab with operator/system split
-  - Ticket badges in LiveStatusView and AlarmsView
-
-### ✅ Phase 2d — Automation API (DONE)
-  - POST /api/tickets/:id/notes alias (x-api-key, body: {content, source, metadata})
-  - requireAutomationKey middleware scoped to /notes only
-  - automation_note events in TicketDetailView Worklog tab
-
-### ✅ Phase 2e — PWA / iPhone app (DONE)
-  - manifest.json, icons (Pillow-generated: navy + red + ECG), app name "Chema NOC"
-  - Standalone detection, safe-area-insets, in-app ticket navigation via hash routing
-  - Chart: live value bar, zoom ×1-8, moving average, threshold crossings, share button
-  - Landing page: two tiles (Service Monitor + Network Health)
-
-### ✅ Phase 2f — Network Health View (DONE 2026-04-10)
-  - RIPE Atlas msm #1001 latency per Vodafone market (9 countries)
-  - BGP Visibility via RIPE Stat (ris_peers_seeing/total, prefixes)
-  - DNS RTT via RIPE Atlas msm #10001 (per-probe breakdown)
-  - Dynamic 4h baseline, ratio model, 36h Supabase persistence
-  - ⚠️ Droplet needs: git pull && docker compose up -d --build
+### 🔲 Next — EventsView redesign
+  Replace placeholder EventsView with real Incident Timeline:
+  - Merge liveEvents (WS) + change status transitions (crs)
+  - ⚡ correlation badge when change "In Execution" during alarm on same node
+  - Filter: severity + type
 
 ### 🔲 Phase 3 — Authentication (Supabase Auth magic link or SSO)
 ### 🔲 Phase 4 — RBAC with RLS
-### 🔲 Phase 5 — Real-time (Supabase)
 
 ---
 
-## Network Health View — How it works
+## Network Health — Data shape
 
-`src/components/NetworkHealthView.jsx` — view id `"network_health"`, sidebar item "📡 Network Health" under MONITORING. Also accessible from PWA landing page tile.
-
-**Data source:** `GET /api/network-health` — polled every 30s by the frontend.
-**Backend polling:** every 5 min per market, staggered 600ms between markets.
-
-**Three metrics, three modules:**
-
-| Metric | Module | Measurement | Notes |
-|---|---|---|---|
-| ICMP Latency + Loss | `ripe-atlas.js` | msm #1001 — ICMP ping to k.root-servers.net | Probes inside Vodafone AS |
-| BGP Visibility | `bgp-visibility.js` | RIPE Stat routing-status API | External RIS peers looking AT Vodafone |
-| DNS RTT | `dns-measurements.js` | msm #10001 — DNS SOA to k.root-servers.net | Same probes as ICMP |
-
-**Ratio model (ICMP + DNS):**
-- `ratio = current_metric / 4h_rolling_baseline`
-- OK <2× · WARNING ≥2× · OUTAGE ≥4.5×
-
-**BGP thresholds (static, not ratio):**
-- OK ≥95% · WARNING ≥80% · OUTAGE <80%
-
-**Markets and ASNs:**
-| Market | ASN | Probes (active) |
-|---|---|---|
-| ES | 12430 | 6 |
-| UK | 5378 | 18 |
-| DE | 3209 | 199 |
-| IT | 30722 | 15 |
-| PT | 12353 | 14 |
-| NL | 33915 | 60 |
-| IE | 15502 | 12 |
-| GR | 3329 | 14 |
-| TR | 15924 | 1 (not reporting) |
-
-Turkey has only 1 RIPE Atlas probe on Vodafone's ASN and it doesn't report to msm #1001. No alternative Vodafone TR ASN has probes (AS47331=0, Turk Telekom and Superonline are NOT Vodafone). Show as "no data" — 60-min fallback window applied.
-
-**Why BGP data looks like 329/329 (all same)?**
-RIPE Stat's routing-status API returns a snapshot of the CURRENT global routing table. `total_ris_peers` is the global count of all RIPE RIS BGP collectors (same number for every ASN, ~329). `ris_peers_seeing` is how many of those can route to this specific AS. When all 329/329 see you = perfect visibility. The value never changes unless there's a routing incident.
-
-**Supabase tables (36h retention, auto-cleaned each tick):**
-- `ripe_measurements` — {market_id, avg_rtt, p95_rtt, loss_pct, probe_count, measured_at}
-- `bgp_visibility` — {market_id, visibility_pct, announced_prefixes, measured_at}
-- `dns_measurements` — {market_id, dns_rtt, probe_count, measured_at}
+```js
+// GET /api/network-health → array of 9 markets:
+{
+  id, name, flag, asn, ok, error,
+  current: { avg_rtt, p95_rtt, loss_pct, probe_count, measured_at },
+  baseline_rtt, ratio, status,
+  history: [{ measured_at, avg_rtt, p95_rtt, loss_pct }],   // 36h, 5min intervals
+  totalProbes, probeDetails[], probeLocations[],
+  bgp: { current: { visibility_pct, ris_peers_seeing, total_ris_peers, announced_prefixes },
+         history[], status, ok, error },
+  dns: { current: { dns_rtt, p95_dns_rtt, probe_count }, history[], baseline_rtt, ratio,
+         status, ok, error, probeDetails[] },
+  ris: { status, connected, withdrawals1h, announces1h, recentWithdrawals[], recentAnnouncements[] },
+  radar: { status, configured, alertCount, events[] },
+  ioda: { status, hasActiveEvent, activeCount, recentCount, events[], iodaAsn,
+          signals: { bgp: { current, history[], unit }, ping: { current, history[], unit } } },
+  correlation: { score, status, insight, alerts[] },
+  correlationHistory: [{ measured_at, score, status }],
+}
+```
 
 ---
 
