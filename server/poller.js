@@ -34,6 +34,7 @@ import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
 import { computeCorrelation } from "./lib/correlation.js";
+import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -179,6 +180,9 @@ app.get("/api/network-health", (req, res) => {
       ris:    risData,
     });
 
+    // Correlation score history (Supabase-backed)
+    const correlationHistory = getCorrelationHistory(m.id);
+
     return {
       ...m,
       bgp: bgpData ? {
@@ -235,6 +239,7 @@ app.get("/api/network-health", (req, res) => {
         configured:  radarData.configured,
       } : null,
       correlation,
+      correlationHistory,   // 36h history for the score trend chart
     };
   }));
 });
@@ -630,10 +635,11 @@ server.listen(PORT, BIND_HOST, () => {
 
   // CAIDA IODA — tick every 5 min, staggered 25s
   initIoda(log);
-  setInterval(() => {
-    tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
+  setInterval(async () => {
+    await tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
     tickRisLive();   // recompute RIS counters every cycle
-    tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] tick error: ${e.message}`)));
+    await tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] tick error: ${e.message}`)));
+    await saveAllCorrelationPoints(log);
   }, RIPE_INTERVAL);
   setTimeout(() => tickIoda(log).catch(e => log(chalk.yellow(`[ioda] first tick error: ${e.message}`))), 25_000);
   setTimeout(() => tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] first tick error: ${e.message}`))), 35_000);
@@ -643,7 +649,41 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Cloudflare Radar — token from CF_RADAR_TOKEN env var
   initCfRadar(log);
+
+  // Correlation history — load from Supabase on boot, persist each tick
+  await initCorrelationHistory(log);
 });
+
+// ─── Save correlation scores for all markets to Supabase ─────────────────────
+async function saveAllCorrelationPoints(logFn) {
+  const atlas    = getNetworkHealth();
+  const bgp      = getBgpVisibility();
+  const dns      = getDnsMeasurements();
+  const ioda     = getIoda();
+  const ris      = getRisLive();
+  const radar    = getCfRadar();
+  const bgpMap   = Object.fromEntries(bgp.map(b => [b.id, b]));
+  const iodaMap  = Object.fromEntries(ioda.map(i => [i.id, i]));
+  const risMap   = Object.fromEntries(ris.map(r => [r.id, r]));
+  const radarMap = Object.fromEntries(radar.map(r => [r.id, r]));
+
+  for (const m of atlas) {
+    const bgpData   = bgpMap[m.id]   || null;
+    const iodaData  = iodaMap[m.id]  || null;
+    const risData   = risMap[m.id]   || null;
+    const radarData = radarMap[m.id] || null;
+
+    const correlation = computeCorrelation({ atlas: m, bgp: bgpData, ioda: iodaData, radar: radarData, ris: risData });
+    const signals = {
+      iodaActive:  iodaData?.activeCount   ?? null,
+      radarAlerts: radarData?.alertCount   ?? null,
+      risWd1h:     risData?.withdrawals1h  ?? null,
+    };
+
+    await saveCorrelationPoint(m.id, correlation, signals, logFn)
+      .catch(e => logFn?.(`[corr-hist] save ${m.id}: ${e.message}`));
+  }
+}
 
 function log(msg) {
   const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });

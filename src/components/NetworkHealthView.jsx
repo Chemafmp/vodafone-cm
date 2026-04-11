@@ -1132,6 +1132,100 @@ function RpkiDetailModal({ market, onClose }) {
   );
 }
 
+// ─── Correlation score zoom helper ────────────────────────────────────────────
+// correlationHistory rows use `measured_at` (ISO string), same as other histories.
+function applyZoomCorr(history, zoom) {
+  if (!history || !history.length) return history || [];
+  if (zoom === "36h") return history;
+  const ms = ZOOM_WINDOWS[zoom];
+  if (!ms) return history;
+  const since = Date.now() - ms;
+  const filtered = history.filter(h => new Date(h.measured_at).getTime() >= since);
+  return filtered.length >= 1 ? filtered : history.slice(-2);
+}
+
+// ─── Correlation score sparkline chart ────────────────────────────────────────
+function CorrelationScoreChart({ history, width = 540, height = 64 }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const svgRef = useRef(null);
+
+  const values = history.map(h => h.score).filter(v => v != null);
+  if (values.length < 2) return null;
+
+  const W = width, H = height;
+  const toX = i => (i / (values.length - 1)) * W;
+  const toY = v => H - (v / 100) * H;
+
+  const linePts  = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+  const areaPts  = `${toX(0)},${H} ${linePts} ${toX(values.length - 1)},${H}`;
+
+  const displayVal  = hoverIdx !== null ? values[hoverIdx] : values[values.length - 1];
+  const displayTime = hoverIdx !== null ? fmtTime(history[hoverIdx]?.measured_at) : null;
+  const pointColor  = scoreColor(displayVal);
+
+  const handlePointerMove = (e) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const raw = (x / rect.width) * (values.length - 1);
+    setHoverIdx(Math.max(0, Math.min(values.length - 1, Math.round(raw))));
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 9, color: T.muted }}>100</span>
+        <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 800, color: pointColor }}>
+          {displayVal}
+          {displayTime && <span style={{ fontSize: 9, color: T.muted, marginLeft: 5, fontWeight: 400 }}>@ {displayTime}</span>}
+        </span>
+        <span style={{ fontSize: 9, color: T.muted }}>0</span>
+      </div>
+      <svg
+        ref={svgRef}
+        width={W} height={H}
+        style={{ overflow: "visible", cursor: "crosshair", display: "block", userSelect: "none" }}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIdx(null)}
+      >
+        {/* Zone fills */}
+        <rect x={0} y={toY(90)} width={W} height={Math.max(0, H - toY(90))} fill="#16a34a10" />
+        <rect x={0} y={toY(70)} width={W} height={Math.max(0, toY(90) - toY(70))} fill="#b4530910" />
+        <rect x={0} y={toY(40)} width={W} height={Math.max(0, toY(70) - toY(40))} fill="#d9770610" />
+        <rect x={0} y={0}       width={W} height={toY(40)}                        fill="#dc262610" />
+        {/* Threshold lines */}
+        {[{ v: 90, c: "#16a34a" }, { v: 70, c: "#b45309" }, { v: 40, c: "#dc2626" }].map(t => (
+          <line key={t.v} x1={0} y1={toY(t.v)} x2={W} y2={toY(t.v)}
+            stroke={t.c} strokeWidth={1} strokeDasharray="3,3" opacity={0.4} />
+        ))}
+        {/* Area + line */}
+        <polygon points={areaPts} fill="#3b82f614" />
+        <polyline points={linePts} fill="none" stroke="#3b82f6" strokeWidth={1.8}
+          strokeLinejoin="round" strokeLinecap="round" />
+        {/* Latest dot */}
+        <circle cx={toX(values.length - 1)} cy={toY(values[values.length - 1])} r={3}
+          fill={scoreColor(values[values.length - 1])} stroke={T.surface} strokeWidth={1.5} />
+        {/* Hover */}
+        {hoverIdx !== null && (
+          <>
+            <line x1={toX(hoverIdx)} y1={0} x2={toX(hoverIdx)} y2={H}
+              stroke={T.muted} strokeWidth={1} strokeDasharray="2,2" opacity={0.5} />
+            <circle cx={toX(hoverIdx)} cy={toY(values[hoverIdx])} r={4}
+              fill={scoreColor(values[hoverIdx])} stroke={T.surface} strokeWidth={2} />
+          </>
+        )}
+        {/* X-axis labels */}
+        <text x={2} y={H + 11} fontSize={8} fill={T.muted} fontFamily="monospace">
+          {fmtTime(history[0]?.measured_at)}
+        </text>
+        <text x={W} y={H + 11} fontSize={8} fill={T.muted} fontFamily="monospace" textAnchor="end">
+          {fmtTime(history[history.length - 1]?.measured_at)}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 // ─── Signal Layers section (used inside DetailPanel) ─────────────────────────
 function SignalLayersSection({ market }) {
   const [expanded, setExpanded] = useState(false);
@@ -1537,6 +1631,35 @@ function DetailPanel({ market, onClose }) {
               />
             ))}
           </div>
+
+          {/* ── Correlation score trend chart ────────────────────────────── */}
+          {market.correlationHistory && market.correlationHistory.length > 1 && (
+            <div style={{ marginTop: 16, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{
+                fontSize: 10, color: T.muted, fontWeight: 600, marginBottom: 6,
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <span>Correlation score — 36h trend</span>
+                <span style={{ color: "#9ca3af", fontWeight: 400 }}>
+                  ({applyZoomCorr(market.correlationHistory, zoom).length} pts · 5 min interval)
+                </span>
+                {market.correlation?.score != null && (
+                  <span style={{
+                    marginLeft: "auto", fontSize: 11, fontWeight: 800,
+                    fontFamily: "monospace", color: scoreColor(market.correlation.score),
+                  }}>now: {market.correlation.score}/100</span>
+                )}
+              </div>
+              <CorrelationScoreChart
+                history={applyZoomCorr(market.correlationHistory, zoom)}
+              />
+              <div style={{ marginTop: 5, fontSize: 9, color: T.muted, lineHeight: 1.5,
+                padding: "5px 8px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 5 }}>
+                💡 Score aggregates all 5 signal layers. A sudden drop = multi-source correlation
+                (routing incident, outage, or hijack). 90–100 = nominal · &lt;40 = incident.
+              </div>
+            </div>
+          )}
 
           {/* ── BGP Deep Metrics ─────────────────────────────────────────── */}
           {market.bgp?.ok && (
