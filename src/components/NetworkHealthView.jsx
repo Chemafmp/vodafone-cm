@@ -3131,7 +3131,7 @@ function CorrelationPanel({ markets }) {
 }
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export default function NetworkHealthView() {
+export default function NetworkHealthView({ onOpenSignalFusion }) {
   const [markets, setMarkets]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [selected, setSelected]       = useState(null);
@@ -3234,9 +3234,34 @@ export default function NetworkHealthView() {
         </div>
       )}
 
-      {!loading && markets.length > 0 && <CorrelationPanel markets={markets} />}
-
-      {!loading && <MetricsGlossary />}
+      {/* Signal Fusion CTA — replaces the old Correlation Analysis section */}
+      {!loading && markets.length > 0 && onOpenSignalFusion && (
+        <div style={{
+          marginTop: 20, padding: "14px 18px",
+          background: "linear-gradient(135deg, #1e1040, #0f172a)",
+          border: "1px solid #2e1a6e", borderRadius: 10,
+          display: "flex", alignItems: "center", gap: 14,
+        }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>🔀</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0", marginBottom: 2 }}>
+              Cross-signal correlation in Signal Fusion
+            </div>
+            <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>
+              Combine Atlas + BGP + RIS + Radar + IODA + community reports in a single correlation view — including health scores, incident clustering, and 2h correlation charts.
+            </div>
+          </div>
+          <button
+            onClick={onOpenSignalFusion}
+            style={{
+              padding: "8px 16px", background: "#8b5cf6", color: "#fff",
+              border: "none", borderRadius: 7, cursor: "pointer",
+              fontFamily: "inherit", fontSize: 12, fontWeight: 700, flexShrink: 0,
+            }}>
+            Open Signal Fusion →
+          </button>
+        </div>
+      )}
 
       {selected && (
         <DetailPanel market={selected} onClose={() => setSelected(null)} />

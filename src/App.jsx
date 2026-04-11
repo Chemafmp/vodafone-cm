@@ -339,7 +339,7 @@ export default function App(){
       return pwaShell(
         "Network Health · RIPE Atlas",
         () => setPwaView(null),
-        <NetworkHealthView />
+        <NetworkHealthView onOpenSignalFusion={() => setPwaView("signal_fusion")} />
       );
     }
 
@@ -565,7 +565,7 @@ export default function App(){
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
         {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
-        {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView/></div>}
+        {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView onOpenSignalFusion={()=>setView("signal_fusion")}/></div>}
         {view==="signal_fusion"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><SignalFusionView onOpenNetworkHealth={()=>setView("network_health")}/></div>}
 
         {/* TICKETING — list views */}

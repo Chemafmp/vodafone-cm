@@ -502,6 +502,140 @@ function EventFeed({ markets, svcMap }) {
   );
 }
 
+// ─── Correlation Chart ────────────────────────────────────────────────────────
+// SVG mini-chart: community reports (amber area) + Atlas RTT (blue line) +
+// RIS withdrawals (red vertical dashes) — last 2 hours, all normalized 0→1.
+
+function CorrelationChart({ market, svc }) {
+  const W = 280, H = 110;
+  const PAD = { top: 8, right: 8, bottom: 20, left: 8 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const now = Date.now();
+  const windowMs = 2 * 3600 * 1000;
+  const startMs  = now - windowMs;
+
+  // ── Community trend ────────────────────────────────────────────────────────
+  let smonPts = [];
+  if (svc?.trend?.length) {
+    const len = svc.trend.length;
+    smonPts = svc.trend
+      .map((v, i) => ({ ts: now - (len - 1 - i) * 30_000, v }))
+      .filter(p => p.ts >= startMs && typeof p.v === "number");
+  }
+
+  // ── Atlas RTT history ──────────────────────────────────────────────────────
+  let atlasPts = [];
+  if (market?.history?.length) {
+    atlasPts = market.history
+      .map(h => ({
+        ts: h.measured_at ? new Date(h.measured_at).getTime() : (h.ts || 0),
+        v:  h.avg_rtt ?? h.value ?? null,
+      }))
+      .filter(p => p.ts >= startMs && p.v != null);
+  }
+
+  // ── RIS withdrawal timestamps ──────────────────────────────────────────────
+  const risTimes = (market?.ris?.recentWithdrawals || [])
+    .filter(e => e.ts >= startMs)
+    .map(e => e.ts);
+
+  const hasData = smonPts.length > 1 || atlasPts.length > 1;
+  if (!hasData) {
+    return (
+      <div style={{ padding: "8px 0", textAlign: "center", color: T.muted, fontSize: 9 }}>
+        Not enough history for correlation chart
+      </div>
+    );
+  }
+
+  // Normalize a series to [0, 1] using its own min/max
+  function normalize(pts) {
+    const vals = pts.map(p => p.v);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const range = max - min || 1;
+    return pts.map(p => ({ ...p, norm: (p.v - min) / range }));
+  }
+
+  const smonN  = normalize(smonPts);
+  const atlasN = normalize(atlasPts);
+
+  function tx(ts) { return PAD.left + ((ts - startMs) / windowMs) * plotW; }
+  function ty(n)  { return PAD.top  + plotH - n * plotH; }
+
+  function linePath(pts) {
+    return pts.map((p, i) => `${i === 0 ? "M" : "L"}${tx(p.ts).toFixed(1)},${ty(p.norm).toFixed(1)}`).join(" ");
+  }
+
+  function areaPath(pts) {
+    if (!pts.length) return "";
+    const line = linePath(pts);
+    const botY  = (PAD.top + plotH).toFixed(1);
+    return `${line} L${tx(pts.at(-1).ts).toFixed(1)},${botY} L${tx(pts[0].ts).toFixed(1)},${botY} Z`;
+  }
+
+  const xTicks = [
+    { ts: startMs,              label: "−2h" },
+    { ts: startMs + windowMs/2, label: "−1h" },
+    { ts: now,                  label: "now" },
+  ];
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", marginBottom: 6, textTransform: "uppercase" }}>
+        Correlation (2h)
+      </div>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+        {smonN.length > 1 && (
+          <span style={{ fontSize: 9, color: "#b45309", display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 10, height: 6, background: "rgba(245,158,11,0.2)", border: "1px solid #f59e0b", borderRadius: 2, display: "inline-block" }} />
+            Community reports
+          </span>
+        )}
+        {atlasN.length > 1 && (
+          <span style={{ fontSize: 9, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 14, height: 2, background: "#3b82f6", display: "inline-block" }} />
+            Atlas RTT
+          </span>
+        )}
+        {risTimes.length > 0 && (
+          <span style={{ fontSize: 9, color: "#dc2626", display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 1, height: 10, background: "#dc2626", display: "inline-block" }} />
+            BGP withdraw
+          </span>
+        )}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map(f => (
+          <line key={f}
+            x1={PAD.left} y1={ty(f)} x2={PAD.left + plotW} y2={ty(f)}
+            stroke="#e5e7eb" strokeWidth="0.5" />
+        ))}
+        {/* Community area */}
+        {smonN.length > 1 && <path d={areaPath(smonN)} fill="rgba(245,158,11,0.15)" stroke="none" />}
+        {smonN.length > 1 && <path d={linePath(smonN)} fill="none" stroke="#f59e0b" strokeWidth="1" />}
+        {/* Atlas RTT line */}
+        {atlasN.length > 1 && <path d={linePath(atlasN)} fill="none" stroke="#3b82f6" strokeWidth="1.5" />}
+        {/* RIS withdrawal markers */}
+        {risTimes.map((ts, i) => (
+          <line key={i}
+            x1={tx(ts)} y1={PAD.top} x2={tx(ts)} y2={PAD.top + plotH}
+            stroke="#dc2626" strokeWidth="1" strokeDasharray="3,2" opacity="0.75" />
+        ))}
+        {/* X-axis */}
+        <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH} stroke="#d1d5db" strokeWidth="0.5" />
+        {xTicks.map(t => (
+          <text key={t.label} x={tx(t.ts)} y={H - 4} textAnchor="middle" fontSize="8" fill="#9ca3af">{t.label}</text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // ─── Market Detail Panel ──────────────────────────────────────────────────────
 
 function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
@@ -650,6 +784,9 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
           </div>
         )}
 
+        {/* Correlation Chart */}
+        <CorrelationChart market={market} svc={svc} />
+
         {/* Open in Network Health */}
         <button
           onClick={onOpenNetworkHealth}
@@ -662,6 +799,96 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
           Open in Network Health →
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── About These Metrics ─────────────────────────────────────────────────────
+
+const ABOUT_ITEMS = [
+  {
+    icon: "📡",
+    title: "Atlas — ICMP Latency",
+    desc: "RIPE Atlas probes inside Vodafone's ASN send ICMP pings to k.root-servers.net every 5 min. We measure avg RTT, P95, and packet loss. A 4h rolling baseline is kept; ratio = current ÷ baseline. OK <2× · WARNING ≥2× · OUTAGE ≥4.5×.",
+  },
+  {
+    icon: "🔗",
+    title: "BGP — Prefix Visibility",
+    desc: "RIPE Stat routing-status API: how many of ~329 global RIS BGP collectors can route to this ASN's prefixes. 329/329 = perfect visibility. Drops signal route withdrawals. OK ≥95% · WARNING ≥80% · OUTAGE <80%.",
+  },
+  {
+    icon: "🔄",
+    title: "RIS Live — BGP Stream",
+    desc: "Real-time BGP update stream from RIPE RIS. Prefix withdrawals are deduplicated per 60s bucket (each prefix counted once regardless of how many RIS peers report it). OK <3 wd/h · WARNING ≥3 · ALERT ≥10.",
+  },
+  {
+    icon: "☁️",
+    title: "Radar — Cloudflare BGP Events",
+    desc: "Cloudflare Radar BGP hijack and route-leak detection, filtered to prefixes belonging to each Vodafone ASN. Requires CF_RADAR_TOKEN env var — shows 'unconfigured' when missing.",
+  },
+  {
+    icon: "🌐",
+    title: "IODA — Internet Outage Detection",
+    desc: "CAIDA IODA v2 (Georgia Tech). Polls /v2/outages/events per ASN — macroscopic outage events fusing BGP routing data, active probing (ping-slash24), and the Merit network telescope. Also returns raw bgp and ping-slash24 time series. OK = no active events · ALERT = ≥1 active event.",
+  },
+  {
+    icon: "👥",
+    title: "Community — Downdetector Reports",
+    desc: "User-reported complaints from Downdetector. Simulated when USE_SCRAPER=0; real data when the scraper is enabled. Each market has its own baseline (hourly average). Ratio = current ÷ baseline. OK <2× · WARNING ≥2× · OUTAGE ≥4.5×.",
+  },
+  {
+    icon: "📊",
+    title: "Health Score (0–100)",
+    desc: "Composite score penalising each degraded signal layer. Atlas WARNING −10 / OUTAGE −25. BGP WARNING −8 / OUTAGE −20. RIS WARNING −5 / ALERT −15. Radar ALERT −10. IODA ALERT −10. Community WARNING −5 / OUTAGE −15. Cross-penalty: 2+ signals degrade together → additional −10.",
+  },
+  {
+    icon: "⚡",
+    title: "Incident Clustering",
+    desc: "When 2+ signal events for the same market occur within a 30-minute window, the Event Feed groups them as a PROBABLE INCIDENT cluster — helping distinguish transient single-layer blips from real multi-layer incidents that need immediate attention.",
+  },
+];
+
+function AboutMetrics() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{ borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          width: "100%", padding: "10px 20px",
+          background: open ? T.surface : "transparent",
+          border: "none", borderBottom: open ? `1px solid ${T.border}` : "none",
+          cursor: "pointer", fontFamily: "inherit",
+          fontSize: 12, fontWeight: 600, color: T.muted, textAlign: "left",
+        }}>
+        <span style={{ fontSize: 14 }}>ℹ️</span>
+        <span>About these metrics</span>
+        <span style={{ marginLeft: "auto", fontSize: 9, letterSpacing: "0.4px" }}>{open ? "▲ collapse" : "▼ expand"}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          padding: "14px 20px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 10,
+        }}>
+          {ABOUT_ITEMS.map(item => (
+            <div key={item.title} style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: 8, padding: "11px 13px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                <span style={{ fontSize: 15 }}>{item.icon}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{item.title}</span>
+              </div>
+              <p style={{ fontSize: 10, color: T.muted, lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -876,6 +1103,9 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
           </div>
         )}
       </div>
+
+      {/* About these metrics — pinned at bottom */}
+      <AboutMetrics />
     </div>
   );
 }
