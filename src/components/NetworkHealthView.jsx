@@ -1226,9 +1226,503 @@ function CorrelationScoreChart({ history, width = 540, height = 64 }) {
   );
 }
 
+// ─── Signal Detail Modal ──────────────────────────────────────────────────────
+function SignalDetailModal({ signal, market, onClose }) {
+  const ris   = market.ris;
+  const radar = market.radar;
+  const bgp   = market.bgp;
+  const ioda  = market.ioda;
+
+  const normStatus = signal.status === "alert" ? "outage"
+    : signal.status === "warn" ? "warning"
+    : signal.status || "unknown";
+  const sc = sm(normStatus);
+
+  const Section = ({ title, children }) => (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", marginBottom: 8, textTransform: "uppercase" }}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const KV = ({ label, value, sub, valueColor }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: 11, color: T.muted }}>{label}</span>
+      <div style={{ textAlign: "right" }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: valueColor || T.text, fontFamily: "monospace" }}>{value}</span>
+        {sub && <div style={{ fontSize: 9, color: T.muted }}>{sub}</div>}
+      </div>
+    </div>
+  );
+
+  const ThresholdRow = ({ range, status, meaning }) => {
+    const c = status === "ok" ? "#16a34a" : status === "warn" ? "#b45309" : "#dc2626";
+    const bg = status === "ok" ? "#f0fdf4" : status === "warn" ? "#fffbeb" : "#fef2f2";
+    return (
+      <div style={{ display: "flex", gap: 8, padding: "4px 8px", borderRadius: 5, background: bg, marginBottom: 3, alignItems: "center" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: c, fontFamily: "monospace", minWidth: 60 }}>{range}</span>
+        <span style={{ fontSize: 9, fontWeight: 700, color: c, textTransform: "uppercase", minWidth: 40 }}>{status}</span>
+        <span style={{ fontSize: 10, color: T.text, flex: 1 }}>{meaning}</span>
+      </div>
+    );
+  };
+
+  const EventRow = ({ label, tag, mono }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 5, background: "#fef2f2", border: "1px solid #fca5a5", marginBottom: 3 }}>
+      {tag && <span style={{ fontSize: 9, fontWeight: 700, color: "#dc2626", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 3, padding: "1px 5px" }}>{tag}</span>}
+      <span style={{ fontSize: 10, fontFamily: mono ? "monospace" : "inherit", color: T.text, wordBreak: "break-all" }}>{label}</span>
+    </div>
+  );
+
+  function renderContent() {
+    if (signal.key === "ris") {
+      const wd1h = ris?.withdrawals1h ?? 0;
+      const an1h = ris?.announcements1h ?? 0;
+      const wd6h = ris?.withdrawals6h ?? 0;
+      const an6h = ris?.announcements6h ?? 0;
+      const withdrawEvents = (ris?.recentEvents || []).filter(e => e.type === "WITHDRAW");
+      const announceEvents = (ris?.recentEvents || []).filter(e => e.type === "ANNOUNCE");
+      const wdColor = wd1h >= 20 ? "#dc2626" : wd1h >= 5 ? "#b45309" : "#16a34a";
+
+      return (<>
+        <Section title="What is RIS Live?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            RIPE RIS (Routing Information Service) Live streams real-time BGP UPDATE messages from
+            <strong> 25 Route Collectors (RRCs)</strong> placed at Internet Exchange Points worldwide.
+            Every time a router changes its routing table — adding or removing a route — it sends an UPDATE
+            to its BGP peers, which propagates to the RIS stream.
+          </p>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            This gives us a real-time view of BGP instability for AS{market.asn} ({market.name}).
+          </p>
+        </Section>
+
+        <Section title="Current metrics">
+          <KV label="Withdrawals / last 1h" value={`${wd1h}`} valueColor={wdColor}
+            sub={wd1h >= 20 ? "ALERT — high instability" : wd1h >= 5 ? "WARN — elevated, monitor" : "Normal BGP churn"} />
+          <KV label="Announcements / last 1h" value={`${an1h}`}
+            sub="New routes being advertised — normal activity" />
+          <KV label="Withdrawals / last 6h" value={`${wd6h}`} />
+          <KV label="Announcements / last 6h" value={`${an6h}`} />
+          <KV label="WebSocket" value={ris?.connected ? "Connected" : "Disconnected"} valueColor={ris?.connected ? "#16a34a" : "#dc2626"} />
+        </Section>
+
+        <Section title="What do withdrawals mean?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: "0 0 8px" }}>
+            A <strong>BGP withdrawal</strong> means a router stopped announcing a prefix — it removed the route
+            from its routing table. Common causes:
+          </p>
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.7 }}>
+            <div>• <strong>Planned maintenance:</strong> router taken offline gracefully</div>
+            <div>• <strong>Link failure:</strong> upstream link dropped, router withdraws affected routes</div>
+            <div>• <strong>Traffic engineering:</strong> intentional route changes for load balancing</div>
+            <div>• <strong>BGP session reset:</strong> peer connection dropped and re-established</div>
+          </div>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            A small number of withdrawals per hour is <strong>completely normal</strong>.
+            It is the sustained high rate that indicates problems.
+          </p>
+        </Section>
+
+        <Section title="Thresholds">
+          <ThresholdRow range="0 – 4 / h"  status="ok"   meaning="Normal BGP churn. No action needed." />
+          <ThresholdRow range="5 – 19 / h" status="warn" meaning="Elevated instability. Monitor for escalation. Check if maintenance is scheduled." />
+          <ThresholdRow range="≥ 20 / h"   status="alert" meaning="High instability. Investigate immediately. Cross-reference with Atlas latency and BGP visibility." />
+        </Section>
+
+        {withdrawEvents.length > 0 && (
+          <Section title={`Recent withdraw events (${withdrawEvents.length} shown)`}>
+            {withdrawEvents.slice(0, 15).map((e, i) => (
+              <EventRow key={i} mono
+                tag="WITHDRAW"
+                label={`${e.prefix}  peer ${e.peer}  via ${e.rrc}  ${new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`}
+              />
+            ))}
+          </Section>
+        )}
+
+        {announceEvents.length > 0 && (
+          <Section title={`Recent announce events (${announceEvents.length} shown)`}>
+            {announceEvents.slice(0, 5).map((e, i) => (
+              <div key={i} style={{ display: "flex", gap: 6, padding: "4px 8px", borderRadius: 5, background: "#f0fdf4", border: "1px solid #86efac", marginBottom: 3 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#16a34a", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 3, padding: "1px 5px" }}>ANNOUNCE</span>
+                <span style={{ fontSize: 10, fontFamily: "monospace", color: T.text, wordBreak: "break-all" }}>
+                  {e.prefix}  peer {e.peer}  via {e.rrc}  {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </span>
+              </div>
+            ))}
+          </Section>
+        )}
+
+        <Section title="NOC action guide">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            {wd1h < 5 && <div>✅ No action needed. BGP state is stable.</div>}
+            {wd1h >= 5 && wd1h < 20 && <>
+              <div>⚠️ Elevated withdrawal rate. Recommended steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Check if maintenance is scheduled for AS{market.asn}</div>
+              <div style={{ paddingLeft: 16 }}>2. Monitor Atlas latency for end-user impact</div>
+              <div style={{ paddingLeft: 16 }}>3. Review BGP Visibility — if peers dropping, escalate</div>
+              <div style={{ paddingLeft: 16 }}>4. Re-check in 15 min — if still elevated, open ticket</div>
+            </>}
+            {wd1h >= 20 && <>
+              <div>🔴 High BGP instability. Immediate action:</div>
+              <div style={{ paddingLeft: 16 }}>1. Identify which prefixes are being withdrawn (see events above)</div>
+              <div style={{ paddingLeft: 16 }}>2. Check Atlas — is end-user latency rising?</div>
+              <div style={{ paddingLeft: 16 }}>3. Check BGP Visibility — are peers losing sight of this AS?</div>
+              <div style={{ paddingLeft: 16 }}>4. Contact NOC for AS{market.asn} — possible routing incident</div>
+              <div style={{ paddingLeft: 16 }}>5. Open incident ticket if Atlas + BGP also degraded</div>
+            </>}
+          </div>
+        </Section>
+      </>);
+    }
+
+    if (signal.key === "radar") {
+      const activeEvents = (radar?.events || []).filter(e => e.active);
+      const hijacks = activeEvents.filter(e => e.type === "HIJACK");
+      const leaks   = activeEvents.filter(e => e.type === "LEAK");
+      const allEvents = radar?.events || [];
+
+      return (<>
+        <Section title="What is Cloudflare Radar?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            Cloudflare has visibility into <strong>~20% of global Internet traffic</strong> and operates
+            one of the largest BGP monitoring networks. It detects prefix hijacks and route leaks
+            by cross-referencing BGP announcements against known prefix ownership (ROA records).
+          </p>
+        </Section>
+
+        <Section title="Current status">
+          <KV label="Active alerts" value={`${radar?.alertCount ?? 0}`} valueColor={radar?.alertCount > 0 ? "#dc2626" : "#16a34a"} />
+          <KV label="Active hijacks" value={`${hijacks.length}`} valueColor={hijacks.length > 0 ? "#dc2626" : T.text} />
+          <KV label="Active leaks" value={`${leaks.length}`} valueColor={leaks.length > 0 ? "#dc2626" : T.text} />
+          <KV label="Total events (last 6h)" value={`${allEvents.length}`} />
+          <KV label="Token configured" value={radar?.configured ? "Yes" : "No"} valueColor={radar?.configured ? "#16a34a" : "#b45309"} />
+        </Section>
+
+        <Section title="What is a BGP hijack?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            A <strong>prefix hijack</strong> occurs when an AS announces routes for IP blocks it does not own.
+            This can redirect traffic intended for Vodafone customers through a third-party network.
+          </p>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            <strong>Impact:</strong> traffic interception, increased latency, service disruption.
+            Can be accidental (misconfiguration) or malicious. ROA/RPKI validation can detect and reject hijacks.
+          </p>
+        </Section>
+
+        <Section title="What is a route leak?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            A <strong>route leak</strong> occurs when routes received from one peer are re-announced
+            to other peers in violation of routing policy. This can cause traffic to take unexpected,
+            suboptimal paths — or create routing loops.
+          </p>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            <strong>Common cause:</strong> misconfigured export filters. Typically causes latency spikes
+            and partial outages rather than full disconnection.
+          </p>
+        </Section>
+
+        {activeEvents.length > 0 && (
+          <Section title={`Active events (${activeEvents.length})`}>
+            {activeEvents.map((e, i) => (
+              <EventRow key={i} tag={e.type}
+                label={`${e.prefix || "prefix unknown"} · AS${e.asn} · detected ${new Date(e.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+              />
+            ))}
+          </Section>
+        )}
+
+        {allEvents.length > activeEvents.length && (
+          <Section title="Resolved events (last 6h)">
+            {allEvents.filter(e => !e.active).slice(0, 5).map((e, i) => (
+              <div key={i} style={{ display: "flex", gap: 6, padding: "4px 8px", borderRadius: 5, background: T.bg, border: `1px solid ${T.border}`, marginBottom: 3 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>{e.type}</span>
+                <span style={{ fontSize: 10, fontFamily: "monospace", color: T.muted, wordBreak: "break-all" }}>
+                  {e.prefix || "unknown"} · AS{e.asn} · resolved
+                </span>
+              </div>
+            ))}
+          </Section>
+        )}
+
+        <Section title="NOC action guide">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            {(radar?.alertCount ?? 0) === 0 && <div>✅ No active hijacks or route leaks detected.</div>}
+            {hijacks.length > 0 && <>
+              <div>🔴 Active prefix hijack detected. Immediate steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Identify which prefixes are affected (see events above)</div>
+              <div style={{ paddingLeft: 16 }}>2. Verify RPKI/ROA status for those prefixes</div>
+              <div style={{ paddingLeft: 16 }}>3. Contact upstream providers to filter the hijacking AS</div>
+              <div style={{ paddingLeft: 16 }}>4. Cross-reference with Atlas latency — is traffic being misdirected?</div>
+              <div style={{ paddingLeft: 16 }}>5. Open Sev1 ticket immediately</div>
+            </>}
+            {leaks.length > 0 && hijacks.length === 0 && <>
+              <div>⚠️ Route leak detected. Recommended steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Identify source AS of the leak</div>
+              <div style={{ paddingLeft: 16 }}>2. Check if export filters are correctly configured</div>
+              <div style={{ paddingLeft: 16 }}>3. Contact leaking AS's NOC if external</div>
+              <div style={{ paddingLeft: 16 }}>4. Monitor Atlas for latency impact</div>
+            </>}
+          </div>
+        </Section>
+      </>);
+    }
+
+    if (signal.key === "bgp") {
+      const cur = bgp?.current;
+      const vis = cur?.visibility_pct;
+      const visColor = vis == null ? T.muted : vis >= 95 ? "#16a34a" : vis >= 80 ? "#b45309" : "#dc2626";
+
+      return (<>
+        <Section title="What is BGP Visibility?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            RIPE NCC operates <strong>~329 BGP route collectors (RIS peers)</strong> distributed at
+            Internet Exchange Points worldwide. Every few minutes each collector checks:
+            <em> "Can I see a valid route to this Vodafone AS?"</em>
+          </p>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            The visibility % shows how many of those 329 collectors can route to AS{market.asn}.
+            At 100% all 329/329 see a valid path. A drop means some internet paths to Vodafone are broken.
+          </p>
+        </Section>
+
+        <Section title="Current metrics">
+          <KV label="Visibility" value={vis != null ? `${vis.toFixed(1)}%` : "no data"} valueColor={visColor}
+            sub={vis >= 95 ? "All peers see a valid route" : vis >= 80 ? "Some peers losing visibility — monitor" : "Significant visibility loss — incident"} />
+          <KV label="Peers seeing AS" value={cur?.ris_peers_seeing != null ? `${cur.ris_peers_seeing} / ${cur.total_ris_peers}` : "—"} />
+          <KV label="Announced prefixes" value={cur?.announced_prefixes ?? "—"}
+            sub="IP blocks currently advertised by this AS" />
+        </Section>
+
+        <Section title="Thresholds">
+          <ThresholdRow range="≥ 95%"    status="ok"    meaning="All collectors see valid routes. Normal state." />
+          <ThresholdRow range="80–94%"   status="warn"  meaning="Some paths lost. May not impact all users yet. Investigate." />
+          <ThresholdRow range="< 80%"    status="alert" meaning="Major visibility loss. Significant routing incident. Escalate." />
+        </Section>
+
+        <Section title="What does a visibility drop mean?">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            <div>• <strong>Partial drop (1-10 peers):</strong> Local routing issues, probably one IXP or peering link</div>
+            <div>• <strong>Moderate drop (10-50 peers):</strong> Regional issue, multiple links or a major IXP</div>
+            <div>• <strong>Severe drop (50+ peers):</strong> Major routing incident, possible AS deaggregation or blackholing</div>
+            <div>• <strong>100% drop (0/329):</strong> Complete AS withdrawal — network is unreachable globally</div>
+          </div>
+        </Section>
+
+        <Section title="NOC action guide">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            {vis == null && <div>ℹ️ No data available. Check backend connectivity.</div>}
+            {vis >= 95 && <div>✅ BGP visibility is normal. All 329 peers see valid routes to AS{market.asn}.</div>}
+            {vis < 95 && vis >= 80 && <>
+              <div>⚠️ Reduced visibility. Steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Cross-reference with RIS Live withdrawals — are we seeing prefix removals?</div>
+              <div style={{ paddingLeft: 16 }}>2. Check Atlas latency — are affected regions showing higher RTT?</div>
+              <div style={{ paddingLeft: 16 }}>3. If withdrawals high AND visibility dropping → escalate to routing team</div>
+            </>}
+            {vis < 80 && <>
+              <div>🔴 Major visibility loss. Immediate action:</div>
+              <div style={{ paddingLeft: 16 }}>1. Open Sev1 ticket immediately</div>
+              <div style={{ paddingLeft: 16 }}>2. Contact routing/NOC team for AS{market.asn}</div>
+              <div style={{ paddingLeft: 16 }}>3. Check RIS Live for mass withdrawals</div>
+              <div style={{ paddingLeft: 16 }}>4. Verify upstream peering sessions are up</div>
+            </>}
+          </div>
+        </Section>
+      </>);
+    }
+
+    if (signal.key === "atlas") {
+      const cur = market.current;
+      const ratio = market.ratio;
+      const ratioColor = ratio == null ? T.muted : ratio < 2 ? "#16a34a" : ratio < 4.5 ? "#b45309" : "#dc2626";
+
+      return (<>
+        <Section title="What is RIPE Atlas?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            RIPE Atlas is a network of <strong>10,000+ hardware probes</strong> hosted by volunteers worldwide.
+            Probes inside Vodafone's AS{market.asn} send <strong>ICMP pings every ~4 minutes</strong> to
+            k.root-servers.net (193.0.14.129) — one of the 13 DNS root servers, operated by RIPE NCC,
+            with anycast nodes at major IXPs.
+          </p>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            The RTT to k-root reflects the path from a Vodafone customer device through the access network,
+            backbone, and Internet exit to the nearest IXP — a good proxy for Vodafone's Internet edge performance.
+          </p>
+        </Section>
+
+        <Section title="Current metrics">
+          <KV label="Avg RTT" value={cur?.avg_rtt != null ? `${cur.avg_rtt} ms` : "—"} />
+          <KV label="P95 RTT" value={cur?.p95_rtt != null ? `${cur.p95_rtt} ms` : "—"}
+            sub="95th percentile — worst 1-in-20 measurement" />
+          <KV label="Packet loss" value={cur?.loss_pct != null ? `${cur.loss_pct}%` : "—"}
+            valueColor={cur?.loss_pct > 5 ? "#dc2626" : cur?.loss_pct > 1 ? "#b45309" : "#16a34a"} />
+          <KV label="Baseline (4h avg)" value={market.baseline_rtt != null ? `${market.baseline_rtt} ms` : "—"} />
+          <KV label="Ratio vs baseline" value={ratio != null ? `${ratio}×` : "—"} valueColor={ratioColor}
+            sub="Current RTT ÷ 4-hour rolling baseline" />
+          <KV label="Active probes" value={cur?.probe_count ?? "—"} />
+        </Section>
+
+        <Section title="Thresholds (ratio model)">
+          <ThresholdRow range="< 2×"    status="ok"    meaning="Latency within normal range of baseline." />
+          <ThresholdRow range="2× – 4.5×" status="warn" meaning="Elevated latency. Possible congestion or path change." />
+          <ThresholdRow range="≥ 4.5×"  status="alert" meaning="Severe latency spike. Likely access or backbone issue." />
+        </Section>
+
+        <Section title="What causes high latency?">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            <div>• <strong>Access network congestion:</strong> DSLAM/OLT overloaded, affects many customers</div>
+            <div>• <strong>Backbone congestion:</strong> internal transit links at capacity</div>
+            <div>• <strong>Peering degradation:</strong> IXP port or peer session issues</div>
+            <div>• <strong>BGP path change:</strong> traffic rerouted to longer path (check RIS)</div>
+            <div>• <strong>k-root anycast shift:</strong> probes hitting a different, farther node (rare)</div>
+          </div>
+        </Section>
+
+        <Section title="NOC action guide">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            {(!ratio || ratio < 2) && <div>✅ Latency is normal. No action needed.</div>}
+            {ratio >= 2 && ratio < 4.5 && <>
+              <div>⚠️ Elevated latency. Steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Check BGP — is a route change causing longer paths?</div>
+              <div style={{ paddingLeft: 16 }}>2. Check if specific probe locations are affected (open Probe Breakdown)</div>
+              <div style={{ paddingLeft: 16 }}>3. Monitor packet loss — if rising, escalate</div>
+              <div style={{ paddingLeft: 16 }}>4. Check Downdetector for user reports</div>
+            </>}
+            {ratio >= 4.5 && <>
+              <div>🔴 Severe latency. Immediate action:</div>
+              <div style={{ paddingLeft: 16 }}>1. Open Probe Breakdown — identify which probes/regions are affected</div>
+              <div style={{ paddingLeft: 16 }}>2. Cross-reference with BGP — if also degraded → routing incident</div>
+              <div style={{ paddingLeft: 16 }}>3. Contact access/backbone team for AS{market.asn}</div>
+              <div style={{ paddingLeft: 16 }}>4. Open incident ticket if sustained {'>'} 10 min</div>
+            </>}
+          </div>
+        </Section>
+      </>);
+    }
+
+    if (signal.key === "ioda") {
+      return (<>
+        <Section title="What is CAIDA IODA?">
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, margin: 0 }}>
+            CAIDA IODA (Internet Outage Detection and Analysis) monitors Internet outages using
+            three independent measurement signals:
+          </p>
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8, marginTop: 8 }}>
+            <div>• <strong>BGP:</strong> monitors prefix withdrawals globally</div>
+            <div>• <strong>Active probing:</strong> UCSD telescope actively probes ASes for reachability</div>
+            <div>• <strong>Darknet telescope:</strong> measures unsolicited traffic — drops indicate outages</div>
+          </div>
+          <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
+            When multiple datasources align on the same ASN simultaneously, confidence of an outage is high.
+            IODA is particularly strong at detecting <strong>large-scale outages</strong> (country level, ISP level).
+          </p>
+        </Section>
+
+        <Section title="Current status">
+          <KV label="Status" value={ioda?.ok === false ? "Error" : (ioda?.status || "unknown").toUpperCase()}
+            valueColor={ioda?.ok === false ? "#dc2626" : ioda?.status === "alert" ? "#dc2626" : "#16a34a"} />
+          {ioda?.ok === false && (
+            <KV label="Error" value={ioda?.error || "fetch failed"} valueColor="#dc2626"
+              sub="IODA API may be unreachable from this server location. This is known to occur with cloud-hosted IPs." />
+          )}
+          {ioda?.ok !== false && <>
+            <KV label="Active events" value={ioda?.activeCount ?? 0}
+              valueColor={ioda?.activeCount > 0 ? "#dc2626" : "#16a34a"} />
+            <KV label="Events in last 1h" value={ioda?.recentCount ?? 0} />
+          </>}
+        </Section>
+
+        <Section title="How to interpret IODA alerts">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            <div>• <strong>Score:</strong> deviation from baseline. Higher = larger outage.</div>
+            <div>• <strong>datasource "bgp":</strong> routing withdrawal detected by IODA's BGP monitors</div>
+            <div>• <strong>datasource "ping-slash24":</strong> active probing shows reduced reachability</div>
+            <div>• <strong>datasource "merit-nt":</strong> darknet telescope anomaly (unsolicited traffic drop)</div>
+            <div>• <strong>Multiple datasources at once:</strong> high-confidence outage</div>
+          </div>
+        </Section>
+
+        {ioda?.events?.length > 0 && (
+          <Section title={`Recent events (${ioda.events.length})`}>
+            {ioda.events.slice(0, 10).map((e, i) => (
+              <EventRow key={i}
+                tag={e.datasource}
+                label={`score ${e.score ?? "?"} · ${e.active ? "ACTIVE" : "resolved"} · since ${new Date(e.start).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+              />
+            ))}
+          </Section>
+        )}
+
+        <Section title="NOC action guide">
+          <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
+            {ioda?.ok === false && <div>ℹ️ IODA data unavailable from this server. Cross-reference manually at ioda.caida.org</div>}
+            {ioda?.ok !== false && ioda?.activeCount === 0 && <div>✅ No outage signals detected by IODA for AS{market.asn}.</div>}
+            {ioda?.activeCount > 0 && <>
+              <div>🔴 IODA outage signal active. Steps:</div>
+              <div style={{ paddingLeft: 16 }}>1. Check which datasources are firing (BGP, probing, telescope?)</div>
+              <div style={{ paddingLeft: 16 }}>2. If BGP + probing both active → high-confidence outage</div>
+              <div style={{ paddingLeft: 16 }}>3. Cross-reference with Atlas latency and RIS withdrawals</div>
+              <div style={{ paddingLeft: 16 }}>4. Visit ioda.caida.org for full event details</div>
+            </>}
+          </div>
+        </Section>
+      </>);
+    }
+
+    return <div style={{ fontSize: 11, color: T.muted }}>No detail available for this signal.</div>;
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 10000,
+      background: "rgba(0,0,0,0.55)", display: "flex",
+      alignItems: "center", justifyContent: "center",
+    }} onClick={onClose}>
+      <div style={{
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: 14, width: "100%", maxWidth: 560,
+        maxHeight: "88vh", overflow: "hidden",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+        margin: "0 16px",
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "14px 18px", borderBottom: `1px solid ${T.border}`,
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 18 }}>{signal.icon}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: T.text }}>{signal.label}</div>
+            <div style={{ fontSize: 11, color: T.muted }}>{market.flag} {market.name} · AS{market.asn}</div>
+          </div>
+          <span style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: "0.4px",
+            color: sc.color, background: sc.bg, border: `1px solid ${sc.border}`,
+            borderRadius: 5, padding: "3px 9px",
+          }}>{(signal.status || "NO DATA").toUpperCase()}</span>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, color: T.muted, padding: "0 2px", lineHeight: 1,
+          }}>×</button>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
+          {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Signal Layers section (used inside DetailPanel) ─────────────────────────
 function SignalLayersSection({ market }) {
   const [expanded, setExpanded] = useState(false);
+  const [selectedSignal, setSelectedSignal] = useState(null);
 
   const signals = [
     {
@@ -1346,11 +1840,13 @@ function SignalLayersSection({ market }) {
                 : s.status || "unknown";
               const sc = sm(normStatus);
               return (
-                <div key={s.key} style={{
+                <div key={s.key} onClick={() => setSelectedSignal(s)} style={{
                   display: "flex", alignItems: "flex-start", gap: 8,
-                  padding: "7px 10px", borderRadius: 6,
+                  padding: "7px 10px", borderRadius: 6, cursor: "pointer",
                   background: T.bg, border: `1px solid ${T.border}`,
-                }}>
+                  transition: "border-color 0.15s",
+                }} onMouseEnter={e => e.currentTarget.style.borderColor = "#6b7280"}
+                   onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                   <span style={{ fontSize: 14, lineHeight: 1, marginTop: 1 }}>{s.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1380,6 +1876,7 @@ function SignalLayersSection({ market }) {
                       </div>
                     )}
                   </div>
+                  <span style={{ fontSize: 9, color: T.muted, flexShrink: 0, alignSelf: "center" }}>→</span>
                 </div>
               );
             })}
@@ -1401,22 +1898,50 @@ function SignalLayersSection({ market }) {
               <div style={{ fontSize: 11, color: T.text, lineHeight: 1.5 }}>
                 {corrInsight}
               </div>
-              {corrAlerts.length > 0 && (
-                <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {corrAlerts.map(a => (
-                    <span key={a} style={{
-                      fontSize: 9, fontWeight: 700,
-                      background: "#fee2e2", color: "#dc2626",
-                      border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px",
-                    }}>
-                      {a.toUpperCase()}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {corrAlerts.length > 0 && (() => {
+                const wd = market.ris?.withdrawals1h;
+                const radar = market.radar;
+                const vis = market.bgp?.current?.visibility_pct;
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                      {corrAlerts.map(a => (
+                        <span key={a} style={{
+                          fontSize: 9, fontWeight: 700,
+                          background: "#fee2e2", color: "#dc2626",
+                          border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px",
+                        }}>{a.toUpperCase()}</span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text, lineHeight: 1.7, borderTop: `1px solid ${corrAlerts.length > 0 ? "#fcd34d" : "#86efac"}`, paddingTop: 8 }}>
+                      {corrAlerts.includes("ris") && wd != null && (
+                        <div>• <strong>RIS Live:</strong> {wd} withdrawals/h — threshold for WARNING is 5/h, ALERT is 20/h. {wd >= 20 ? "This rate indicates active BGP instability." : "Monitor for escalation."}</div>
+                      )}
+                      {corrAlerts.includes("radar") && radar?.alertCount > 0 && (
+                        <div>• <strong>Cloudflare Radar:</strong> {radar.alertCount} active event{radar.alertCount !== 1 ? "s" : ""} (hijack/leak). Click the Cloudflare Radar row above for full details.</div>
+                      )}
+                      {corrAlerts.includes("bgp") && vis != null && (
+                        <div>• <strong>BGP Visibility:</strong> {vis.toFixed(1)}% of global peers see a valid route to this AS. Normal is 100%.</div>
+                      )}
+                      {corrAlerts.includes("atlas") && market.ratio != null && (
+                        <div>• <strong>RIPE Atlas:</strong> latency is {market.ratio}× above baseline. Threshold for OUTAGE is 4.5×.</div>
+                      )}
+                      {corrAlerts.includes("ioda") && (
+                        <div>• <strong>CAIDA IODA:</strong> outage signal detected by independent measurement system.</div>
+                      )}
+                      <div style={{ marginTop: 6, fontStyle: "italic", color: T.muted }}>
+                        Click any signal row above for full troubleshooting guidance.
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
+      )}
+      {selectedSignal && (
+        <SignalDetailModal signal={selectedSignal} market={market} onClose={() => setSelectedSignal(null)} />
       )}
     </div>
   );
@@ -2577,7 +3102,7 @@ export default function NetworkHealthView() {
 
   return (
     <div style={{
-      flex: 1, display: "flex", flexDirection: "column",
+      flex: 1, minHeight: 0,
       overflowY: "auto", padding: "20px 24px", background: T.bg,
     }}>
       {/* Header */}
