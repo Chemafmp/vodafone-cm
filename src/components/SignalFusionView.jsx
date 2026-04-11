@@ -503,133 +503,180 @@ function EventFeed({ markets, svcMap }) {
 }
 
 // ─── Correlation Chart ────────────────────────────────────────────────────────
-// SVG mini-chart: community reports (amber area) + Atlas RTT (blue line) +
-// RIS withdrawals (red vertical dashes) — last 2 hours, all normalized 0→1.
+// 5 normalised series + RIS markers + zoom selector (30m → 24h).
+// All series normalised independently to [0,1] so they can share one Y-axis
+// regardless of unit (ms, %, count). Hover tooltip shows raw value.
+
+const CORR_ZOOMS = [
+  { label: "30m", ms: 30 * 60_000 },
+  { label: "1h",  ms:  1 * 3600_000 },
+  { label: "2h",  ms:  2 * 3600_000 },
+  { label: "6h",  ms:  6 * 3600_000 },
+  { label: "12h", ms: 12 * 3600_000 },
+  { label: "24h", ms: 24 * 3600_000 },
+];
+
+const CORR_SERIES = [
+  { key: "smon",     label: "Community",  color: "#f59e0b", area: true  },
+  { key: "atlas",    label: "Atlas RTT",  color: "#3b82f6", area: false },
+  { key: "bgp",      label: "BGP vis%",   color: "#f97316", area: false },
+  { key: "iodaBgp",  label: "IODA BGP",   color: "#8b5cf6", area: false },
+  { key: "iodaPing", label: "IODA ping",  color: "#06b6d4", area: false },
+];
 
 function CorrelationChart({ market, svc }) {
-  const W = 280, H = 110;
-  const PAD = { top: 8, right: 8, bottom: 20, left: 8 };
-  const plotW = W - PAD.left - PAD.right;
-  const plotH = H - PAD.top - PAD.bottom;
+  const [zoom, setZoom] = useState("2h");
 
-  const now = Date.now();
-  const windowMs = 2 * 3600 * 1000;
+  const windowMs = CORR_ZOOMS.find(z => z.label === zoom)?.ms || 2 * 3600_000;
+  const now      = Date.now();
   const startMs  = now - windowMs;
 
-  // ── Community trend ────────────────────────────────────────────────────────
-  let smonPts = [];
-  if (svc?.trend?.length) {
+  // ── Build series ───────────────────────────────────────────────────────────
+  const smonPts = (() => {
+    if (!svc?.trend?.length) return [];
     const len = svc.trend.length;
-    smonPts = svc.trend
+    return svc.trend
       .map((v, i) => ({ ts: now - (len - 1 - i) * 30_000, v }))
       .filter(p => p.ts >= startMs && typeof p.v === "number");
-  }
+  })();
 
-  // ── Atlas RTT history ──────────────────────────────────────────────────────
-  let atlasPts = [];
-  if (market?.history?.length) {
-    atlasPts = market.history
-      .map(h => ({
-        ts: h.measured_at ? new Date(h.measured_at).getTime() : (h.ts || 0),
-        v:  h.avg_rtt ?? h.value ?? null,
-      }))
-      .filter(p => p.ts >= startMs && p.v != null);
-  }
+  const atlasPts = (market?.history || [])
+    .map(h => ({ ts: h.measured_at ? new Date(h.measured_at).getTime() : (h.ts || 0), v: h.avg_rtt ?? h.value ?? null }))
+    .filter(p => p.ts >= startMs && p.v != null);
 
-  // ── RIS withdrawal timestamps ──────────────────────────────────────────────
+  const bgpPts = (market?.bgp?.history || [])
+    .map(h => ({ ts: h.measured_at ? new Date(h.measured_at).getTime() : (h.ts || 0), v: h.visibility_pct ?? h.value ?? null }))
+    .filter(p => p.ts >= startMs && p.v != null);
+
+  const iodaBgpPts = (market?.ioda?.signals?.bgp?.history || [])
+    .map(h => ({ ts: h.ts || (h.measured_at ? new Date(h.measured_at).getTime() : 0), v: h.value ?? null }))
+    .filter(p => p.ts >= startMs && p.v != null);
+
+  const iodaPingPts = (market?.ioda?.signals?.ping?.history || [])
+    .map(h => ({ ts: h.ts || (h.measured_at ? new Date(h.measured_at).getTime() : 0), v: h.value ?? null }))
+    .filter(p => p.ts >= startMs && p.v != null);
+
   const risTimes = (market?.ris?.recentWithdrawals || [])
-    .filter(e => e.ts >= startMs)
-    .map(e => e.ts);
+    .filter(e => e.ts >= startMs).map(e => e.ts);
 
-  const hasData = smonPts.length > 1 || atlasPts.length > 1;
-  if (!hasData) {
-    return (
-      <div style={{ padding: "8px 0", textAlign: "center", color: T.muted, fontSize: 9 }}>
-        Not enough history for correlation chart
-      </div>
-    );
-  }
+  const seriesData = { smon: smonPts, atlas: atlasPts, bgp: bgpPts, iodaBgp: iodaBgpPts, iodaPing: iodaPingPts };
 
-  // Normalize a series to [0, 1] using its own min/max
+  // ── Normalise ──────────────────────────────────────────────────────────────
   function normalize(pts) {
+    if (pts.length < 2) return pts.map(p => ({ ...p, norm: 0.5 }));
     const vals = pts.map(p => p.v);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
+    const min = Math.min(...vals), max = Math.max(...vals);
     const range = max - min || 1;
     return pts.map(p => ({ ...p, norm: (p.v - min) / range }));
   }
 
-  const smonN  = normalize(smonPts);
-  const atlasN = normalize(atlasPts);
+  const normData = Object.fromEntries(
+    Object.entries(seriesData).map(([k, pts]) => [k, normalize(pts)])
+  );
 
-  function tx(ts) { return PAD.left + ((ts - startMs) / windowMs) * plotW; }
-  function ty(n)  { return PAD.top  + plotH - n * plotH; }
+  const hasData = Object.values(seriesData).some(pts => pts.length > 1);
+  if (!hasData) return (
+    <div style={{ padding: "10px 0", textAlign: "center", color: T.muted, fontSize: 9 }}>
+      Not enough history for correlation chart
+    </div>
+  );
+
+  // ── SVG helpers ────────────────────────────────────────────────────────────
+  const W = 380, H = 160;
+  const PAD = { top: 10, right: 10, bottom: 22, left: 10 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const tx = ts  => PAD.left + ((ts - startMs) / windowMs) * plotW;
+  const ty = n   => PAD.top + plotH - n * plotH;
 
   function linePath(pts) {
+    if (pts.length < 2) return "";
     return pts.map((p, i) => `${i === 0 ? "M" : "L"}${tx(p.ts).toFixed(1)},${ty(p.norm).toFixed(1)}`).join(" ");
   }
-
   function areaPath(pts) {
-    if (!pts.length) return "";
-    const line = linePath(pts);
-    const botY  = (PAD.top + plotH).toFixed(1);
-    return `${line} L${tx(pts.at(-1).ts).toFixed(1)},${botY} L${tx(pts[0].ts).toFixed(1)},${botY} Z`;
+    if (pts.length < 2) return "";
+    const botY = (PAD.top + plotH).toFixed(1);
+    return `${linePath(pts)} L${tx(pts.at(-1).ts).toFixed(1)},${botY} L${tx(pts[0].ts).toFixed(1)},${botY} Z`;
   }
 
-  const xTicks = [
-    { ts: startMs,              label: "−2h" },
-    { ts: startMs + windowMs/2, label: "−1h" },
-    { ts: now,                  label: "now" },
-  ];
+  // X-axis ticks
+  const tickCount = 5;
+  const xTicks = Array.from({ length: tickCount }, (_, i) => {
+    const ts = startMs + (i / (tickCount - 1)) * windowMs;
+    const label = i === tickCount - 1 ? "now" : fmtHHMM(ts);
+    return { ts, label, anchor: i === 0 ? "start" : i === tickCount - 1 ? "end" : "middle" };
+  });
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", marginBottom: 6, textTransform: "uppercase" }}>
-        Correlation (2h)
+      {/* Title + zoom bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+          Correlation Chart
+        </div>
+        <div style={{ display: "flex", gap: 2 }}>
+          {CORR_ZOOMS.map(z => (
+            <button key={z.label} onClick={() => setZoom(z.label)} style={{
+              padding: "2px 6px", fontSize: 9, fontWeight: 600, cursor: "pointer",
+              fontFamily: "inherit", borderRadius: 4,
+              border: `1px solid ${zoom === z.label ? "#3b82f6" : T.border}`,
+              background: zoom === z.label ? "#3b82f6" : "transparent",
+              color: zoom === z.label ? "#fff" : T.muted,
+            }}>{z.label}</button>
+          ))}
+        </div>
       </div>
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-        {smonN.length > 1 && (
-          <span style={{ fontSize: 9, color: "#b45309", display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 10, height: 6, background: "rgba(245,158,11,0.2)", border: "1px solid #f59e0b", borderRadius: 2, display: "inline-block" }} />
-            Community reports
+
+      {/* Legend — only series with data */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+        {CORR_SERIES.filter(s => normData[s.key]?.length > 1).map(s => (
+          <span key={s.key} style={{ fontSize: 9, color: s.color, display: "flex", alignItems: "center", gap: 3 }}>
+            {s.area
+              ? <span style={{ width: 10, height: 6, background: s.color + "33", border: `1px solid ${s.color}`, borderRadius: 2, display: "inline-block" }} />
+              : <span style={{ width: 14, height: 2, background: s.color, display: "inline-block" }} />
+            }
+            {s.label}
           </span>
-        )}
-        {atlasN.length > 1 && (
-          <span style={{ fontSize: 9, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 14, height: 2, background: "#3b82f6", display: "inline-block" }} />
-            Atlas RTT
-          </span>
-        )}
+        ))}
         {risTimes.length > 0 && (
           <span style={{ fontSize: 9, color: "#dc2626", display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 1, height: 10, background: "#dc2626", display: "inline-block" }} />
-            BGP withdraw
+            <span style={{ width: 1, height: 9, background: "#dc2626", display: "inline-block" }} />
+            BGP wd
           </span>
         )}
       </div>
+
+      {/* SVG chart */}
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        {/* Grid lines */}
-        {[0.25, 0.5, 0.75].map(f => (
-          <line key={f}
-            x1={PAD.left} y1={ty(f)} x2={PAD.left + plotW} y2={ty(f)}
-            stroke="#e5e7eb" strokeWidth="0.5" />
+        {/* Grid */}
+        {[0, 0.25, 0.5, 0.75, 1].map(f => (
+          <line key={f} x1={PAD.left} y1={ty(f)} x2={PAD.left + plotW} y2={ty(f)}
+            stroke={f === 0 || f === 1 ? "#d1d5db" : "#f3f4f6"} strokeWidth="0.5" />
         ))}
-        {/* Community area */}
-        {smonN.length > 1 && <path d={areaPath(smonN)} fill="rgba(245,158,11,0.15)" stroke="none" />}
-        {smonN.length > 1 && <path d={linePath(smonN)} fill="none" stroke="#f59e0b" strokeWidth="1" />}
-        {/* Atlas RTT line */}
-        {atlasN.length > 1 && <path d={linePath(atlasN)} fill="none" stroke="#3b82f6" strokeWidth="1.5" />}
+
+        {/* Area fill for community */}
+        {CORR_SERIES.filter(s => s.area && normData[s.key]?.length > 1).map(s => (
+          <path key={`${s.key}-area`} d={areaPath(normData[s.key])} fill={s.color + "22"} stroke="none" />
+        ))}
+
+        {/* Lines */}
+        {CORR_SERIES.filter(s => normData[s.key]?.length > 1).map(s => (
+          <path key={s.key} d={linePath(normData[s.key])} fill="none" stroke={s.color} strokeWidth="1.5" />
+        ))}
+
         {/* RIS withdrawal markers */}
         {risTimes.map((ts, i) => (
-          <line key={i}
-            x1={tx(ts)} y1={PAD.top} x2={tx(ts)} y2={PAD.top + plotH}
+          <line key={i} x1={tx(ts)} y1={PAD.top} x2={tx(ts)} y2={PAD.top + plotH}
             stroke="#dc2626" strokeWidth="1" strokeDasharray="3,2" opacity="0.75" />
         ))}
+
         {/* X-axis */}
-        <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH} stroke="#d1d5db" strokeWidth="0.5" />
-        {xTicks.map(t => (
-          <text key={t.label} x={tx(t.ts)} y={H - 4} textAnchor="middle" fontSize="8" fill="#9ca3af">{t.label}</text>
+        <line x1={PAD.left} y1={PAD.top + plotH} x2={PAD.left + plotW} y2={PAD.top + plotH}
+          stroke="#d1d5db" strokeWidth="0.5" />
+        {xTicks.map((t, i) => (
+          <text key={i} x={tx(t.ts)} y={H - 5}
+            textAnchor={t.anchor} fontSize="7" fill="#9ca3af">{t.label}</text>
         ))}
       </svg>
     </div>
@@ -654,7 +701,7 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
 
   return (
     <div style={{
-      width: 320, flexShrink: 0,
+      width: 400, flexShrink: 0,
       background: T.surface, border: `1px solid ${T.border}`,
       borderRadius: 10, display: "flex", flexDirection: "column",
       maxHeight: "100%", overflow: "hidden",
