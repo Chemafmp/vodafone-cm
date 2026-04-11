@@ -42,6 +42,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { RIPE_MARKETS } from "./ripe-atlas.js";
+import { isPaused } from "./poller-control.js";
 
 const IODA_BASE      = "https://api.ioda.inetintel.cc.gatech.edu/v2";
 
@@ -297,6 +298,7 @@ async function pollMarket(m, log) {
 
 // ─── Public: tick all markets ─────────────────────────────────────────────────
 export async function tickIoda(log) {
+  if (isPaused("ioda")) { log?.("[ioda] ⏸ paused"); return; }
   log?.("[ioda] polling CAIDA IODA v2…");
   for (const m of RIPE_MARKETS) {
     try {

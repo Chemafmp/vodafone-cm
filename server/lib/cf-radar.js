@@ -12,6 +12,7 @@
 // Docs: https://developers.cloudflare.com/radar/
 
 import { RIPE_MARKETS } from "./ripe-atlas.js";
+import { isPaused } from "./poller-control.js";
 
 const CF_BASE      = "https://api.cloudflare.com/client/v4/radar";
 const FETCH_TIMEOUT = 15_000;
@@ -130,6 +131,7 @@ async function pollMarket(m, log) {
 
 // ─── Public: tick all markets ─────────────────────────────────────────────────
 export async function tickCfRadar(log) {
+  if (isPaused("radar")) { log?.("[radar] ⏸ paused"); return; }
   if (!token) {
     log?.("[radar] CF_RADAR_TOKEN not set — skipping");
     return;

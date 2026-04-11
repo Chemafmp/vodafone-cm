@@ -13,6 +13,7 @@
 //   OUTAGE  ≥ 4.5×
 
 import { createClient } from "@supabase/supabase-js";
+import { isPaused } from "./poller-control.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const RIPE_KEY     = process.env.RIPE_ATLAS_KEY;
@@ -326,6 +327,7 @@ async function pollMarket(m, log) {
 
 // ─── Public: tick all markets ─────────────────────────────────────────────────
 export async function tickRipeAtlas(log) {
+  if (isPaused("ripe")) { log?.("[ripe] ⏸ paused"); return; }
   if (!RIPE_KEY) {
     log?.("[ripe] RIPE_ATLAS_KEY not set — skipping tick");
     return;

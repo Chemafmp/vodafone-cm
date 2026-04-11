@@ -13,6 +13,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { RIPE_MARKETS } from "./ripe-atlas.js";
+import { isPaused } from "./poller-control.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const RIPE_KEY     = process.env.RIPE_ATLAS_KEY;
@@ -284,6 +285,7 @@ async function pollMarket(m, log) {
 
 // ─── Public: tick all markets ─────────────────────────────────────────────────
 export async function tickDnsMeasurements(log) {
+  if (isPaused("dns")) { log?.("[dns] ⏸ paused"); return; }
   if (!RIPE_KEY) {
     log?.("[dns] RIPE_ATLAS_KEY not set — skipping DNS tick");
     return;

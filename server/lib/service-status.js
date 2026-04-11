@@ -9,6 +9,7 @@
 
 import { scrapeAll } from "./downdetector-scraper.js";
 import { createClient } from "@supabase/supabase-js";
+import { isPaused } from "./poller-control.js";
 
 const USE_SCRAPER = process.env.USE_SCRAPER === "1";
 
@@ -133,6 +134,7 @@ function statusForRatio(ratio) {
  * @param {number} port  — poller HTTP port (for self-calls to /api/tickets)
  */
 export async function tickServiceStatus(port, log) {
+  if (isPaused("service-status")) { log?.("[service-status] ⏸ paused"); return; }
   if (USE_SCRAPER) {
     await tickFromScraper(port, log);
     return;

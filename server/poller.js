@@ -35,6 +35,7 @@ import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-liv
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
+import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -561,6 +562,47 @@ app.post("/api/control/scenario/:nodeId", (req, res) => {
   }
   log(chalk.magenta(`🎬 SCENARIO via API: ${chalk.bold(entry.def.id)} → ${scenario}`));
   res.json({ ok: true, id: entry.def.id, scenario });
+});
+
+// ─── Poller pause / resume ────────────────────────────────────────────────────
+// GET  /api/control/poller/status        → {ripe:"running", bgp:"paused", ...}
+// POST /api/control/poller/pause/:module → pause one module
+// POST /api/control/poller/resume/:module→ resume one module
+// POST /api/control/poller/pause-all     → pause everything
+// POST /api/control/poller/resume-all    → resume everything
+
+app.get("/api/control/poller/status", (req, res) => {
+  res.json(getPollerStatus());
+});
+
+app.post("/api/control/poller/pause/:module", (req, res) => {
+  const { module } = req.params;
+  if (!POLLER_MODULES.includes(module))
+    return res.status(400).json({ error: `Unknown module. Valid: ${POLLER_MODULES.join(", ")}` });
+  pauseModule(module);
+  log(chalk.yellow(`[poller-control] ⏸ ${module} paused`));
+  res.json({ module, status: "paused" });
+});
+
+app.post("/api/control/poller/resume/:module", (req, res) => {
+  const { module } = req.params;
+  if (!POLLER_MODULES.includes(module))
+    return res.status(400).json({ error: `Unknown module. Valid: ${POLLER_MODULES.join(", ")}` });
+  resumeModule(module);
+  log(chalk.green(`[poller-control] ▶ ${module} resumed`));
+  res.json({ module, status: "running" });
+});
+
+app.post("/api/control/poller/pause-all", (req, res) => {
+  pauseAll();
+  log(chalk.yellow("[poller-control] ⏸ ALL modules paused"));
+  res.json({ status: "paused", modules: POLLER_MODULES });
+});
+
+app.post("/api/control/poller/resume-all", (req, res) => {
+  resumeAll();
+  log(chalk.green("[poller-control] ▶ ALL modules resumed"));
+  res.json({ status: "running", modules: POLLER_MODULES });
 });
 
 // /api/ioda-push removed — IODA v2 is now polled natively from the droplet.

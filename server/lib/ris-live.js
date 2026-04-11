@@ -27,6 +27,7 @@
 
 import WebSocket from "ws";
 import { RIPE_MARKETS } from "./ripe-atlas.js";
+import { isPaused } from "./poller-control.js";
 
 const RIS_WS_URL   = "wss://ris-live.ripe.net/v1/ws/";
 const RETENTION_MS = 6  * 3600_000;   // keep 6h of events in memory
@@ -182,7 +183,8 @@ function connect() {
 }
 
 // ─── Periodic cleanup (call from poller tick) ─────────────────────────────────
-export function tickRisLive() {
+export function tickRisLive(log) {
+  if (isPaused("ris")) { log?.("[ris] ⏸ paused"); return; }
   for (const m of RIPE_MARKETS) {
     recompute(m.id);
   }

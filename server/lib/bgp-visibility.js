@@ -13,6 +13,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { RIPE_MARKETS } from "./ripe-atlas.js";
+import { isPaused } from "./poller-control.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -279,6 +280,7 @@ async function pollMarket(m) {
 
 // ─── Public: tick all markets ─────────────────────────────────────────────────
 export async function tickBgpVisibility(log) {
+  if (isPaused("bgp")) { log?.("[bgp] ⏸ paused"); return; }
   log?.("[bgp] polling RIPE Stat routing-status…");
   await cleanupOldData(log);
   for (const m of RIPE_MARKETS) {
