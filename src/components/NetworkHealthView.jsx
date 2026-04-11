@@ -2830,6 +2830,67 @@ function MarketCard({ market, onClick }) {
           height={32}
         />
       </div>
+      {/* Alert badge row — only shows signals that are warn/alert */}
+      {(() => {
+        const badges = [];
+        // Atlas (ICMP latency)
+        const aStatus = market.status;
+        if (aStatus === "warning" || aStatus === "outage") {
+          const val = market.ratio != null ? `×${market.ratio.toFixed(1)}` : (market.current?.avg_rtt != null ? `${market.current.avg_rtt} ms` : null);
+          if (val) badges.push({ icon: "📡", label: "Atlas", val, status: aStatus });
+        }
+        // BGP visibility
+        const bStatus = market.bgp?.status;
+        if (bStatus === "warning" || bStatus === "outage") {
+          const pct = market.bgp?.current?.visibility_pct;
+          if (pct != null) badges.push({ icon: "🔗", label: "BGP", val: `${pct}%`, status: bStatus });
+        }
+        // IODA
+        const iStatus = market.ioda?.status;
+        if (iStatus === "warning" || iStatus === "alert" || iStatus === "outage") {
+          const n = market.ioda?.activeAlerts ?? market.ioda?.alertCount;
+          badges.push({ icon: "🌐", label: "IODA", val: n != null ? `${n} active` : "alert", status: iStatus });
+        }
+        // Cloudflare Radar
+        const rStatus = market.radar?.status;
+        if (rStatus === "warning" || rStatus === "alert" || rStatus === "outage") {
+          const n = market.radar?.alertCount;
+          badges.push({ icon: "☁️", label: "Radar", val: n != null ? `${n} evt` : "alert", status: rStatus });
+        }
+        // RIS Live
+        const risStatus = market.ris?.status;
+        if (risStatus === "warning" || risStatus === "alert" || risStatus === "outage") {
+          const wd = market.ris?.withdrawals1h;
+          if (wd != null) badges.push({ icon: "🔄", label: "RIS", val: `${wd} wd/h`, status: risStatus });
+        }
+
+        if (badges.length === 0) return null;
+
+        return (
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: 4,
+            marginTop: 7, paddingTop: 6, borderTop: `1px solid ${T.border}`,
+          }}>
+            {badges.map(b => {
+              const isAlert = b.status === "outage" || b.status === "alert";
+              const bg     = isAlert ? "#fef2f2" : "#fffbeb";
+              const color  = isAlert ? "#dc2626"  : "#b45309";
+              const border = isAlert ? "#fca5a5"  : "#fcd34d";
+              return (
+                <span key={b.label} style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  fontSize: 9, fontWeight: 700, fontFamily: "monospace",
+                  background: bg, color, border: `1px solid ${border}`,
+                  borderRadius: 4, padding: "2px 5px",
+                }}>
+                  {b.icon} {b.label} {b.val}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Signal dots + correlation score row */}
       <div style={{
         display: "flex", alignItems: "center", gap: 5,
