@@ -33,7 +33,7 @@ import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
-import { notifyAlarm, notifyResolved, notifyTest } from "./lib/notifier.js";
+import { checkNetworkHealth, notifyTest } from "./lib/notifier.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
@@ -414,15 +414,13 @@ async function runPollCycle() {
   summary += chalk.gray(` · ${alarmCount} active · ${elapsed}ms`);
   log(summary);
 
-  // Log new alarms + notify Slack for Critical
+  // Log new alarms (fleet is simulated — no Slack notifications)
   for (const a of allNewAlarms) {
     const sevColor = a.severity === "Critical" ? chalk.red : chalk.yellow;
     log(sevColor(`  🔔 ${a.severity} [${a.type}] ${a.nodeId}: ${a.message}`));
-    notifyAlarm(a);
   }
   for (const a of allResolvedAlarms) {
     log(chalk.green(`  ✓  RESOLVED [${a.type}] ${a.nodeId}: ${a.message}`));
-    notifyResolved(a);
   }
 
   // Broadcast to WebSocket clients
@@ -663,28 +661,40 @@ server.listen(PORT, BIND_HOST, () => {
   initRipeAtlas(log).then(() => {
     log(chalk.cyan(`[ripe] network health polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
-      tickRipeAtlas(log).catch(e => log(chalk.yellow(`[ripe] tick error: ${e.message}`)));
+      tickRipeAtlas(log)
+        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .catch(e => log(chalk.yellow(`[ripe] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
     // First tick after 10s to let other init settle
-    setTimeout(() => tickRipeAtlas(log).catch(e => log(chalk.yellow(`[ripe] first tick error: ${e.message}`))), 10_000);
+    setTimeout(() => tickRipeAtlas(log)
+      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .catch(e => log(chalk.yellow(`[ripe] first tick error: ${e.message}`))), 10_000);
   }).catch(e => log(chalk.yellow(`[ripe] init error: ${e.message}`)));
 
   // BGP visibility — tick every 5 min, staggered 15s after RIPE Atlas
   initBgpVisibility(log).then(() => {
     log(chalk.cyan(`[bgp] BGP visibility polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
-      tickBgpVisibility(log).catch(e => log(chalk.yellow(`[bgp] tick error: ${e.message}`)));
+      tickBgpVisibility(log)
+        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .catch(e => log(chalk.yellow(`[bgp] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
-    setTimeout(() => tickBgpVisibility(log).catch(e => log(chalk.yellow(`[bgp] first tick error: ${e.message}`))), 15_000);
+    setTimeout(() => tickBgpVisibility(log)
+      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .catch(e => log(chalk.yellow(`[bgp] first tick error: ${e.message}`))), 15_000);
   }).catch(e => log(chalk.yellow(`[bgp] init error: ${e.message}`)));
 
   // DNS measurements — tick every 5 min, staggered 20s after RIPE Atlas
   initDnsMeasurements(log).then(() => {
     log(chalk.cyan(`[dns] DNS measurement polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
-      tickDnsMeasurements(log).catch(e => log(chalk.yellow(`[dns] tick error: ${e.message}`)));
+      tickDnsMeasurements(log)
+        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .catch(e => log(chalk.yellow(`[dns] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
-    setTimeout(() => tickDnsMeasurements(log).catch(e => log(chalk.yellow(`[dns] first tick error: ${e.message}`))), 20_000);
+    setTimeout(() => tickDnsMeasurements(log)
+      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .catch(e => log(chalk.yellow(`[dns] first tick error: ${e.message}`))), 20_000);
   }).catch(e => log(chalk.yellow(`[dns] init error: ${e.message}`)));
 
   // CAIDA IODA — tick every 5 min, staggered 25s

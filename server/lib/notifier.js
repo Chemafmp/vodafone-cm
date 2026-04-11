@@ -47,69 +47,96 @@ function sevMeta(severity) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Notify a new alarm. Only fires for Critical severity (for now).
- * @param {{ nodeId, type, severity, message, since }} alarm
- */
-export function notifyAlarm(alarm) {
-  if (!WEBHOOK_URL) return;
-  if (alarm.severity !== "Critical") return;   // ← tune here later
-
-  const key = `${alarm.nodeId}::${alarm.type}`;
-  if (isMuted(key)) return;
-  lastSent.set(key, Date.now());
-
-  const { emoji, color } = sevMeta(alarm.severity);
-  const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-
-  post({
-    attachments: [{
-      color,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `${emoji} *${alarm.severity} — ${alarm.type}*\n*Node:* \`${alarm.nodeId}\`\n*${alarm.message}*`,
-          },
-        },
-        {
-          type: "context",
-          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · ${ts} UTC` }],
-        },
-      ],
-    }],
-  });
-}
+// ── Network Health status transitions ────────────────────────────────────────
+// Track last known status per market+signal to detect ok→warning→outage changes.
+// Key: "marketId::signal" (e.g. "es::atlas", "uk::bgp", "de::dns")
+const prevNetworkStatus = new Map();
 
 /**
- * Notify a resolved alarm (only if it was Critical — matches notifyAlarm filter).
- * @param {{ nodeId, type, severity, message }} alarm
+ * Check a network health signal and notify if the status degraded.
+ * Call after each RIPE/BGP/DNS tick with the full market list from getNetworkHealth().
+ *
+ * @param {{ id, name, flag, status, ratio, bgp:{status}, dns:{status} }[]} markets
  */
-export function notifyResolved(alarm) {
+export function checkNetworkHealth(markets) {
   if (!WEBHOOK_URL) return;
-  if (alarm.severity !== "Critical") return;
 
   const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-  post({
-    attachments: [{
-      color: "#16a34a",
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `✅ *RESOLVED — ${alarm.type}*\n*Node:* \`${alarm.nodeId}\`\n*${alarm.message}*`,
-          },
-        },
-        {
-          type: "context",
-          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · ${ts} UTC` }],
-        },
-      ],
-    }],
-  });
+  for (const m of markets) {
+    const checks = [
+      { signal: "atlas", label: "ICMP Latency (RIPE Atlas)", status: m.status,      detail: m.ratio ? `×${m.ratio.toFixed(1)} ratio` : "" },
+      { signal: "bgp",   label: "BGP Visibility",            status: m.bgp?.status, detail: m.bgp?.current ? `${m.bgp.current.visibility_pct?.toFixed(1)}% peers` : "" },
+      { signal: "dns",   label: "DNS RTT",                   status: m.dns?.status, detail: m.dns?.ratio   ? `×${m.dns.ratio.toFixed(1)} ratio`   : "" },
+    ];
+
+    for (const { signal, label, status, detail } of checks) {
+      if (!status || status === "unknown") continue;
+
+      const key  = `${m.id}::${signal}`;
+      const prev = prevNetworkStatus.get(key) || "ok";
+
+      // Degradation: ok→warning, ok→outage, warning→outage
+      const degraded = (prev === "ok" && (status === "warning" || status === "outage"))
+                    || (prev === "warning" && status === "outage");
+
+      // Recovery: outage/warning → ok
+      const recovered = (prev === "outage" || prev === "warning") && status === "ok";
+
+      prevNetworkStatus.set(key, status);
+
+      if (degraded) {
+        const key2 = `nh::${m.id}::${signal}`;
+        if (isMuted(key2)) continue;
+        lastSent.set(key2, Date.now());
+
+        const isOutage  = status === "outage";
+        const emoji     = isOutage ? "🔴" : "🟠";
+        const color     = isOutage ? "#dc2626" : "#f59e0b";
+        const severity  = isOutage ? "OUTAGE" : "WARNING";
+
+        post({
+          attachments: [{
+            color,
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: `${emoji} *${severity} — ${m.flag} ${m.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
+                },
+              },
+              {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
+              },
+            ],
+          }],
+        });
+      }
+
+      if (recovered) {
+        post({
+          attachments: [{
+            color: "#16a34a",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* ${label} back to normal`,
+                },
+              },
+              {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
+              },
+            ],
+          }],
+        });
+      }
+    }
+  }
 }
 
 /**
