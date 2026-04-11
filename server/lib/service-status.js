@@ -146,16 +146,35 @@ export async function tickServiceStatus(port, log) {
 async function tickFromScraper(port, log) {
   log?.("[service-status] scraping Downdetector...");
   const results = await scrapeAll(log);
+  const tod = todMultiplier(); // used for simulator fallback on failed scrapes
 
   for (const r of results) {
     const m = state.get(r.market.id);
     if (!m) continue;
 
     if (!r.ok) {
-      // Scrape failed for this market — keep previous values, stay simulated
-      m.trend = [...m.trend.slice(-(HISTORY_LEN - 1)), m.complaints];
+      // Scrape failed — fall back to simulator so the chart stays alive
+      // (avoids flat-line when Cloudflare blocks the scraper)
+      const noise      = rand(0.80, 1.20);
+      let totalMult    = tod * noise;
+      if (m.spikeRemaining > 0) totalMult *= m.spikeMult;
+      const complaints = Math.round(m.baseline * totalMult);
+      const ratio      = complaints / m.baseline;
+      const status     = statusForRatio(ratio);
+
+      m.prevStatus = m.status;
+      m.complaints = complaints;
+      m.ratio      = Math.round(ratio * 10) / 10;
+      m.status     = status;
       m.lastUpdate = Date.now();
       m.dataSource = "simulated"; // scrape failed → do NOT show as LIVE
+      m.trend      = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
+
+      const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
+      m.history = [...m.history.filter(p => p.ts > Date.now() - RETENTION_H * 3600_000), point];
+      saveCommunitySignal(m.id, complaints, m.ratio);
+
+      await handleStatusTransition(m, port);
       continue;
     }
 
