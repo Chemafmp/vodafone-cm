@@ -812,7 +812,7 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
 
   return (
     <div style={{
-      width: 400, flexShrink: 0,
+      width: 300, flexShrink: 0,
       background: T.surface, border: `1px solid ${T.border}`,
       borderRadius: 10, display: "flex", flexDirection: "column",
       maxHeight: "100%", overflow: "hidden",
@@ -942,20 +942,6 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
           </div>
         )}
 
-        {/* Correlation Chart */}
-        <CorrelationChart market={market} svc={svc} />
-
-        {/* Open in Network Health */}
-        <button
-          onClick={onOpenNetworkHealth}
-          style={{
-            width: "100%", padding: "8px 0",
-            background: "#e40000", color: "#fff",
-            border: "none", borderRadius: 7, cursor: "pointer",
-            fontSize: 12, fontWeight: 700, fontFamily: "inherit",
-          }}>
-          Open in Network Health →
-        </button>
       </div>
     </div>
   );
@@ -1010,7 +996,14 @@ function AboutMetrics() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div style={{ borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+    <div style={{
+      borderTop: `1px solid ${T.border}`,
+      flexShrink: 0,
+      display: "flex",
+      flexDirection: "column",
+      // Cap height when expanded so it doesn't push content off-screen on mobile
+      maxHeight: open ? "45vh" : "auto",
+    }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -1020,6 +1013,7 @@ function AboutMetrics() {
           border: "none", borderBottom: open ? `1px solid ${T.border}` : "none",
           cursor: "pointer", fontFamily: "inherit",
           fontSize: 12, fontWeight: 600, color: T.muted, textAlign: "left",
+          flexShrink: 0,
         }}>
         <span style={{ fontSize: 14 }}>ℹ️</span>
         <span>About these metrics</span>
@@ -1030,8 +1024,11 @@ function AboutMetrics() {
         <div style={{
           padding: "14px 20px",
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
           gap: 10,
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
+          flex: 1,
         }}>
           {ABOUT_ITEMS.map(item => (
             <div key={item.title} style={{
@@ -1061,6 +1058,14 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
   const [showDegradedOnly, setShowDegradedOnly] = useState(false);
   const [selected,  setSelected]  = useState(null);
   const [activeTab, setActiveTab] = useState("matrix"); // "matrix" | "feed"
+
+  // Responsive: hide right panel on narrow screens (mobile / PWA)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 680);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 680);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
 
   // Fetch both data sources
   useEffect(() => {
@@ -1199,7 +1204,7 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
       {/* Main content area */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {/* Left: matrix or feed */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "14px 20px" }}>
+        <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: isMobile ? "10px 10px" : "14px 20px" }}>
           {activeTab === "matrix" && (
             <div>
               {/* Signal legend */}
@@ -1236,6 +1241,79 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
                   </span>
                 ))}
               </div>
+
+              {/* ── Correlation Chart — appears below the table when a market is selected ── */}
+              {selected && (
+                <div style={{
+                  marginTop: 16,
+                  background: T.surface,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  // Desktop: cap width so chart stays readable; mobile: full width
+                  maxWidth: isMobile ? "100%" : 680,
+                }}>
+                  {/* Chart header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 16 }}>{selected.flag}</span>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: T.text }}>
+                      {selected.name} — Correlation Chart
+                    </span>
+                    <div style={{ flex: 1, minWidth: 8 }} />
+                    <button
+                      onClick={() => onOpenNetworkHealth && onOpenNetworkHealth()}
+                      style={{
+                        padding: "5px 11px",
+                        background: "#e40000", color: "#fff",
+                        border: "none", borderRadius: 6, cursor: "pointer",
+                        fontSize: 10, fontWeight: 700, fontFamily: "inherit",
+                        letterSpacing: "0.2px",
+                      }}>
+                      Open in Network Health →
+                    </button>
+                  </div>
+                  <CorrelationChart market={selected} svc={svcMap[selected.id]} />
+
+                  {/* Mobile only: compact signal summary (replaces the hidden right panel) */}
+                  {isMobile && (() => {
+                    const svc = svcMap[selected.id];
+                    const signals = [
+                      { col: SIGNAL_COLS[0], cell: getSignalCell(selected, svc, "atlas") },
+                      { col: SIGNAL_COLS[1], cell: getSignalCell(selected, svc, "bgp") },
+                      { col: SIGNAL_COLS[2], cell: getSignalCell(selected, svc, "ris") },
+                      { col: SIGNAL_COLS[3], cell: getSignalCell(selected, svc, "radar") },
+                      { col: SIGNAL_COLS[4], cell: getSignalCell(selected, svc, "ioda") },
+                      { col: SIGNAL_COLS[5], cell: getSignalCell(selected, svc, "smon") },
+                    ];
+                    return (
+                      <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8 }}>
+                          Signal Layers
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {signals.map(({ col, cell }) => {
+                            const c = dotColor(cell.status);
+                            const isOk = cell.status === "ok" || cell.status === "unknown";
+                            return (
+                              <div key={col.key} style={{
+                                display: "flex", alignItems: "center", gap: 8,
+                                padding: "5px 8px", borderRadius: 6,
+                                background: isOk ? "transparent" : (cell.status === "outage" ? "#fef2f222" : "#fffbeb44"),
+                                border: `1px solid ${isOk ? T.border : (cell.status === "outage" ? "#fca5a5" : "#fcd34d")}`,
+                              }}>
+                                <span style={{ fontSize: 13, flexShrink: 0 }}>{col.icon}</span>
+                                <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: T.text }}>{col.label}</span>
+                                <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: isOk ? 400 : 700, color: c }}>{cell.metric}</span>
+                                <div style={{ width: 7, height: 7, borderRadius: "50%", background: c, flexShrink: 0 }} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
 
@@ -1249,8 +1327,8 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
           )}
         </div>
 
-        {/* Right: market detail panel */}
-        {selected && (
+        {/* Right: market detail panel — desktop only (hidden on mobile, signal summary shown inline) */}
+        {selected && !isMobile && (
           <div style={{ padding: "14px 14px 14px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
             <MarketDetailPanel
               market={selected}

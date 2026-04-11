@@ -104,7 +104,11 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Returns the nearest k-root node to a probe's lat/lon
+// Returns the geographically nearest k-root node to a probe's lat/lon.
+// We use geographic distance as a best-effort proxy: k-root uses anycast so the
+// nearest instance is the most plausible one, even though BGP routing can sometimes
+// send traffic to a farther node. We cannot know for certain without real telemetry,
+// so we show the geographic nearest rather than risk a wrong RTT-based guess.
 function nearestKroot(lat, lon) {
   if (lat == null || lon == null) return null;
   let best = null, bestDist = Infinity;
