@@ -225,7 +225,9 @@ app.get("/api/network-health", (req, res) => {
         announcements6h: risData.announcements6h,
         lastEvent:       risData.lastEvent,
         status:          risData.status,
-        recentEvents:    risData.recentEvents,
+        recentEvents:         risData.recentEvents,
+        recentWithdrawals:    risData.recentWithdrawals,
+        recentAnnouncements:  risData.recentAnnouncements,
       } : null,
       radar: radarData ? {
         events:      radarData.events,
