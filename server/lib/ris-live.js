@@ -158,12 +158,18 @@ function connect() {
     logFn?.("[ris] ✓ connected to wss://ris-live.ripe.net/v1/ws/");
     for (const s of state.values()) s.connected = true;
 
-    // Subscribe to all BGP UPDATE messages
-    // We filter by ASN in handleMessage — no server-side ASN filter in RIS Live v1
+    // Subscribe with server-side AS path filter — only receive messages that
+    // contain at least one Vodafone ASN in the path. Without this the stream
+    // delivers the entire global BGP feed (~1-2 MB/s) which we then discard
+    // 99.9% of, wasting CPU and bandwidth.
+    // RIS Live v1 `path` field is a regex matched against the serialised AS_PATH.
+    // _ASN_ matches ASN as a standalone number (BGP path word boundary).
+    const asnPattern = [...VODAFONE_ASNS].map(asn => `_${asn}_`).join("|");
     ws.send(JSON.stringify({
       type: "ris_subscribe",
       data: {
         type:          "UPDATE",
+        path:          asnPattern,
         socketOptions: { includeRaw: false },
       },
     }));
