@@ -41,7 +41,7 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 
 ---
 
-## Current State — v1.7
+## Current State — v1.8
 
 **Frontend live:** https://chemafmp.github.io/vodafone-cm/
 **Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
@@ -50,11 +50,11 @@ React 19 + Vite SPA. Supabase DB backend (Phase 2 complete). Live poller backend
 
 **Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
 Tables: `changes` (JSONB), `freeze_periods` (JSONB), `tickets`, `ticket_events`, `ticket_evidence`,
-        `ripe_measurements`, `bgp_visibility`, `dns_measurements`, `correlation_scores`
+        `ripe_measurements`, `bgp_visibility`, `dns_measurements`, `correlation_scores`, `ioda_signals`
 Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
           `RIPE_ATLAS_KEY` — RIPE Atlas API key (in `.env` on droplet, enables network health polling)
           `CF_RADAR_TOKEN` — Cloudflare Radar API token (in `.env.supabase` on droplet)
-          `AUTOMATION_API_KEY` — protects `/api/ioda-push` and `/api/tickets/:id/notes`
+          `AUTOMATION_API_KEY` — protects `/api/tickets/:id/notes` (ioda-push endpoint removed)
 `.env.production` sets `VITE_POLLER_WS=wss://api.chemafmp.dev` (not committed)
 
 **Droplet deploy — always use the alias:**
@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS dns_measurements (
 CREATE TABLE IF NOT EXISTS correlation_scores (
   id bigserial PRIMARY KEY, market_id text, score int, status text,
   alerts text[], ioda_active int, radar_alerts int, ris_wd_1h int,
+  measured_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ioda_signals (
+  id bigserial PRIMARY KEY, market_id text, ioda_asn int,
+  bgp_score numeric, ping_count numeric,
   measured_at timestamptz DEFAULT now()
 );
 ```
@@ -217,15 +222,24 @@ src/
     NetworkHealthView.jsx# ★ RIPE Atlas Network Health. GET /api/network-health every 30s.
                          # MarketCard: 3×2 metric grid (AVG/P95 Latency, Packet Loss,
                          #   BGP Visible [X/Y peers], DNS RTT, Active Probes).
+                         #   Alert badge row: compact badges above dots for warn/alert signals.
                          #   RatioTooltip: hover status pill → ×ratio explained + thresholds.
                          # DetailPanel: 6 charts (avg/p95/loss/bgp/dns history), 7 zoom options,
                          #   ProbeBreakdown button (opens per-probe modal).
                          # ProbeBreakdown: per-probe table — ICMP latency bar (min/avg/max),
                          #   P95, loss, DNS RTT column (purple/orange), K-ROOT inference.
                          #   BGP summary panel (peer counts + explanation).
+                         # SignalDetailModal: click any signal row → full NOC troubleshooting guide.
                          # MetricsGlossary: explains all 6 metrics with measurement source.
                          # RIPE_MARKETS: ES/UK/DE/IT/PT/NL/IE/GR/TR (9 markets).
                          #   All have active probes except TR (AS15924 — 1 probe, not reporting).
+    SignalFusionView.jsx # ★ Cross-signal correlation. Fetches /api/network-health + /api/service-status.
+                         # Signal Matrix: 9 markets × 6 signals (Atlas/BGP/RIS/Radar/IODA/Community).
+                         #   Each cell: status dot + key metric. "Degraded only" toggle.
+                         # Event Feed: chronological stream. ⚡ clusters = 2+ signals / market / 30min.
+                         # Market Detail Panel: metrics grid, signal layers, community reports, insight.
+                         # Props: onOpenNetworkHealth() — navigates to network_health view.
+                         # PWA: 3rd tile on landing page (purple, 🔀).
 ```
 
 ---
@@ -388,9 +402,11 @@ Changes cross-reference nodes via `affectedDeviceIds: string[]` using these same
 | MONITORING | `events` | EventsView ← needs Session 3 redesign |
 | MONITORING | `observability` | ObservabilityView |
 | MONITORING | `network_health` | NetworkHealthView ★ |
+| MONITORING | `signal_fusion`  | SignalFusionView ★  |
 | TICKETS | `tickets` | TicketListView ★ |
 | PWA only | `service_monitor` | ServiceStatusView (standalone mode, no login) |
 | PWA only | `network_health` | NetworkHealthView (PWA tile from landing page) |
+| PWA only | `signal_fusion`  | SignalFusionView (PWA tile from landing page) |
 
 ---
 
@@ -485,10 +501,55 @@ See "Next Work — Session 7" section above.
     is counted separately so real route-flap activity is still visible. `correlation_scores.ris_wd_1h`
     history has a step-down at deploy time (no migration needed).
   - Scroll fix: removed display:flex from scrollable container, added minHeight:0
-  - IODA external push: `POST /api/ioda-push` endpoint + `scripts/ioda-sync.py` Mac cron script
-    (CAIDA blocks DigitalOcean IPs; Mac cron fetches and pushes every 5 min as workaround)
+  - IODA workaround (superseded): `scripts/ioda-sync.py` Mac cron + `/api/ioda-push` endpoint.
+    Old CAIDA URL `api.ioda.caida.org` blocked cloud IPs; new v2 URL does not. Removed in Session 8.
   - Droplet deploy alias: `deploy` = `git pull && docker compose build --no-cache && docker compose up -d`
   - CF_RADAR_TOKEN: added to `.env.supabase` on droplet (token name: vodafone-noc, Account.Radar.Read)
+
+### ✅ Session 8 — IODA v2 native + Signal Fusion view (DONE 2026-04-11)
+
+#### IODA v2 native integration (`server/lib/ioda.js` rewrite)
+  - New API base: `https://api.ioda.inetintel.cc.gatech.edu/v2/` (Georgia Tech, not CAIDA)
+    No cloud IP block. No authentication. Rate limit ~1 req/s. Swagger docs at `/v2/`.
+  - Per-market, 3 API calls per tick (1.2s apart):
+    1. `/v2/outages/events?entityType=asn&entityCode=ASN&from=T&until=T&overall=true`
+       → macroscopic outage events (merged across datasources). Each event: id, start, duration, score.
+    2. `/v2/signals/raw/asn/{asn}?datasource=bgp&maxPoints=24`
+       → BGP visibility score time series (number of full-feed peers seeing the AS's prefixes).
+       Higher = more globally visible. Drop → prefixes withdrawn from routing table.
+    3. `/v2/signals/raw/asn/{asn}?datasource=ping-slash24&maxPoints=24`
+       → Active probing /24 count (Trinocular technique, Georgia Tech fleet of 20 probers).
+       Number of /24 blocks answering probes. Drop → address space becoming unreachable.
+  - Turkey ASN override: IODA uses **AS15897** (VodafoneTurkey, 772K IPs) not AS15924
+    (which has 1 RIPE Atlas probe and negligible IODA coverage). RIPE Atlas still uses AS15924.
+    Implemented via `IODA_ASN_OVERRIDE = { tr: 15897 }` in ioda.js. iodaAsn field in API response.
+  - Supabase persistence: `ioda_signals` table (same pattern as ripe_measurements):
+    `{ id, market_id, ioda_asn, bgp_score, ping_count, measured_at }`
+    36h retention with auto-cleanup. 36h history preloaded on boot so charts work after restart.
+  - Removed: `injectIodaData()` export, `/api/ioda-push` endpoint, `scripts/ioda-sync.py`
+  - Removed: Mac cron job (`crontab -e` — ioda-sync entry deleted)
+  - `initIoda()` is now async (was sync). `poller.js` calls it with `.catch()`.
+  - API response now includes `ioda.iodaAsn` and `ioda.signals` fields.
+
+#### Signal Fusion view (`src/components/SignalFusionView.jsx`)
+  - New sidebar item 🔀 Signal Fusion under MONITORING (view id: `signal_fusion`)
+  - Fetches both `/api/network-health` AND `/api/service-status` every 30s
+  - Signal Matrix: 9 markets × 6 signals (Atlas · BGP · RIS · Radar · IODA · Community)
+    Each cell: status dot + key metric (e.g. "22 ms", "82%", "3 wd/h", "142 rep")
+    Toggle: "Degraded only" hides healthy markets
+  - Event Feed: chronological stream of all signal events with ⚡ incident clustering
+    (2+ signals on same market within 30 min → grouped as "PROBABLE INCIDENT")
+  - Market Detail Panel (right side, 320px): opens on row click
+    Metrics grid (6 cells), signal layers, community reports breakdown, correlation insight,
+    "Open in Network Health →" button (calls `onOpenNetworkHealth` prop)
+  - PWA: 3rd tile on landing page (purple, 🔀 Signal Fusion)
+  - `onOpenNetworkHealth` prop: App.jsx passes `() => setView("network_health")` (desktop)
+    or `() => setPwaView("network_health")` (PWA)
+
+#### MarketCard alert badge row (NetworkHealthView)
+  - Compact badge row above signal dots — only shown when ≥1 signal is warn/alert
+  - Badges: `📡 Atlas ×2.1` · `🔗 BGP 82%` · `🔄 RIS 12 wd/h` · `☁️ Radar 3 evt` · `🌐 IODA 2 active`
+  - Amber background = warning · Red background = alert/outage · Healthy cards unchanged
 
 ### ✅ Session 6b — Network Health View (DONE, claude/nifty-proskuriakova → main 2026-04-10)
   - RIPE Atlas msm #1001 (ICMP ping to k-root) per Vodafone market, 9 countries
