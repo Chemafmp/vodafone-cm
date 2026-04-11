@@ -111,7 +111,7 @@ function buildInsight(alerts, { atlas, bgp, ioda, ris, score, status }) {
   }
   if (alerts.includes("ris")) {
     const wd = ris?.withdrawals1h ?? "?";
-    parts.push(`${wd} BGP withdrawal${wd !== 1 ? "s" : ""} in last 1h`);
+    parts.push(`${wd} unique BGP withdrawal${wd !== 1 ? "s" : ""} in last 1h`);
   }
 
   const summary = parts.join(" · ");

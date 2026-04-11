@@ -349,7 +349,7 @@ function MetricsGlossary() {
               { icon: "↔️", title: "AS Path Length", body: "Average number of Autonomous System hops it takes to reach Vodafone from RIPE's BGP route collectors worldwide. 3–4 hops is typical for a Tier-2 ISP. If it jumps (e.g. 3.4 → 6.1), traffic is being rerouted through longer paths — could indicate a peering failure or route leak forcing traffic through suboptimal routes." },
               { icon: "🔍", title: "DNS RTT (msm #10001)", body: "Round-trip time for a DNS SOA query to k.root-servers.net, measured from the same Vodafone probes. Unlike the ICMP ping (which tests raw IP reachability), this tests the full DNS query path including Vodafone's local resolver. If DNS RTT >> ICMP RTT, Vodafone's resolver is slow or overloaded — customers experience slow page loads even if the network path is healthy." },
               { icon: "🌐", title: "CAIDA IODA", body: "Internet Outage Detection and Analysis (IODA) monitors Internet outages using three independent signals: BGP prefix withdrawals, active probing (UCSD Network Telescope), and Merit Network Telescope (darknet traffic). When multiple IODA datasources agree on an anomaly, confidence of an outage is high. IODA monitors Vodafone by ASN — an active IODA event alongside BGP/Atlas degradation is a strong corroboration of an actual outage. Free service by CAIDA (UC San Diego)." },
-              { icon: "🔄", title: "RIS Live (BGP stream)", body: "RIPE Routing Information Service Live streams real-time BGP UPDATE messages from ~30 global route collectors (RRCs) peered with hundreds of ASes. We filter for Vodafone ASNs in the AS path. WITHDRAW events mean a prefix has been pulled from global routing — every withdrawal counts. Thresholds: ≥5 withdrawals/1h = WARNING · ≥20 withdrawals/1h = ALERT. A spike in withdrawals without corresponding ANNOUNCE events suggests route instability or partial outage." },
+              { icon: "🔄", title: "RIS Live (BGP stream)", body: "RIPE Routing Information Service Live streams real-time BGP UPDATE messages from ~30 global route collectors (RRCs) peered with hundreds of ASes. We filter for Vodafone ASNs in the AS path. Because one real withdrawal propagates through many collectors and peers as separate messages, we deduplicate by (prefix, 60s time bucket) — so one logical withdrawal counts once, and a later re-withdrawal (>60s later) counts as a new flap event. Thresholds: ≥3 unique withdrawals/1h = WARNING · ≥10 unique withdrawals/1h = ALERT. A spike in withdrawals without corresponding ANNOUNCE events suggests route instability or partial outage." },
               { icon: "☁️", title: "Cloudflare Radar", body: "Cloudflare has visibility into ~20% of global Internet traffic and actively monitors BGP events. We query two endpoints per Vodafone ASN: BGP hijack events (another AS announcing Vodafone prefixes without authorisation) and route leak events (Vodafone prefixes appearing in unexpected AS paths). Requires a Cloudflare Radar API token (CF_RADAR_TOKEN). An active hijack alert combined with RPKI INVALID prefixes is a critical incident signal." },
               { icon: "📊", title: "Correlation Score", body: "A 0–100 composite health score computed from all signal layers per market. Starts at 100 and deducts points per layer: Atlas outage −35, BGP outage −25, IODA alert −20, RIS alert −20, Radar alert −10. Extra cross-penalties apply when layers agree: Atlas+BGP (−10), Atlas+IODA (−10), BGP+RIS (−5), 3+ layers (−10). Score ≥90 = OK · ≥70 = Degraded · ≥40 = Warning · <40 = Incident. Lower score = higher confidence that something real is happening." },
             ].map(m => (
@@ -1282,7 +1282,7 @@ function SignalDetailModal({ signal, market, onClose }) {
       const an6h = ris?.announcements6h ?? 0;
       const withdrawEvents = ris?.recentWithdrawals || (ris?.recentEvents || []).filter(e => e.type === "WITHDRAW");
       const announceEvents = ris?.recentAnnouncements || (ris?.recentEvents || []).filter(e => e.type === "ANNOUNCE");
-      const wdColor = wd1h >= 20 ? "#dc2626" : wd1h >= 5 ? "#b45309" : "#16a34a";
+      const wdColor = wd1h >= 10 ? "#dc2626" : wd1h >= 3 ? "#b45309" : "#16a34a";
 
       return (<>
         <Section title="What is RIS Live?">
@@ -1295,15 +1295,20 @@ function SignalDetailModal({ signal, market, onClose }) {
           <p style={{ fontSize: 11, color: T.text, lineHeight: 1.7, marginTop: 8, marginBottom: 0 }}>
             This gives us a real-time view of BGP instability for AS{market.asn} ({market.name}).
           </p>
+          <p style={{ fontSize: 11, color: T.muted, lineHeight: 1.7, marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
+            Events are <strong>deduplicated by prefix over a 60-second window</strong>: one logical withdrawal
+            seen by many RIS collectors/peers counts once. A later withdrawal of the same prefix
+            (&gt;60s later) is counted separately, so real route-flap activity is still visible.
+          </p>
         </Section>
 
         <Section title="Current metrics">
-          <KV label="Withdrawals / last 1h" value={`${wd1h}`} valueColor={wdColor}
-            sub={wd1h >= 20 ? "ALERT — high instability" : wd1h >= 5 ? "WARN — elevated, monitor" : "Normal BGP churn"} />
-          <KV label="Announcements / last 1h" value={`${an1h}`}
+          <KV label="Unique withdrawals / last 1h" value={`${wd1h}`} valueColor={wdColor}
+            sub={wd1h >= 10 ? "ALERT — high instability" : wd1h >= 3 ? "WARN — elevated, monitor" : "Normal BGP churn"} />
+          <KV label="Unique announcements / last 1h" value={`${an1h}`}
             sub="New routes being advertised — normal activity" />
-          <KV label="Withdrawals / last 6h" value={`${wd6h}`} />
-          <KV label="Announcements / last 6h" value={`${an6h}`} />
+          <KV label="Unique withdrawals / last 6h" value={`${wd6h}`} />
+          <KV label="Unique announcements / last 6h" value={`${an6h}`} />
           <KV label="WebSocket" value={ris?.connected ? "Connected" : "Disconnected"} valueColor={ris?.connected ? "#16a34a" : "#dc2626"} />
         </Section>
 
@@ -1325,9 +1330,9 @@ function SignalDetailModal({ signal, market, onClose }) {
         </Section>
 
         <Section title="Thresholds">
-          <ThresholdRow range="0 – 4 / h"  status="ok"   meaning="Normal BGP churn. No action needed." />
-          <ThresholdRow range="5 – 19 / h" status="warn" meaning="Elevated instability. Monitor for escalation. Check if maintenance is scheduled." />
-          <ThresholdRow range="≥ 20 / h"   status="alert" meaning="High instability. Investigate immediately. Cross-reference with Atlas latency and BGP visibility." />
+          <ThresholdRow range="0 – 2 / h"  status="ok"   meaning="Normal BGP churn. No action needed." />
+          <ThresholdRow range="3 – 9 / h"  status="warn" meaning="Elevated instability. Monitor for escalation. Check if maintenance is scheduled." />
+          <ThresholdRow range="≥ 10 / h"   status="alert" meaning="High instability. Investigate immediately. Cross-reference with Atlas latency and BGP visibility." />
         </Section>
 
         {withdrawEvents.length > 0 && (
@@ -1356,15 +1361,15 @@ function SignalDetailModal({ signal, market, onClose }) {
 
         <Section title="NOC action guide">
           <div style={{ fontSize: 11, color: T.text, lineHeight: 1.8 }}>
-            {wd1h < 5 && <div>✅ No action needed. BGP state is stable.</div>}
-            {wd1h >= 5 && wd1h < 20 && <>
+            {wd1h < 3 && <div>✅ No action needed. BGP state is stable.</div>}
+            {wd1h >= 3 && wd1h < 10 && <>
               <div>⚠️ Elevated withdrawal rate. Recommended steps:</div>
               <div style={{ paddingLeft: 16 }}>1. Check if maintenance is scheduled for AS{market.asn}</div>
               <div style={{ paddingLeft: 16 }}>2. Monitor Atlas latency for end-user impact</div>
               <div style={{ paddingLeft: 16 }}>3. Review BGP Visibility — if peers dropping, escalate</div>
               <div style={{ paddingLeft: 16 }}>4. Re-check in 15 min — if still elevated, open ticket</div>
             </>}
-            {wd1h >= 20 && <>
+            {wd1h >= 10 && <>
               <div>🔴 High BGP instability. Immediate action:</div>
               <div style={{ paddingLeft: 16 }}>1. Identify which prefixes are being withdrawn (see events above)</div>
               <div style={{ paddingLeft: 16 }}>2. Check Atlas — is end-user latency rising?</div>
@@ -1780,7 +1785,7 @@ function SignalLayersSection({ market }) {
       status: market.ris?.status,
       summary: market.ris?.connected === false
         ? "WebSocket disconnected — reconnecting…"
-        : `${market.ris?.withdrawals1h ?? 0} withdrawals/1h · ${market.ris?.announcements1h ?? 0} announces/1h`,
+        : `${market.ris?.withdrawals1h ?? 0} unique withdrawals/1h · ${market.ris?.announcements1h ?? 0} unique announces/1h`,
       events: (market.ris?.recentWithdrawals || (market.ris?.recentEvents || []).filter(e => e.type === "WITHDRAW")).slice(0, 3).map(e => ({
         label: `WITHDRAW ${e.prefix} from ${e.peer} (${e.rrc})`,
       })),
@@ -1915,7 +1920,7 @@ function SignalLayersSection({ market }) {
                     </div>
                     <div style={{ fontSize: 10, color: T.text, lineHeight: 1.7, borderTop: `1px solid ${corrAlerts.length > 0 ? "#fcd34d" : "#86efac"}`, paddingTop: 8 }}>
                       {corrAlerts.includes("ris") && wd != null && (
-                        <div>• <strong>RIS Live:</strong> {wd} withdrawals/h — threshold for WARNING is 5/h, ALERT is 20/h. {wd >= 20 ? "This rate indicates active BGP instability." : "Monitor for escalation."}</div>
+                        <div>• <strong>RIS Live:</strong> {wd} unique withdrawal event{wd !== 1 ? "s" : ""} in the last 1h (deduplicated by prefix over a 60s window, so one logical withdrawal seen by many RIS collectors counts once). Thresholds: WARNING ≥3/h · ALERT ≥10/h. {wd >= 10 ? "This rate indicates active BGP instability." : "Monitor for escalation."}</div>
                       )}
                       {corrAlerts.includes("radar") && radar?.alertCount > 0 && (
                         <div>• <strong>Cloudflare Radar:</strong> {radar.alertCount} active event{radar.alertCount !== 1 ? "s" : ""} (hijack/leak). Click the Cloudflare Radar row above for full details.</div>

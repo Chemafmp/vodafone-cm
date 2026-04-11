@@ -11,6 +11,17 @@
 //   - ANNOUNCE: new prefix announced (origin or path involves Vodafone AS)
 //   - WITHDRAW: prefix withdrawn — may indicate route flap or outage
 //
+// ─── Deduplication ────────────────────────────────────────────────────────────
+// A single logical BGP withdrawal propagates through the global routing table
+// and is observed by many RIS route collectors and many peers — each observation
+// arrives as a separate RIS Live UPDATE message. Without dedup, a single real
+// withdrawal can inflate into hundreds of counted events.
+//
+// We dedupe by `(type, prefix, 60s time bucket)`: the same prefix withdrawn by
+// multiple collectors/peers within a 60s window counts as ONE event. A later
+// withdrawal of the same prefix (>60s later) is counted separately, so real
+// flap activity remains visible.
+//
 // No authentication required. Free service.
 // Docs: https://ris-live.ripe.net/
 
@@ -19,9 +30,15 @@ import { RIPE_MARKETS } from "./ripe-atlas.js";
 
 const RIS_WS_URL   = "wss://ris-live.ripe.net/v1/ws/";
 const RETENTION_MS = 6  * 3600_000;   // keep 6h of events in memory
-const WARN_WD_1H   = 5;               // withdrawals/1h threshold for WARNING
-const ALERT_WD_1H  = 20;             // withdrawals/1h threshold for ALERT
+const DEDUP_BUCKET_MS = 60_000;       // collapse same-prefix events within 60s
+const WARN_WD_1H   = 3;               // dedup'd withdrawals/1h threshold for WARNING
+const ALERT_WD_1H  = 10;              // dedup'd withdrawals/1h threshold for ALERT
 const RECONNECT_MS = 10_000;          // reconnect delay on disconnect
+
+// Build a dedup key: same prefix + same type within a 60s bucket = duplicate
+function bucketKey(type, prefix, ts) {
+  return `${type}:${prefix}:${Math.floor(ts / DEDUP_BUCKET_MS)}`;
+}
 
 // Build ASN lookup Set for fast filtering: Set<number>
 const VODAFONE_ASNS = new Set(RIPE_MARKETS.map(m => m.asn));
@@ -35,7 +52,8 @@ const state = new Map();
 function initState() {
   for (const m of RIPE_MARKETS) {
     state.set(m.id, {
-      events:           [],    // { type, prefix, peer, ts, rrc, path }
+      events:           [],            // { type, prefix, peer, ts, rrc, path }
+      seenBuckets:      new Set(),     // dedup keys for events currently in buffer
       withdrawals1h:    0,
       withdrawals6h:    0,
       announcements1h:  0,
@@ -54,8 +72,10 @@ function recompute(marketId) {
   const t1h = now - 3600_000;
   const t6h = now - RETENTION_MS;
 
-  // Drop events older than 6h
+  // Drop events older than 6h and rebuild the dedup Set to match so it never
+  // grows unbounded.
   s.events = s.events.filter(e => e.ts > t6h);
+  s.seenBuckets = new Set(s.events.map(e => bucketKey(e.type, e.prefix, e.ts)));
 
   s.withdrawals1h   = s.events.filter(e => e.type === "WITHDRAW"  && e.ts > t1h).length;
   s.withdrawals6h   = s.events.filter(e => e.type === "WITHDRAW").length;
@@ -101,12 +121,18 @@ function handleMessage(raw, log) {
 
   if (isWithdraw) {
     for (const prefix of d.withdrawals) {
+      const k = bucketKey("WITHDRAW", prefix, ts);
+      if (s.seenBuckets.has(k)) continue;   // same prefix within 60s window = duplicate
+      s.seenBuckets.add(k);
       s.events.push({ type: "WITHDRAW", prefix, peer, ts, rrc, asn: matchedAsn });
     }
   }
   if (isAnnounce) {
     for (const ann of d.announcements) {
       const prefix = ann.prefixes?.[0] || ann.prefix || "unknown";
+      const k = bucketKey("ANNOUNCE", prefix, ts);
+      if (s.seenBuckets.has(k)) continue;   // same prefix within 60s window = duplicate
+      s.seenBuckets.add(k);
       s.events.push({ type: "ANNOUNCE", prefix, peer, ts, rrc, asn: matchedAsn });
     }
   }

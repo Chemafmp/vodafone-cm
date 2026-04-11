@@ -477,6 +477,13 @@ See "Next Work — Session 7" section above.
   - CorrelationPanel: collapsible, always-visible matrix below market cards
   - RIS fix: separate recentWithdrawals/recentAnnouncements arrays (high announce volume was crowding withdrawals)
   - RIS fix: initial status "ok" (was "unknown" for first 5 min after restart)
+  - RIS fix (dedup): one real withdrawal propagates through many RIS collectors/peers as separate
+    UPDATE messages, inflating `withdrawals1h` by 100-1000×. Now deduplicated by
+    `(type, prefix, 60s time bucket)` in `ris-live.js` — `seenBuckets: Set` sibling to `events[]`,
+    rebuilt inside `recompute()` after 6h pruning so it can't grow unbounded. Thresholds recalibrated:
+    **WARN ≥3/h · ALERT ≥10/h** (was 5/20). A later re-withdrawal of the same prefix (>60s later)
+    is counted separately so real route-flap activity is still visible. `correlation_scores.ris_wd_1h`
+    history has a step-down at deploy time (no migration needed).
   - Scroll fix: removed display:flex from scrollable container, added minHeight:0
   - IODA external push: `POST /api/ioda-push` endpoint + `scripts/ioda-sync.py` Mac cron script
     (CAIDA blocks DigitalOcean IPs; Mac cron fetches and pushes every 5 min as workaround)
