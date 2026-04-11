@@ -651,7 +651,7 @@ server.listen(PORT, BIND_HOST, () => {
   initCfRadar(log);
 
   // Correlation history — load from Supabase on boot, persist each tick
-  await initCorrelationHistory(log);
+  initCorrelationHistory(log).catch(e => log(chalk.yellow(`[corr-hist] init error: ${e.message}`)));
 });
 
 // ─── Save correlation scores for all markets to Supabase ─────────────────────
