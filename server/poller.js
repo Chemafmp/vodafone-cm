@@ -160,8 +160,9 @@ app.get("/api/network-health", (req, res) => {
       status:     bgpMap[m.id].status,
       ok:         bgpMap[m.id].ok,
       error:      bgpMap[m.id].error,
-      prefixes:   bgpMap[m.id].prefixes   || null,
-      rpki:       bgpMap[m.id].rpki       || null,
+      prefixes:    bgpMap[m.id].prefixes    || null,
+      prefixDiff:  bgpMap[m.id].prefixDiff  || null,
+      rpki:        bgpMap[m.id].rpki        || null,
       pathLength: bgpMap[m.id].pathLength || null,
     } : null,
     dns: dnsMap[m.id] ? {

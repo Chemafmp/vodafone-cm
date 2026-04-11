@@ -42,9 +42,10 @@ function initState() {
       error:      null,
       lastUpdate: null,
       // Extended BGP metrics (polled less frequently)
-      prefixes:        null,   // { v4_count, v6_count, sample: string[] }
-      rpki:            null,   // { valid, invalid, unknown, coverage_pct, sampled }
+      prefixes:        null,   // { v4_count, v6_count, sample, v4_list, v6_list }
+      rpki:            null,   // { valid, invalid, unknown, coverage_pct, sampled, details[] }
       pathLength:      null,   // { avg, min, max, rrc_count }
+      prefixDiff:      null,   // { added_v4, removed_v4, added_v6, removed_v6, since }
       extLastUpdate:   0,      // timestamp of last extended poll
     });
   }
@@ -87,6 +88,8 @@ async function fetchAnnouncedPrefixes(asn) {
     v4_count: v4.length,
     v6_count: v6.length,
     sample:   v4.slice(0, 10).map(p => p.prefix), // first 10 v4 prefixes for RPKI check
+    v4_list:  v4.map(p => p.prefix),
+    v6_list:  v6.map(p => p.prefix),
   };
 }
 
@@ -94,15 +97,20 @@ async function fetchAnnouncedPrefixes(asn) {
 async function fetchRpkiCoverage(asn, prefixSample) {
   if (!prefixSample?.length) return null;
   let valid = 0, invalid = 0, unknown = 0;
+  const details = [];
   for (const prefix of prefixSample) {
     try {
       const url = `${RIPE_STAT_BASE}/rpki-validation/data.json?resource=AS${asn}&prefix=${prefix}`;
       const json = await statFetch(url);
       const status = json?.data?.status;
-      if (status === "valid")   valid++;
+      if (status === "valid")        valid++;
       else if (status === "invalid") invalid++;
-      else                      unknown++;
-    } catch { unknown++; }
+      else                           unknown++;
+      details.push({ prefix, status: status || "unknown" });
+    } catch {
+      unknown++;
+      details.push({ prefix, status: "unknown" });
+    }
     await new Promise(r => setTimeout(r, 200)); // 200ms between calls
   }
   const total = valid + invalid + unknown;
@@ -112,6 +120,7 @@ async function fetchRpkiCoverage(asn, prefixSample) {
     unknown,
     sampled:      total,
     coverage_pct: total > 0 ? Math.round((valid / total) * 1000) / 10 : null,
+    details,      // per-prefix: [{ prefix, status }]
   };
 }
 
@@ -232,9 +241,20 @@ async function pollMarket(m) {
   const extAgeMin = (Date.now() - s.extLastUpdate) / 60_000;
   if (extAgeMin > 30 || s.extLastUpdate === 0) {
     try {
-      const pfx = await fetchAnnouncedPrefixes(m.asn);
-      s.prefixes = pfx;
-      s.rpki      = await fetchRpkiCoverage(m.asn, pfx.sample);
+      const prev = s.prefixes;
+      const pfx  = await fetchAnnouncedPrefixes(m.asn);
+      // Compute diff vs previous poll
+      if (prev?.v4_list && pfx.v4_list) {
+        const prevV4 = new Set(prev.v4_list);
+        const prevV6 = new Set(prev.v6_list || []);
+        const added_v4   = pfx.v4_list.filter(p => !prevV4.has(p));
+        const removed_v4 = prev.v4_list.filter(p => !new Set(pfx.v4_list).has(p));
+        const added_v6   = pfx.v6_list.filter(p => !prevV6.has(p));
+        const removed_v6 = (prev.v6_list || []).filter(p => !new Set(pfx.v6_list).has(p));
+        s.prefixDiff = { added_v4, removed_v4, added_v6, removed_v6, since: Date.now() };
+      }
+      s.prefixes   = pfx;
+      s.rpki       = await fetchRpkiCoverage(m.asn, pfx.sample);
       s.pathLength = await fetchAsPathLength(m.asn);
       s.extLastUpdate = Date.now();
     } catch (e) {
@@ -281,9 +301,10 @@ export function getBgpVisibility() {
       ok:         s.ok,
       error:      s.error,
       lastUpdate: s.lastUpdate,
-      prefixes:   s.prefixes,
-      rpki:       s.rpki,
-      pathLength: s.pathLength,
+      prefixes:    s.prefixes,
+      prefixDiff:  s.prefixDiff,
+      rpki:        s.rpki,
+      pathLength:  s.pathLength,
     };
   });
 }

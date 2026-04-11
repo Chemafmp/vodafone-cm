@@ -175,7 +175,7 @@ export default function App(){
   // ── Standalone PWA mode (iOS navigator.standalone or Chrome display-mode) ──────
   const isPWA = window.navigator.standalone === true ||
     window.matchMedia("(display-mode: standalone)").matches ||
-    window.location.hash.includes("standalone=");
+    window.location.hash.includes("standalone");
 
   if (isPWA) {
     const pwaTopbar = (subtitle, onBack) => (
