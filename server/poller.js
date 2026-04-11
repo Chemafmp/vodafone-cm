@@ -26,7 +26,7 @@ import { eventFromAlarm, eventFromResolution, getRecentEvents } from "./lib/even
 import { THRESHOLDS } from "./lib/oids.js";
 import { selectNodes } from "./lib/node-pool.js";
 import ticketsRouter, { autoCreateTicketFromAlarm } from "./tickets.js";
-import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
+import { tickServiceStatus, getServiceStatus, initServiceStatus } from "./lib/service-status.js";
 import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas.js";
 import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bgp-visibility.js";
 import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
@@ -602,15 +602,16 @@ server.listen(PORT, BIND_HOST, () => {
   // Start polling loop
   setInterval(runPollCycle, POLL_INTERVAL);
 
-  // Service status simulation — tick every 30s
+  // Service status — preload Supabase history then start tick every 30s
   const SERVICE_STATUS_INTERVAL = 30_000;
   const useScraper = process.env.USE_SCRAPER === "1";
   log(chalk.cyan(`[service-status] starting — mode: ${useScraper ? chalk.bold("SCRAPER (Downdetector)") : "simulator"} (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
-  setInterval(() => {
-    tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
-  }, SERVICE_STATUS_INTERVAL);
-  // Fire first tick immediately so logs appear right away
-  setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+  initServiceStatus(log).then(() => {
+    setInterval(() => {
+      tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
+    }, SERVICE_STATUS_INTERVAL);
+    setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+  }).catch(e => log(chalk.yellow(`[service-status] init error: ${e.message}`)));
 
   // RIPE Atlas network health — tick every 5 min
   const RIPE_INTERVAL = 5 * 60 * 1000;

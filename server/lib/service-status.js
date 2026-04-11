@@ -8,7 +8,16 @@
 //   OUTAGE  ≥ 4.5×
 
 import { scrapeAll } from "./downdetector-scraper.js";
+import { createClient } from "@supabase/supabase-js";
+
 const USE_SCRAPER = process.env.USE_SCRAPER === "1";
+
+// ─── Supabase client ──────────────────────────────────────────────────────────
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = (SUPABASE_URL && SUPABASE_KEY) ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+const RETENTION_H = 36;
 
 const MARKETS = [
   { id: "es", name: "Spain",       flag: "🇪🇸", tz: "Europe/Madrid",    baseline: 45 },
@@ -30,7 +39,44 @@ const SERVICES = [
   { id: "tv",           name: "TV / IPTV",      icon: "📺", weight: 0.12 },
 ];
 
-const HISTORY_LEN = 2880; // 24h at 30s/tick
+const HISTORY_LEN = 2880; // 24h at 30s/tick (in-memory trend for sparkline)
+
+// ─── Supabase persistence helpers ────────────────────────────────────────────
+// community_signals: one row per market per tick (every 30s).
+// 36h retention → max ~10 markets × 4320 rows = ~43 200 rows, each tiny.
+
+async function saveCommunitySignal(marketId, complaints, ratio) {
+  if (!supabase) return;
+  try {
+    await supabase.from("community_signals").insert({ market_id: marketId, complaints, ratio });
+  } catch { /* non-fatal */ }
+}
+
+async function cleanupCommunitySignals() {
+  if (!supabase) return;
+  try {
+    const cutoff = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
+    await supabase.from("community_signals").delete().lt("measured_at", cutoff);
+  } catch { /* non-fatal */ }
+}
+
+async function loadCommunityHistory(marketId) {
+  if (!supabase) return [];
+  try {
+    const since = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
+    const { data } = await supabase
+      .from("community_signals")
+      .select("complaints, ratio, measured_at")
+      .eq("market_id", marketId)
+      .gte("measured_at", since)
+      .order("measured_at", { ascending: true });
+    return (data || []).map(r => ({
+      ts:         new Date(r.measured_at).getTime(),
+      value:      r.complaints,
+      ratio:      r.ratio,
+    }));
+  } catch { return []; }
+}
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 // marketId → { ...market fields, complaints, ratio, status, trend[], ticketId,
@@ -47,6 +93,7 @@ function initState() {
       status:          "ok",
       prevStatus:      "ok",
       trend:           Array(HISTORY_LEN).fill(Math.round(baseline)),
+      history:         [],   // [{ts, value, ratio}] — loaded from Supabase on boot
       ticketId:        null,
       spikeRemaining:  0,
       spikeMult:       1,
@@ -122,6 +169,11 @@ async function tickFromScraper(port, log) {
     // Use real trend if available, otherwise append new point
     m.trend = r.trend ? r.trend : [...m.trend.slice(1), complaints];
 
+    // Persist to Supabase + update in-memory history
+    const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
+    m.history = [...m.history.filter(p => p.ts > Date.now() - RETENTION_H * 3600_000), point];
+    saveCommunitySignal(m.id, complaints, m.ratio);
+
     // Auto-ticket logic (same as simulated path)
     await handleStatusTransition(m, port);
   }
@@ -178,13 +230,18 @@ async function tickSimulated(port, log) {
       };
     });
 
-    // ── Update trend ─────────────────────────────────────────────────────────
+    // ── Update trend + persist ────────────────────────────────────────────────
     m.complaints  = complaints;
     m.ratio       = Math.round(ratio * 10) / 10;
     m.prevStatus  = m.status;
     m.status      = status;
     m.lastUpdate  = Date.now();
     m.trend       = [...m.trend.slice(1), complaints];
+
+    // Persist to Supabase + append to in-memory history
+    const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
+    m.history = [...m.history.filter(p => p.ts > Date.now() - RETENTION_H * 3600_000), point];
+    saveCommunitySignal(m.id, complaints, m.ratio);
 
     await handleStatusTransition(m, port);
   }
@@ -252,6 +309,7 @@ export function getServiceStatus() {
       status:      s.status,
       prevStatus:  s.prevStatus,
       trend:       s.trend,
+      history:     s.history,   // [{ts, value, ratio}] — persistent, from Supabase
       ticketId:    s.ticketId,
       lastUpdate:  s.lastUpdate,
       services:    s.services,
@@ -260,5 +318,30 @@ export function getServiceStatus() {
   });
 }
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
-initState();
+// ─── Boot — preload history from Supabase ────────────────────────────────────
+export async function initServiceStatus(log) {
+  initState();
+  if (!supabase) {
+    log?.("[service-status] ⚠ Supabase not configured — history in-memory only");
+    return;
+  }
+  log?.("[service-status] loading community history from Supabase…");
+  for (const m of MARKETS) {
+    try {
+      const hist = await loadCommunityHistory(m.id);
+      if (hist.length > 0) {
+        const s = state.get(m.id);
+        s.history = hist;
+        // Also seed the last value into current state
+        const last = hist.at(-1);
+        if (last) {
+          s.complaints = last.value;
+          s.ratio      = last.ratio;
+          s.status     = last.ratio >= 4.5 ? "outage" : last.ratio >= 2 ? "warning" : "ok";
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+  cleanupCommunitySignals();
+  log?.("[service-status] community history preloaded");
+}

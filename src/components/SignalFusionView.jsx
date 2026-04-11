@@ -543,7 +543,13 @@ function CorrelationChart({ market, svc }) {
   const startMs  = now - windowMs;
 
   // ── Build series ───────────────────────────────────────────────────────────
+  // Use persistent Supabase history if available; fall back to in-memory trend reconstruction
   const smonPts = (() => {
+    if (svc?.history?.length) {
+      return svc.history
+        .filter(p => p.ts >= startMs && typeof p.value === "number")
+        .map(p => ({ ts: p.ts, v: p.value }));
+    }
     if (!svc?.trend?.length) return [];
     const len = svc.trend.length;
     return svc.trend
