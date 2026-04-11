@@ -44,20 +44,88 @@ function fmtTime(iso) {
   } catch { return ""; }
 }
 
-// ─── K-root anycast nodes nearest to each Vodafone market ────────────────────
-// Source: RIPE NCC k-root deployment list (https://www.ripe.net/analyse/dns/k-root/)
-// Each entry: city where a k-root node is present + the IXP it peers at
-const KROOT_NEARBY = {
-  es: [{ city: "Madrid",    ix: "ESPANIX" },    { city: "Frankfurt", ix: "DE-CIX" }],
-  uk: [{ city: "London",    ix: "LINX / LONAP"},{ city: "Amsterdam", ix: "AMS-IX" }],
-  de: [{ city: "Frankfurt", ix: "DE-CIX" },     { city: "Berlin",    ix: "BCIX"   }, { city: "Amsterdam", ix: "AMS-IX" }],
-  it: [{ city: "Milan",     ix: "MIX" },        { city: "Rome",      ix: "NaMeX"  }, { city: "Frankfurt", ix: "DE-CIX" }],
-  pt: [{ city: "Lisbon",    ix: "GigaPix" },    { city: "Madrid",    ix: "ESPANIX"}],
-  nl: [{ city: "Amsterdam", ix: "AMS-IX (primary)" }],
-  ie: [{ city: "Dublin",    ix: "INEX" },       { city: "London",    ix: "LINX"   }],
-  gr: [{ city: "Athens",    ix: "GR-IX" },      { city: "Frankfurt", ix: "DE-CIX" }],
-  tr: [{ city: "Istanbul",  ix: "TREX" },       { city: "Frankfurt", ix: "DE-CIX" }],
-};
+// ─── K-root anycast node table (geolocation-based, works for ALL markets) ─────
+// Source: https://www.ripe.net/analyse/dns/k-root/ (34 global instances)
+// Used for: (1) inferring which k-root instance a probe hits, (2) resolving
+// probe city name from lat/lon (nearest k-root city within 800 km).
+const KROOT_NODES = [
+  // Europe
+  { name: "AMS",  city: "Amsterdam",    lat:  52.38, lon:   4.90 },
+  { name: "FRA",  city: "Frankfurt",    lat:  50.11, lon:   8.68 },
+  { name: "LON",  city: "London",       lat:  51.51, lon:  -0.13 },
+  { name: "MAD",  city: "Madrid",       lat:  40.42, lon:  -3.70 },
+  { name: "MIL",  city: "Milan",        lat:  45.46, lon:   9.19 },
+  { name: "ATH",  city: "Athens",       lat:  37.98, lon:  23.73 },
+  { name: "LIS",  city: "Lisbon",       lat:  38.72, lon:  -9.14 },
+  { name: "DUB",  city: "Dublin",       lat:  53.34, lon:  -6.27 },
+  { name: "IST",  city: "Istanbul",     lat:  41.01, lon:  28.95 },
+  { name: "WAW",  city: "Warsaw",       lat:  52.23, lon:  21.01 },
+  { name: "PRG",  city: "Prague",       lat:  50.08, lon:  14.44 },
+  { name: "VIE",  city: "Vienna",       lat:  48.21, lon:  16.37 },
+  { name: "PAR",  city: "Paris",        lat:  48.86, lon:   2.35 },
+  { name: "STO",  city: "Stockholm",    lat:  59.33, lon:  18.06 },
+  { name: "MSK",  city: "Moscow",       lat:  55.75, lon:  37.62 },
+  { name: "BRU",  city: "Brussels",     lat:  50.85, lon:   4.35 },
+  { name: "BCN",  city: "Barcelona",    lat:  41.39, lon:   2.15 },
+  { name: "MAN",  city: "Manchester",   lat:  53.48, lon:  -2.24 },
+  { name: "BUC",  city: "Bucharest",    lat:  44.43, lon:  26.10 },
+  { name: "SOF",  city: "Sofia",        lat:  42.70, lon:  23.32 },
+  { name: "BEL",  city: "Belgrade",     lat:  44.80, lon:  20.46 },
+  { name: "HEL",  city: "Helsinki",     lat:  60.17, lon:  24.94 },
+  // Americas
+  { name: "IAD",  city: "Ashburn",      lat:  39.02, lon: -77.49 },
+  { name: "NYC",  city: "New York",     lat:  40.71, lon: -74.01 },
+  { name: "LAX",  city: "Los Angeles",  lat:  34.05, lon: -118.24 },
+  { name: "CHI",  city: "Chicago",      lat:  41.88, lon: -87.63 },
+  { name: "MIA",  city: "Miami",        lat:  25.77, lon: -80.19 },
+  { name: "YYZ",  city: "Toronto",      lat:  43.65, lon: -79.38 },
+  { name: "GRU",  city: "São Paulo",    lat: -23.55, lon: -46.63 },
+  // Asia-Pacific
+  { name: "SIN",  city: "Singapore",    lat:   1.29, lon: 103.85 },
+  { name: "TYO",  city: "Tokyo",        lat:  35.69, lon: 139.69 },
+  { name: "HKG",  city: "Hong Kong",    lat:  22.39, lon: 114.11 },
+  { name: "ICN",  city: "Seoul",        lat:  37.56, lon: 126.97 },
+  { name: "BOM",  city: "Mumbai",       lat:  19.08, lon:  72.88 },
+  { name: "SYD",  city: "Sydney",       lat: -33.87, lon: 151.21 },
+  { name: "CGK",  city: "Jakarta",      lat:  -6.21, lon: 106.85 },
+  // MEA
+  { name: "DXB",  city: "Dubai",        lat:  25.20, lon:  55.27 },
+  { name: "NBI",  city: "Nairobi",      lat:  -1.29, lon:  36.82 },
+  { name: "JNB",  city: "Johannesburg", lat: -26.20, lon:  28.04 },
+  { name: "LOS",  city: "Lagos",        lat:   6.45, lon:   3.39 },
+];
+
+// Haversine great-circle distance in km
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Returns the nearest k-root node to a probe's lat/lon
+function nearestKroot(lat, lon) {
+  if (lat == null || lon == null) return null;
+  let best = null, bestDist = Infinity;
+  for (const n of KROOT_NODES) {
+    const d = haversineKm(lat, lon, n.lat, n.lon);
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return best ? { ...best, distKm: Math.round(bestDist) } : null;
+}
+
+// Returns the nearest k-root city name if within 800 km, otherwise null.
+// Used to resolve a probe's city name from its lat/lon.
+function nearestCity(lat, lon) {
+  if (lat == null || lon == null) return null;
+  let best = null, bestDist = Infinity;
+  for (const n of KROOT_NODES) {
+    const d = haversineKm(lat, lon, n.lat, n.lon);
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return bestDist <= 800 ? best?.city : null;
+}
 
 // ─── Zoom filter ──────────────────────────────────────────────────────────────
 // Time-window filter using measured_at timestamps.
@@ -500,23 +568,11 @@ function ProbeBar({ value, minVal, maxVal, globalMax, color, isLoss }) {
 // Single combined view — all metrics per probe in one table.
 function ProbeBreakdown({ market, onClose }) {
   const probes = market.probeDetails || [];
-  const nearby = KROOT_NEARBY[market.id] || [];
   const [prefixOpen, setPrefixOpen] = useState(false);
   const [rpkiOpen,   setRpkiOpen]   = useState(false);
 
   // Sort by avg_rtt ascending (fastest first)
   const sorted = [...probes].sort((a, b) => (a.avg_rtt ?? 999) - (b.avg_rtt ?? 999));
-
-  const allAvg = probes.map(p => p.avg_rtt).filter(Boolean);
-  const median = allAvg.length
-    ? [...allAvg].sort((a, b) => a - b)[Math.floor(allAvg.length / 2)]
-    : null;
-
-  function inferNode(probe) {
-    if (!probe.avg_rtt || !nearby.length) return null;
-    if (!median || nearby.length < 2) return nearby[0] || null;
-    return probe.avg_rtt > median * 1.5 ? nearby[1] : nearby[0];
-  }
 
   const maxRtt = Math.max(...sorted.map(p => p.max_rtt || p.avg_rtt || 0), 1);
 
@@ -662,8 +718,13 @@ function ProbeBreakdown({ market, onClose }) {
 
               {/* Probe rows */}
               {sorted.map((p, i) => {
-                const node    = inferNode(p);
-                const isOdd   = p.avg_rtt && median && p.avg_rtt > median * 1.5;
+                const node     = nearestKroot(p.lat, p.lon);
+                const city     = nearestCity(p.lat, p.lon);
+                const allAvgs  = sorted.map(x => x.avg_rtt).filter(Boolean);
+                const med      = allAvgs.length
+                  ? [...allAvgs].sort((a,b)=>a-b)[Math.floor(allAvgs.length/2)]
+                  : null;
+                const isOdd   = p.avg_rtt && med && p.avg_rtt > med * 1.5;
                 const dnsProbe = (market.dns?.probeDetails || []).find(d => d.id === p.id);
                 const hasLoss = p.loss_pct > 0;
                 const barColor = isOdd ? "#f59e0b" : "#3b82f6";
@@ -699,8 +760,16 @@ function ProbeBreakdown({ market, onClose }) {
                             borderRadius: 3, padding: "1px 4px" }}>loss!</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 9, color: T.muted }}>
-                        #{p.id}{p.lat && p.lon && ` · ${p.lat.toFixed(1)}°, ${p.lon.toFixed(1)}°`}
+                      <div style={{ fontSize: 9, color: T.muted, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                        <span>#{p.id}</span>
+                        {(city || p.country) && (
+                          <span style={{ color: "#6366f1", fontWeight: 600 }}>
+                            · {[city, p.country].filter(Boolean).join(", ")}
+                          </span>
+                        )}
+                        {p.lat != null && p.lon != null && (
+                          <span>· {p.lat.toFixed(1)}°, {p.lon.toFixed(1)}°</span>
+                        )}
                       </div>
                     </div>
 
@@ -759,21 +828,26 @@ function ProbeBreakdown({ market, onClose }) {
                       {dnsProbe?.avg_dns_rtt != null ? `${dnsProbe.avg_dns_rtt}ms` : "—"}
                     </div>
 
-                    {/* Likely k-root */}
+                    {/* Nearest k-root node (geolocation-inferred) */}
                     <div>
-                      {node && (
+                      {node ? (
                         <div style={{
                           fontSize: 9, fontWeight: 700,
                           color: isOdd ? "#b45309" : "#16a34a",
                           background: isOdd ? "#fffbeb" : "#f0fdf4",
                           border: `1px solid ${isOdd ? "#fcd34d" : "#86efac"}`,
                           borderRadius: 4, padding: "2px 6px",
-                          display: "inline-flex", alignItems: "center", gap: 3,
+                          display: "inline-flex", flexDirection: "column", gap: 0,
                         }}>
-                          <span>{isOdd ? "↗" : "✓"}</span>
-                          <span>{node.city}</span>
-                          <span style={{ fontWeight: 400, opacity: 0.75 }}>{node.ix}</span>
+                          <span style={{ fontFamily: "monospace" }}>
+                            {isOdd ? "↗ " : "→ "}{node.name}
+                          </span>
+                          <span style={{ fontWeight: 400, opacity: 0.75, fontSize: 8 }}>
+                            {node.city} · {node.distKm}km
+                          </span>
                         </div>
+                      ) : (
+                        <span style={{ fontSize: 9, color: T.muted }}>—</span>
                       )}
                     </div>
                   </div>
@@ -2462,20 +2536,37 @@ function DetailPanel({ market, onClose }) {
                 🎯 Nearest k-root nodes (193.0.14.129)
               </div>
               <div style={{ fontSize: 11, color: T.muted, marginBottom: 6, lineHeight: 1.4 }}>
-                Probes route to the closest anycast instance. Likely nodes from {market.name}:
+                Inferred from probe locations via Haversine distance — each probe routes to the nearest anycast instance:
               </div>
-              {(KROOT_NEARBY[market.id] || []).map((node, i) => (
-                <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  fontSize: 11, marginBottom: 3,
-                }}>
-                  <span style={{ color: "#16a34a", fontSize: 9 }}>●</span>
-                  <span style={{ fontWeight: 600, color: T.text }}>{node.city}</span>
-                  <span style={{ color: T.muted, fontSize: 10 }}>via {node.ix}</span>
-                </div>
-              ))}
+              {(() => {
+                // Deduplicate: one entry per unique k-root node, listing probe count
+                const probes = market.probeDetails || [];
+                const nodeMap = new Map();
+                for (const p of probes) {
+                  const n = nearestKroot(p.lat, p.lon);
+                  if (!n) continue;
+                  if (!nodeMap.has(n.name)) nodeMap.set(n.name, { ...n, probeCount: 0 });
+                  nodeMap.get(n.name).probeCount++;
+                }
+                const nodes = [...nodeMap.values()].sort((a, b) => b.probeCount - a.probeCount);
+                if (!nodes.length) return (
+                  <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic" }}>
+                    No probe location data yet. Will appear after the next poll.
+                  </div>
+                );
+                return nodes.map((n, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, marginBottom: 3 }}>
+                    <span style={{ color: "#16a34a", fontSize: 9 }}>●</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: T.text, minWidth: 36 }}>{n.name}</span>
+                    <span style={{ fontWeight: 600, color: T.text }}>{n.city}</span>
+                    <span style={{ color: T.muted, fontSize: 10 }}>
+                      ~{n.distKm}km · {n.probeCount} probe{n.probeCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                ));
+              })()}
               <div style={{ fontSize: 10, color: T.muted, marginTop: 6, lineHeight: 1.4 }}>
-                RTT reflects Vodafone access + backbone + path to nearest node above.
+                RTT reflects Vodafone access + backbone + path to nearest k-root node.
               </div>
             </div>
           </div>
