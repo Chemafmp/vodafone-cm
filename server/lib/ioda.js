@@ -138,6 +138,42 @@ export function getIoda() {
   });
 }
 
+// ─── External push (from Mac cron script, bypasses cloud IP block) ───────────
+export function injectIodaData(marketId, rawAlerts, log) {
+  const s = state.get(marketId);
+  if (!s) return false;
+
+  const now    = Math.floor(Date.now() / 1000);
+  const cutoff = now - RETENTION_H * 3600;
+
+  const newEvents = rawAlerts.map(a => ({
+    id:         a.fqid || `${marketId}-${a.time}`,
+    datasource: a.datasource || a.type || "unknown",
+    score:      typeof a.score === "number" ? Math.round(a.score * 10) / 10 : null,
+    level:      a.level || (a.score > 1 ? "warning" : "normal"),
+    start:      (a.alertStart || a.time) * 1000,
+    end:        a.alertEnd ? a.alertEnd * 1000 : null,
+    active:     !a.alertEnd || a.alertEnd > now,
+  })).filter(e => e.level !== "normal");
+
+  const existingIds = new Set(s.events.map(e => e.id));
+  const merged = [
+    ...s.events.filter(e => e.start > cutoff * 1000),
+    ...newEvents.filter(e => !existingIds.has(e.id)),
+  ].sort((a, b) => b.start - a.start);
+
+  const hasActive = merged.some(e => e.active);
+  s.events         = merged;
+  s.hasActiveEvent = hasActive;
+  s.status         = hasActive ? "alert" : "ok";
+  s.ok             = true;
+  s.error          = null;
+  s.lastChecked    = Date.now();
+
+  log?.(`[ioda] injected ${newEvents.length} events for ${marketId} (${hasActive ? "ACTIVE" : "ok"})`);
+  return true;
+}
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 export function initIoda(log) {
   initState();

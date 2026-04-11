@@ -30,7 +30,7 @@ import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
 import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas.js";
 import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bgp-visibility.js";
 import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
-import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
+import { tickIoda, getIoda, initIoda, injectIodaData } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
 import { computeCorrelation } from "./lib/correlation.js";
@@ -559,6 +559,28 @@ app.post("/api/control/scenario/:nodeId", (req, res) => {
   }
   log(chalk.magenta(`🎬 SCENARIO via API: ${chalk.bold(entry.def.id)} → ${scenario}`));
   res.json({ ok: true, id: entry.def.id, scenario });
+});
+
+// ─── IODA external push (from Mac cron, bypasses cloud IP block) ─────────────
+// POST /api/ioda-push  body: [{ id, asn, alerts: [...] }]
+// Protected by x-api-key header matching AUTOMATION_API_KEY env var.
+app.post("/api/ioda-push", (req, res) => {
+  const expected = process.env.AUTOMATION_API_KEY;
+  if (expected) {
+    const provided = req.get("x-api-key");
+    if (!provided || provided !== expected) {
+      return res.status(401).json({ error: "Invalid or missing x-api-key header" });
+    }
+  }
+  const markets = req.body;
+  if (!Array.isArray(markets)) return res.status(400).json({ error: "Body must be array" });
+  const results = {};
+  for (const { id, alerts } of markets) {
+    if (!id || !Array.isArray(alerts)) continue;
+    results[id] = injectIodaData(id, alerts, log);
+  }
+  log(chalk.cyan(`[ioda] push received: ${Object.keys(results).length} markets`));
+  res.json({ ok: true, results });
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
