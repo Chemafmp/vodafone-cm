@@ -140,7 +140,7 @@ function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
             {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()} · {market.ratio}× baseline
           </div>
-          {market.dataSource === "downdetector" ? (
+          {effectiveDataSource(market) === "downdetector" ? (
             <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
               fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
               border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>
@@ -637,6 +637,24 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTi
     return [...pad, ...trend];
   }
 
+  /**
+   * Returns true when a market claims dataSource="downdetector" but its trend
+   * has zero variance — the fingerprint of a failing scraper (expired token)
+   * that keeps repeating the same baseline value.
+   * Real Downdetector data always has natural noise; a flat line means no real
+   * data is coming in. In that case, show the card as SIMULATED, not LIVE.
+   */
+  function isScraperStale(market) {
+    if (market.dataSource !== "downdetector") return false;
+    const t = market.trend;
+    if (!t || t.length < 3) return false; // not enough data to judge
+    return t.every(v => v === t[0]);       // all identical → zero variance → stale
+  }
+
+  function effectiveDataSource(market) {
+    return isScraperStale(market) ? "simulated" : market.dataSource;
+  }
+
   async function load() {
     try {
       const data = await fetchServiceStatus();
@@ -763,7 +781,7 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTi
               </span>
             )}
             {!usingDemo && (() => {
-              const liveCount = markets.filter(m => m.dataSource === "downdetector").length;
+              const liveCount = markets.filter(m => effectiveDataSource(m) === "downdetector").length;
               const allSimulated = liveCount === 0;
               if (allSimulated) {
                 return (
@@ -796,8 +814,8 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTi
           </div>
         </div>
 
-        {/* Simulated data notice — shown when backend is up but USE_SCRAPER=0 */}
-        {!usingDemo && markets.length > 0 && markets.every(m => m.dataSource !== "downdetector") && (
+        {/* Simulated data notice — shown when backend is up but no markets have real live data */}
+        {!usingDemo && markets.length > 0 && markets.every(m => effectiveDataSource(m) !== "downdetector") && (
           <div style={{
             padding: "7px 20px", background: "#f8fafc",
             borderBottom: `1px solid #e2e8f0`,
