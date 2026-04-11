@@ -42,11 +42,12 @@ function initState() {
       error:      null,
       lastUpdate: null,
       // Extended BGP metrics (polled less frequently)
-      prefixes:        null,   // { v4_count, v6_count, sample, v4_list, v6_list }
-      rpki:            null,   // { valid, invalid, unknown, coverage_pct, sampled, details[] }
-      pathLength:      null,   // { avg, min, max, rrc_count }
-      prefixDiff:      null,   // { added_v4, removed_v4, added_v6, removed_v6, since }
-      extLastUpdate:   0,      // timestamp of last extended poll
+      prefixes:          null,   // { v4_count, v6_count, sample, v4_list, v6_list }
+      rpki:              null,   // { valid, invalid, unknown, coverage_pct, sampled, details[] }
+      pathLength:        null,   // { avg, min, max, rrc_count }
+      prefixDiff:        null,   // { added_v4, removed_v4, added_v6, removed_v6, since }
+      prefixChangeLog:   [],     // rolling 36h log: [{ ts, added_v4, removed_v4, added_v6, removed_v6 }]
+      extLastUpdate:     0,      // timestamp of last extended poll
     });
   }
 }
@@ -243,15 +244,26 @@ async function pollMarket(m) {
     try {
       const prev = s.prefixes;
       const pfx  = await fetchAnnouncedPrefixes(m.asn);
-      // Compute diff vs previous poll
+      // Compute diff vs previous poll and append to rolling 36h change log
       if (prev?.v4_list && pfx.v4_list) {
         const prevV4 = new Set(prev.v4_list);
+        const curV4  = new Set(pfx.v4_list);
         const prevV6 = new Set(prev.v6_list || []);
+        const curV6  = new Set(pfx.v6_list || []);
         const added_v4   = pfx.v4_list.filter(p => !prevV4.has(p));
-        const removed_v4 = prev.v4_list.filter(p => !new Set(pfx.v4_list).has(p));
+        const removed_v4 = prev.v4_list.filter(p => !curV4.has(p));
         const added_v6   = pfx.v6_list.filter(p => !prevV6.has(p));
-        const removed_v6 = (prev.v6_list || []).filter(p => !new Set(pfx.v6_list).has(p));
+        const removed_v6 = (prev.v6_list || []).filter(p => !curV6.has(p));
+        const hasChange  = added_v4.length || removed_v4.length || added_v6.length || removed_v6.length;
         s.prefixDiff = { added_v4, removed_v4, added_v6, removed_v6, since: Date.now() };
+        // Append to 36h log only when there are actual changes
+        if (hasChange) {
+          const cutoff = Date.now() - RETENTION_H * 3600 * 1000;
+          s.prefixChangeLog = [
+            ...s.prefixChangeLog.filter(e => e.ts > cutoff),
+            { ts: Date.now(), added_v4, removed_v4, added_v6, removed_v6 },
+          ];
+        }
       }
       s.prefixes   = pfx;
       s.rpki       = await fetchRpkiCoverage(m.asn, pfx.sample);
@@ -301,10 +313,11 @@ export function getBgpVisibility() {
       ok:         s.ok,
       error:      s.error,
       lastUpdate: s.lastUpdate,
-      prefixes:    s.prefixes,
-      prefixDiff:  s.prefixDiff,
-      rpki:        s.rpki,
-      pathLength:  s.pathLength,
+      prefixes:        s.prefixes,
+      prefixDiff:      s.prefixDiff,
+      prefixChangeLog: s.prefixChangeLog,
+      rpki:            s.rpki,
+      pathLength:      s.pathLength,
     };
   });
 }

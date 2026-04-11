@@ -13,7 +13,7 @@ const APPS = [
     id: "monitoring",
     icon: "📡",
     label: "Monitoring",
-    desc: "Live network status, alarms, events and observability dashboards.",
+    desc: "Live network status, alarms, events and observability dashboards. Service Monitor with Downdetector community outage data. RIPE Atlas network health per Vodafone market.",
     gradient: "linear-gradient(135deg,#0e7490,#0891b2)",
     shadow: "rgba(14,116,144,0.35)",
   },

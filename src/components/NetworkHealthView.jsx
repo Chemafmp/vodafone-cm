@@ -796,32 +796,33 @@ function ProbeBreakdown({ market, onClose }) {
 
 // ─── Prefix list modal ────────────────────────────────────────────────────────
 function PrefixListModal({ market, onClose }) {
-  const pfx  = market.bgp?.prefixes;
-  const diff = market.bgp?.prefixDiff;
-  const [tab, setTab] = useState("v4"); // "v4" | "v6" | "diff"
+  const pfx     = market.bgp?.prefixes;
+  const log     = market.bgp?.prefixChangeLog || [];
+  const [tab, setTab] = useState("v4"); // "v4" | "v6" | "history"
 
-  const hasDiff = diff && (
-    diff.added_v4?.length || diff.removed_v4?.length ||
-    diff.added_v6?.length || diff.removed_v6?.length
-  );
+  const list = tab === "v4" ? (pfx?.v4_list || []) : (pfx?.v6_list || []);
 
-  const diffAge = diff?.since
-    ? Math.round((Date.now() - diff.since) / 60_000)
-    : null;
+  // Sort log newest first
+  const sortedLog = [...log].sort((a, b) => b.ts - a.ts);
 
-  const list = tab === "v4" ? (pfx?.v4_list || [])
-    : tab === "v6" ? (pfx?.v6_list || [])
-    : [];
+  function fmtTs(ts) {
+    const d = new Date(ts);
+    return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  }
 
-  const tabBtn = (key, label, count) => (
+  const tabBtn = (key, label, badge) => (
     <button onClick={() => setTab(key)} style={{
       padding: "5px 12px", borderRadius: 6, border: "1px solid",
       fontSize: 11, fontWeight: 700, cursor: "pointer",
       background: tab === key ? T.text : "transparent",
       color: tab === key ? T.surface : T.muted,
       borderColor: tab === key ? T.text : T.border,
+      display: "flex", alignItems: "center", gap: 5,
     }}>
-      {label} <span style={{ opacity: 0.7, fontWeight: 400 }}>({count})</span>
+      {label}
+      {badge != null && (
+        <span style={{ opacity: 0.7, fontWeight: 400 }}>({badge})</span>
+      )}
     </button>
   );
 
@@ -834,7 +835,7 @@ function PrefixListModal({ market, onClose }) {
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{
         background: T.surface, border: `1px solid ${T.border}`,
-        borderRadius: 14, width: "100%", maxWidth: 560,
+        borderRadius: 14, width: "100%", maxWidth: 580,
         maxHeight: "85vh", overflow: "hidden",
         display: "flex", flexDirection: "column",
         boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
@@ -862,7 +863,7 @@ function PrefixListModal({ market, onClose }) {
 
         {!pfx ? (
           <div style={{ padding: 24, textAlign: "center", color: T.muted, fontSize: 12 }}>
-            Full prefix list pending… (available after first extended poll)
+            Full prefix list pending… (available after first extended poll ~30 min after backend start)
           </div>
         ) : (
           <>
@@ -870,30 +871,20 @@ function PrefixListModal({ market, onClose }) {
             <div style={{ padding: "10px 18px 0", display: "flex", gap: 6, flexShrink: 0 }}>
               {tabBtn("v4", "IPv4", pfx.v4_count)}
               {tabBtn("v6", "IPv6", pfx.v6_count)}
-              <button onClick={() => setTab("diff")} style={{
+              <button onClick={() => setTab("history")} style={{
                 padding: "5px 12px", borderRadius: 6, border: "1px solid",
                 fontSize: 11, fontWeight: 700, cursor: "pointer",
-                background: tab === "diff"
-                  ? (hasDiff ? "#fef3c7" : T.text)
-                  : "transparent",
-                color: tab === "diff"
-                  ? (hasDiff ? "#b45309" : T.surface)
-                  : (hasDiff ? "#b45309" : T.muted),
-                borderColor: tab === "diff"
-                  ? (hasDiff ? "#fcd34d" : T.text)
-                  : (hasDiff ? "#fcd34d" : T.border),
+                background: tab === "history" ? (sortedLog.length ? "#fef3c7" : T.text) : "transparent",
+                color: tab === "history" ? (sortedLog.length ? "#b45309" : T.surface) : (sortedLog.length ? "#b45309" : T.muted),
+                borderColor: tab === "history" ? (sortedLog.length ? "#fcd34d" : T.text) : (sortedLog.length ? "#fcd34d" : T.border),
               }}>
-                Diff {hasDiff ? "⚠" : ""}
-                <span style={{ opacity: 0.7, fontWeight: 400 }}>
-                  {" "}({hasDiff
-                    ? `+${(diff.added_v4?.length || 0) + (diff.added_v6?.length || 0)} -${(diff.removed_v4?.length || 0) + (diff.removed_v6?.length || 0)}`
-                    : "0"})
-                </span>
+                Historial 36h {sortedLog.length > 0 ? "⚠" : ""}
+                <span style={{ opacity: 0.7, fontWeight: 400 }}> ({sortedLog.length} cambios)</span>
               </button>
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px 18px" }}>
-              {tab !== "diff" ? (
+              {tab !== "history" ? (
                 list.length === 0 ? (
                   <div style={{ color: T.muted, fontSize: 12, textAlign: "center", padding: 16 }}>
                     No {tab === "v4" ? "IPv4" : "IPv6"} prefixes found.
@@ -911,59 +902,63 @@ function PrefixListModal({ market, onClose }) {
                   </div>
                 )
               ) : (
-                <div>
-                  {diffAge != null && (
-                    <div style={{ fontSize: 10, color: T.muted, marginBottom: 10 }}>
-                      Compared to poll ~{diffAge < 1 ? "<1" : diffAge} min ago
+                sortedLog.length === 0 ? (
+                  <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 24 }}>
+                    <div style={{ fontSize: 16, marginBottom: 8 }}>✓</div>
+                    Sin cambios de prefijos en las últimas 36h.
+                    <div style={{ fontSize: 10, marginTop: 8 }}>
+                      El log se actualiza cada ~30 min con los polls de extended metrics.
                     </div>
-                  )}
-                  {!diff ? (
-                    <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 16 }}>
-                      No diff yet — available after second extended poll (~30 min interval)
-                    </div>
-                  ) : !hasDiff ? (
-                    <div style={{ fontSize: 12, color: "#16a34a", textAlign: "center", padding: 16 }}>
-                      ✓ No prefix changes detected since last poll
-                    </div>
-                  ) : (
-                    <>
-                      {(diff.added_v4?.length > 0 || diff.added_v6?.length > 0) && (
-                        <div style={{ marginBottom: 14 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a", marginBottom: 6, letterSpacing: "0.4px" }}>
-                            ADDED ({(diff.added_v4?.length || 0) + (diff.added_v6?.length || 0)})
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {sortedLog.map((entry, i) => {
+                      const totalAdded   = (entry.added_v4?.length || 0) + (entry.added_v6?.length || 0);
+                      const totalRemoved = (entry.removed_v4?.length || 0) + (entry.removed_v6?.length || 0);
+                      return (
+                        <div key={i} style={{
+                          padding: "10px 12px", borderRadius: 8,
+                          border: `1px solid ${T.border}`, background: T.bg,
+                        }}>
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+                            fontSize: 10, color: T.muted, fontWeight: 600,
+                          }}>
+                            <span>{fmtTs(entry.ts)}</span>
+                            {totalAdded > 0 && (
+                              <span style={{ color: "#16a34a", background: "#f0fdf4",
+                                border: "1px solid #86efac", borderRadius: 4, padding: "1px 6px" }}>
+                                +{totalAdded} anunciados
+                              </span>
+                            )}
+                            {totalRemoved > 0 && (
+                              <span style={{ color: "#dc2626", background: "#fef2f2",
+                                border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px" }}>
+                                −{totalRemoved} retirados
+                              </span>
+                            )}
                           </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                            {[...(diff.added_v4 || []), ...(diff.added_v6 || [])].map(p => (
-                              <span key={p} style={{
-                                fontSize: 11, fontFamily: "monospace", fontWeight: 600,
-                                padding: "3px 8px", borderRadius: 5,
-                                background: "#f0fdf4", border: "1px solid #86efac",
-                                color: "#16a34a",
-                              }}>+ {p}</span>
-                            ))}
-                          </div>
+                          {[...(entry.added_v4 || []), ...(entry.added_v6 || [])].map(p => (
+                            <span key={p} style={{
+                              display: "inline-block", margin: "2px 3px",
+                              fontSize: 10, fontFamily: "monospace", fontWeight: 600,
+                              padding: "2px 7px", borderRadius: 4,
+                              background: "#f0fdf4", border: "1px solid #86efac", color: "#16a34a",
+                            }}>+ {p}</span>
+                          ))}
+                          {[...(entry.removed_v4 || []), ...(entry.removed_v6 || [])].map(p => (
+                            <span key={p} style={{
+                              display: "inline-block", margin: "2px 3px",
+                              fontSize: 10, fontFamily: "monospace", fontWeight: 600,
+                              padding: "2px 7px", borderRadius: 4,
+                              background: "#fef2f2", border: "1px solid #fca5a5", color: "#dc2626",
+                            }}>− {p}</span>
+                          ))}
                         </div>
-                      )}
-                      {(diff.removed_v4?.length > 0 || diff.removed_v6?.length > 0) && (
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", marginBottom: 6, letterSpacing: "0.4px" }}>
-                            WITHDRAWN ({(diff.removed_v4?.length || 0) + (diff.removed_v6?.length || 0)})
-                          </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                            {[...(diff.removed_v4 || []), ...(diff.removed_v6 || [])].map(p => (
-                              <span key={p} style={{
-                                fontSize: 11, fontFamily: "monospace", fontWeight: 600,
-                                padding: "3px 8px", borderRadius: 5,
-                                background: "#fef2f2", border: "1px solid #fca5a5",
-                                color: "#dc2626",
-                              }}>− {p}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </div>
           </>
@@ -975,14 +970,23 @@ function PrefixListModal({ market, onClose }) {
 
 // ─── RPKI detail modal ────────────────────────────────────────────────────────
 function RpkiDetailModal({ market, onClose }) {
-  const rpki = market.bgp?.rpki;
+  const rpki    = market.bgp?.rpki;
   const details = rpki?.details || [];
 
-  const statusMeta = {
-    valid:   { label: "VALID",   color: "#16a34a", bg: "#f0fdf4", border: "#86efac", icon: "✓" },
-    invalid: { label: "INVALID", color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", icon: "✗" },
-    unknown: { label: "UNKNOWN", color: "#6b7280", bg: "#f9fafb", border: "#e5e7eb", icon: "?" },
+  const STATUS = {
+    valid:   { label: "VALID",   color: "#16a34a", bg: "#f0fdf4", border: "#86efac", icon: "✓",
+               desc: "ROA match — origin AS + prefix length are correct." },
+    invalid: { label: "INVALID", color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", icon: "✗",
+               desc: "ROA mismatch — origin AS or length does not match the registered ROA." },
+    unknown: { label: "UNKNOWN", color: "#6b7280", bg: "#f9fafb", border: "#e5e7eb", icon: "?",
+               desc: "No ROA found — prefix not covered by RPKI." },
   };
+
+  const grouped = { valid: [], invalid: [], unknown: [] };
+  for (const d of details) {
+    const key = d.status in grouped ? d.status : "unknown";
+    grouped[key].push(d.prefix);
+  }
 
   return (
     <div style={{
@@ -1025,76 +1029,62 @@ function RpkiDetailModal({ market, onClose }) {
           </div>
         ) : (
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
-            {/* Summary bar */}
-            <div style={{
-              display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap",
-            }}>
-              {[
-                { key: "valid",   count: rpki.valid },
-                { key: "invalid", count: rpki.invalid },
-                { key: "unknown", count: rpki.unknown },
-              ].map(({ key, count }) => {
-                const m = statusMeta[key];
-                return (
-                  <div key={key} style={{
-                    padding: "7px 12px", borderRadius: 7,
-                    background: m.bg, border: `1px solid ${m.border}`,
-                    display: "flex", alignItems: "center", gap: 6,
-                  }}>
-                    <span style={{ fontSize: 16, color: m.color, fontWeight: 800 }}>{m.icon}</span>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "monospace", color: m.color, lineHeight: 1 }}>
-                        {count}
-                      </div>
-                      <div style={{ fontSize: 9, color: m.color, fontWeight: 600 }}>{m.label}</div>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Coverage % hero */}
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
               <div style={{
-                marginLeft: "auto", display: "flex", alignItems: "center",
-                fontSize: 22, fontWeight: 900, fontFamily: "monospace",
+                fontSize: 40, fontWeight: 900, fontFamily: "monospace", lineHeight: 1,
                 color: rpki.coverage_pct >= 90 ? "#16a34a" : rpki.coverage_pct >= 60 ? "#b45309" : "#dc2626",
               }}>
-                {rpki.coverage_pct}%
-                <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, marginLeft: 4, alignSelf: "flex-end", marginBottom: 2 }}>covered</span>
+                {rpki.coverage_pct}<span style={{ fontSize: 20 }}>%</span>
+              </div>
+              <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
+                cobertura RPKI · {rpki.sampled} prefijos analizados
               </div>
             </div>
 
-            {/* Per-prefix table */}
+            {/* Grouped sections */}
             {details.length === 0 ? (
               <div style={{ fontSize: 12, color: T.muted, textAlign: "center" }}>
                 Per-prefix detail not available (older data format)
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <div style={{
-                  display: "grid", gridTemplateColumns: "1fr 90px",
-                  fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.4px",
-                  padding: "0 8px", marginBottom: 4,
-                }}>
-                  <div>PREFIX</div>
-                  <div style={{ textAlign: "right" }}>RPKI</div>
-                </div>
-                {details.map(({ prefix, status }) => {
-                  const m = statusMeta[status] || statusMeta.unknown;
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {["valid", "invalid", "unknown"].map(key => {
+                  const s = STATUS[key];
+                  const prefixes = grouped[key];
+                  if (prefixes.length === 0) return null;
                   return (
-                    <div key={prefix} style={{
-                      display: "grid", gridTemplateColumns: "1fr 90px",
-                      alignItems: "center",
-                      padding: "6px 8px", borderRadius: 6,
-                      background: m.bg, border: `1px solid ${m.border}`,
+                    <div key={key} style={{
+                      borderRadius: 8, border: `1px solid ${s.border}`,
+                      background: s.bg, overflow: "hidden",
                     }}>
-                      <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 600, color: T.text }}>
-                        {prefix}
-                      </span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, color: m.color,
-                        textAlign: "right", display: "flex", alignItems: "center",
-                        justifyContent: "flex-end", gap: 4,
+                      {/* Section header */}
+                      <div style={{
+                        padding: "7px 12px", borderBottom: `1px solid ${s.border}`,
+                        display: "flex", alignItems: "center", gap: 8,
                       }}>
-                        {m.icon} {m.label}
-                      </span>
+                        <span style={{ fontSize: 14, color: s.color, fontWeight: 800 }}>{s.icon}</span>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: s.color }}>{s.label}</span>
+                        <span style={{
+                          marginLeft: "auto", fontSize: 16, fontWeight: 900,
+                          fontFamily: "monospace", color: s.color,
+                        }}>{prefixes.length}</span>
+                      </div>
+                      {/* Description */}
+                      <div style={{ fontSize: 9, color: s.color, padding: "4px 12px 6px", opacity: 0.8 }}>
+                        {s.desc}
+                      </div>
+                      {/* Prefix pills */}
+                      <div style={{ padding: "0 12px 10px", display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {prefixes.map(p => (
+                          <span key={p} style={{
+                            fontSize: 11, fontFamily: "monospace", fontWeight: 600,
+                            padding: "3px 8px", borderRadius: 5,
+                            background: T.surface, border: `1px solid ${s.border}`,
+                            color: s.color,
+                          }}>{p}</span>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
@@ -1106,9 +1096,8 @@ function RpkiDetailModal({ market, onClose }) {
               border: `1px solid ${T.border}`, borderRadius: 6,
               fontSize: 10, color: T.muted, lineHeight: 1.5,
             }}>
-              💡 Sample of first 10 IPv4 prefixes announced by AS{market.asn}.
-              RPKI-valid = origin AS + prefix match a ROA in the RPKI repository.
-              Invalid = mismatch. Unknown = no ROA exists.
+              💡 Muestra de los primeros 10 prefijos IPv4 de AS{market.asn}.
+              RPKI-valid = el origen AS + longitud de prefijo coinciden con un ROA registrado.
             </div>
           </div>
         )}
