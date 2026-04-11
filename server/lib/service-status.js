@@ -100,6 +100,7 @@ function initState() {
       spikeMult:       1,
       spikeService:    null,
       lastUpdate:      Date.now(),
+      dataSource:      "simulated", // updated per-market on each tick (never shows LIVE if scrape fails)
       services:        Object.fromEntries(
         SERVICES.map(s => [s.id, { complaints: Math.round(baseline * s.weight), ratio: 1.0, status: "ok" }])
       ),
@@ -151,9 +152,10 @@ async function tickFromScraper(port, log) {
     if (!m) continue;
 
     if (!r.ok) {
-      // Scrape failed for this market — keep previous values, just update trend
+      // Scrape failed for this market — keep previous values, stay simulated
       m.trend = [...m.trend.slice(-(HISTORY_LEN - 1)), m.complaints];
       m.lastUpdate = Date.now();
+      m.dataSource = "simulated"; // scrape failed → do NOT show as LIVE
       continue;
     }
 
@@ -168,6 +170,7 @@ async function tickFromScraper(port, log) {
     m.ratio       = Math.round(ratio * 10) / 10;
     m.status      = status;
     m.lastUpdate  = Date.now();
+    m.dataSource  = "downdetector"; // real scrape succeeded → show as LIVE
     // Use real trend if available, otherwise append new point
     m.trend = r.trend ? r.trend : [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
@@ -238,6 +241,7 @@ async function tickSimulated(port, log) {
     m.prevStatus  = m.status;
     m.status      = status;
     m.lastUpdate  = Date.now();
+    m.dataSource  = "simulated"; // always simulated in this path
     m.trend       = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
     // Persist to Supabase + append to in-memory history
@@ -315,7 +319,7 @@ export function getServiceStatus() {
       ticketId:    s.ticketId,
       lastUpdate:  s.lastUpdate,
       services:    s.services,
-      dataSource:  USE_SCRAPER ? "downdetector" : "simulated",
+      dataSource:  s.dataSource,  // per-market: "downdetector" only when scrape actually succeeded
     };
   });
 }
