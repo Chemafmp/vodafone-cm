@@ -2830,6 +2830,61 @@ function MarketCard({ market, onClick }) {
           height={32}
         />
       </div>
+
+      {/* Alert badges — only render when at least one control-plane / external
+          signal is in warn or alert state, so healthy cards stay uncluttered */}
+      {(() => {
+        const badges = [];
+        const risSt   = market.ris?.status;
+        const radarSt = market.radar?.status;
+        const iodaSt  = market.ioda?.status;
+        const bgpSt   = market.bgp?.status;
+        const tone = s => s === "alert" || s === "outage"
+          ? { fg: "#dc2626", bg: "#fee2e2", bd: "#fca5a5" }
+          : s === "warn" || s === "warning"
+          ? { fg: "#b45309", bg: "#fef3c7", bd: "#fcd34d" }
+          : null;
+
+        if (tone(risSt)) {
+          const wd = market.ris?.withdrawals1h ?? 0;
+          badges.push({ key: "ris", icon: "🔄", label: "RIS", value: `${wd} wd/h`, ...tone(risSt) });
+        }
+        if (tone(radarSt)) {
+          const n = market.radar?.alertCount ?? 0;
+          badges.push({ key: "radar", icon: "☁️", label: "Radar", value: `${n} evt`, ...tone(radarSt) });
+        }
+        if (tone(iodaSt)) {
+          const n = market.ioda?.activeCount ?? (market.ioda?.events?.filter(e => e.active).length ?? 0);
+          badges.push({ key: "ioda", icon: "🌐", label: "IODA", value: n > 0 ? `${n} active` : "signal", ...tone(iodaSt) });
+        }
+        if (tone(bgpSt)) {
+          const vis = market.bgp?.current?.visibility_pct;
+          badges.push({ key: "bgp", icon: "🔗", label: "BGP", value: vis != null ? `${vis}%` : "degraded", ...tone(bgpSt) });
+        }
+
+        if (!badges.length) return null;
+        return (
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: 4,
+            marginTop: 7, paddingTop: 6, borderTop: `1px solid ${T.border}`,
+          }}>
+            {badges.map(b => (
+              <div key={b.key} style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                fontSize: 9, fontWeight: 700, fontFamily: "monospace",
+                background: b.bg, color: b.fg,
+                border: `1px solid ${b.bd}`, borderRadius: 4,
+                padding: "2px 5px",
+              }}>
+                <span style={{ fontSize: 10 }}>{b.icon}</span>
+                <span>{b.label}</span>
+                <span style={{ opacity: 0.85 }}>{b.value}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Signal dots + correlation score row */}
       <div style={{
         display: "flex", alignItems: "center", gap: 5,
