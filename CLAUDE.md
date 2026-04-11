@@ -41,7 +41,7 @@ git add -A && git commit -m "Deploy: <description>" && git push origin HEAD:gh-p
 
 ---
 
-## Current State — v1.6
+## Current State — v1.7
 
 **Frontend live:** https://chemafmp.github.io/vodafone-cm/
 **Backend live:**  https://api.chemafmp.dev  (DigitalOcean droplet `159.89.17.36`, fra1)
@@ -50,16 +50,21 @@ React 19 + Vite SPA. Supabase DB backend (Phase 2 complete). Live poller backend
 
 **Supabase project:** `https://jryorwbomnilewfrdmrg.supabase.co`
 Tables: `changes` (JSONB), `freeze_periods` (JSONB), `tickets`, `ticket_events`, `ticket_evidence`,
-        `ripe_measurements`, `bgp_visibility`, `dns_measurements`
+        `ripe_measurements`, `bgp_visibility`, `dns_measurements`, `correlation_scores`
 Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (in `.env`, not committed)
           `RIPE_ATLAS_KEY` — RIPE Atlas API key (in `.env` on droplet, enables network health polling)
+          `CF_RADAR_TOKEN` — Cloudflare Radar API token (in `.env.supabase` on droplet)
+          `AUTOMATION_API_KEY` — protects `/api/ioda-push` and `/api/tickets/:id/notes`
 `.env.production` sets `VITE_POLLER_WS=wss://api.chemafmp.dev` (not committed)
 
-**⚠️ Droplet needs update** — run this to activate BGP + DNS modules:
+**Droplet deploy — always use the alias:**
 ```bash
-ssh root@159.89.17.36
-cd ~/vodafone-cm && git pull && docker compose up -d --build
+# On the droplet (alias set in ~/.bashrc):
+deploy
+# expands to: git pull && docker compose build --no-cache && docker compose up -d
 ```
+> ⚠️ Never use `docker compose up -d --build` alone — Docker caches `COPY server ./server`
+> and the new code won't be picked up. Always use `--no-cache` or the `deploy` alias.
 
 **Pending DB migrations** (run in Supabase SQL Editor if not yet applied):
 ```sql
@@ -76,6 +81,11 @@ CREATE TABLE IF NOT EXISTS bgp_visibility (
 CREATE TABLE IF NOT EXISTS dns_measurements (
   id bigserial PRIMARY KEY, market_id text, dns_rtt numeric,
   probe_count int, measured_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS correlation_scores (
+  id bigserial PRIMARY KEY, market_id text, score int, status text,
+  alerts text[], ioda_active int, radar_alerts int, ris_wd_1h int,
+  measured_at timestamptz DEFAULT now()
 );
 ```
 
@@ -455,6 +465,23 @@ See "Next Work — Session 7" section above.
   - POST /api/tickets/:id/notes alias for Camunda/Nagios/Ansible
   - x-api-key middleware (AUTOMATION_API_KEY env var), scoped to /notes only
   - Frontend: automation_note events rendered in Worklog tab (🤖 icon, blue tint)
+
+### ✅ Session 7 — Correlation Layer + Signal Detail Modal (DONE 2026-04-11)
+  - Cloudflare Radar: `server/lib/cf-radar.js` — BGP hijack/leak events per Vodafone ASN (CF_RADAR_TOKEN)
+  - CAIDA IODA: `server/lib/ioda.js` — outage detection (BGP+probing+darknet telescope)
+  - RIPE RIS Live: `server/lib/ris-live.js` — real-time BGP UPDATE stream, withdrawals/announces per market
+  - Correlation engine: `server/lib/correlation.js` — score 0-100, penalties per signal + cross-penalties
+  - Correlation history: `server/lib/correlation-history.js` — Supabase persistence (36h), in-memory fallback
+  - NetworkHealthView: signal dots (Atlas·BGP·IODA·Radar·RIS), score badge, CorrelationPanel matrix
+  - SignalDetailModal: click any signal row → full NOC troubleshooting guide (what it means, thresholds, events, action steps)
+  - CorrelationPanel: collapsible, always-visible matrix below market cards
+  - RIS fix: separate recentWithdrawals/recentAnnouncements arrays (high announce volume was crowding withdrawals)
+  - RIS fix: initial status "ok" (was "unknown" for first 5 min after restart)
+  - Scroll fix: removed display:flex from scrollable container, added minHeight:0
+  - IODA external push: `POST /api/ioda-push` endpoint + `scripts/ioda-sync.py` Mac cron script
+    (CAIDA blocks DigitalOcean IPs; Mac cron fetches and pushes every 5 min as workaround)
+  - Droplet deploy alias: `deploy` = `git pull && docker compose build --no-cache && docker compose up -d`
+  - CF_RADAR_TOKEN: added to `.env.supabase` on droplet (token name: vodafone-noc, Account.Radar.Read)
 
 ### ✅ Session 6b — Network Health View (DONE, claude/nifty-proskuriakova → main 2026-04-10)
   - RIPE Atlas msm #1001 (ICMP ping to k-root) per Vodafone market, 9 countries
