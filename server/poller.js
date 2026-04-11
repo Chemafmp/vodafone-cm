@@ -33,7 +33,7 @@ import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
-import { checkNetworkHealth, notifyTest } from "./lib/notifier.js";
+import { checkNetworkHealth, checkServiceStatus, simulateAlert, notifyTest } from "./lib/notifier.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
@@ -606,6 +606,53 @@ app.post("/api/control/poller/resume-all", (req, res) => {
   res.json({ status: "running", modules: POLLER_MODULES });
 });
 
+// ─── Notifier simulate endpoint ──────────────────────────────────────────────
+// POST /api/control/notifier/simulate
+// Body: { type: "warning"|"outage"|"recovery", signal: "atlas"|"bgp"|"dns"|"svc", marketId, detail? }
+// Sends a synthetic Slack alert so you can verify formatting without a real incident.
+// Example:
+//   curl -X POST https://api.chemafmp.dev/api/control/notifier/simulate \
+//     -H "Content-Type: application/json" \
+//     -d '{"type":"outage","signal":"bgp","marketId":"uk","detail":"74% peers"}'
+
+const SIMULATE_MARKETS = {
+  es: { id: "es", name: "Spain",       flag: "🇪🇸" },
+  uk: { id: "uk", name: "UK",          flag: "🇬🇧" },
+  de: { id: "de", name: "Germany",     flag: "🇩🇪" },
+  it: { id: "it", name: "Italy",       flag: "🇮🇹" },
+  pt: { id: "pt", name: "Portugal",    flag: "🇵🇹" },
+  nl: { id: "nl", name: "Netherlands", flag: "🇳🇱" },
+  ie: { id: "ie", name: "Ireland",     flag: "🇮🇪" },
+  gr: { id: "gr", name: "Greece",      flag: "🇬🇷" },
+  tr: { id: "tr", name: "Turkey",      flag: "🇹🇷" },
+};
+
+app.post("/api/control/notifier/simulate", async (req, res) => {
+  const { type, signal, marketId, detail } = req.body || {};
+  if (!type || !signal || !marketId) {
+    return res.status(400).json({ error: "Required: type, signal, marketId" });
+  }
+  const market = SIMULATE_MARKETS[marketId];
+  if (!market) {
+    return res.status(400).json({ error: `Unknown marketId. Valid: ${Object.keys(SIMULATE_MARKETS).join(", ")}` });
+  }
+  if (!["warning","outage","recovery"].includes(type)) {
+    return res.status(400).json({ error: "type must be warning | outage | recovery" });
+  }
+  if (!["atlas","bgp","dns","svc"].includes(signal)) {
+    return res.status(400).json({ error: "signal must be atlas | bgp | dns | svc" });
+  }
+
+  try {
+    await simulateAlert({ type, signal, market, detail: detail || "" });
+    log(chalk.magenta(`[notifier] 🎭 simulated ${type} · ${signal} · ${marketId}`));
+    res.json({ ok: true, type, signal, marketId, detail: detail || "" });
+  } catch (e) {
+    log(chalk.yellow(`[notifier] simulate error: ${e.message}`));
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // /api/ioda-push removed — IODA v2 is now polled natively from the droplet.
 // The old Mac-cron workaround was needed because api.ioda.caida.org blocked
 // cloud IPs; the new endpoint api.ioda.inetintel.cc.gatech.edu/v2/ does not.
@@ -651,9 +698,13 @@ server.listen(PORT, BIND_HOST, () => {
   log(chalk.cyan(`[service-status] starting — mode: ${useScraper ? chalk.bold("SCRAPER (Downdetector)") : "simulator"} (tick every ${SERVICE_STATUS_INTERVAL / 1000}s)`));
   initServiceStatus(log).then(() => {
     setInterval(() => {
-      tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
+      tickServiceStatus(PORT, log)
+        .then(() => checkServiceStatus(getServiceStatus()))
+        .catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
     }, SERVICE_STATUS_INTERVAL);
-    setTimeout(() => tickServiceStatus(PORT, log).catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
+    setTimeout(() => tickServiceStatus(PORT, log)
+      .then(() => checkServiceStatus(getServiceStatus()))
+      .catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
   }).catch(e => log(chalk.yellow(`[service-status] init error: ${e.message}`)));
 
   // RIPE Atlas network health — tick every 5 min

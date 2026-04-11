@@ -139,6 +139,162 @@ export function checkNetworkHealth(markets) {
   }
 }
 
+// ── Downdetector / Service Status transitions ─────────────────────────────────
+// Key: "svc::marketId"  →  last known status ("ok" | "warn" | "alert")
+const prevServiceStatus = new Map();
+
+/**
+ * Check Downdetector complaint levels and notify on status changes.
+ * Only fires when market.dataSource === "downdetector" (real data guard).
+ * Call after each tickServiceStatus().
+ *
+ * @param {{ id, name, flag, status, ratio, complaints, dataSource }[]} markets
+ */
+export function checkServiceStatus(markets) {
+  if (!WEBHOOK_URL) return;
+
+  const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  for (const m of markets) {
+    // ── Guard: only real Downdetector data ──────────────────────────────────
+    if (m.dataSource !== "downdetector") continue;
+
+    const status = m.status; // "ok" | "warn" | "alert"
+    if (!status) continue;
+
+    const key  = `svc::${m.id}`;
+    const prev = prevServiceStatus.get(key) || "ok";
+
+    // Degradation: ok→warn, ok→alert, warn→alert
+    const degraded = (prev === "ok"   && (status === "warn" || status === "alert"))
+                  || (prev === "warn" && status === "alert");
+
+    // Recovery: warn/alert → ok
+    const recovered = (prev === "warn" || prev === "alert") && status === "ok";
+
+    prevServiceStatus.set(key, status);
+
+    if (degraded) {
+      const muteKey = `svc-mute::${m.id}`;
+      if (isMuted(muteKey)) continue;
+      lastSent.set(muteKey, Date.now());
+
+      const isAlert = status === "alert";
+      const emoji   = isAlert ? "🔴" : "🟠";
+      const color   = isAlert ? "#dc2626" : "#f59e0b";
+      const label   = isAlert ? "ALERT" : "WARNING";
+      const ratioTxt = m.ratio ? `×${m.ratio.toFixed(1)} complaints` : "";
+      const countTxt = m.complaints ? `${m.complaints}/h` : "";
+      const detail   = [ratioTxt, countTxt].filter(Boolean).join("  ·  ");
+
+      post({
+        attachments: [{
+          color,
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `${emoji} *${label} — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints${detail ? `  ·  ${detail}` : ""}`,
+              },
+            },
+            {
+              type: "context",
+              elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
+            },
+          ],
+        }],
+      });
+    }
+
+    if (recovered) {
+      post({
+        attachments: [{
+          color: "#16a34a",
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints back to normal`,
+              },
+            },
+            {
+              type: "context",
+              elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
+            },
+          ],
+        }],
+      });
+    }
+  }
+}
+
+// ── Simulation helper (for /api/control/notifier/simulate) ───────────────────
+/**
+ * Post a synthetic Slack alert that looks exactly like a real one.
+ * Used to demo / verify alert formatting without waiting for a real incident.
+ *
+ * @param {{ type: "warning"|"outage"|"recovery", signal: "atlas"|"bgp"|"dns"|"svc",
+ *            market: { id, name, flag }, detail?: string }} opts
+ */
+export async function simulateAlert({ type, signal, market, detail = "" }) {
+  const signalLabels = {
+    atlas: "ICMP Latency (RIPE Atlas)",
+    bgp:   "BGP Visibility",
+    dns:   "DNS RTT",
+    svc:   "Downdetector Complaints",
+  };
+  const label = signalLabels[signal] || signal;
+  const ts    = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  if (type === "recovery") {
+    await post({
+      attachments: [{
+        color: "#16a34a",
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `✅ *RECOVERED — ${market.flag} ${market.name}*\n*Signal:* ${label} back to normal`,
+            },
+          },
+          {
+            type: "context",
+            elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Simulation · ${ts} UTC` }],
+          },
+        ],
+      }],
+    });
+    return;
+  }
+
+  const isOutage = type === "outage";
+  const emoji    = isOutage ? "🔴" : "🟠";
+  const color    = isOutage ? "#dc2626" : "#f59e0b";
+  const severity = isOutage ? "OUTAGE" : "WARNING";
+
+  await post({
+    attachments: [{
+      color,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `${emoji} *${severity} — ${market.flag} ${market.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
+          },
+        },
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Simulation · ${ts} UTC` }],
+        },
+      ],
+    }],
+  });
+}
+
 /**
  * Send a test message to verify the webhook is working.
  */
