@@ -166,17 +166,13 @@ export function tickRisLive() {
 export function getRisLive() {
   return RIPE_MARKETS.map(m => {
     const s = state.get(m.id);
-    // Return latest 20 events (newest first) for the DetailPanel
-    const recentEvents = [...s.events]
-      .sort((a, b) => b.ts - a.ts)
-      .slice(0, 20)
-      .map(e => ({
-        type:   e.type,
-        prefix: e.prefix,
-        peer:   e.peer,
-        rrc:    e.rrc,
-        ts:     e.ts,
-      }));
+    const sorted = [...s.events].sort((a, b) => b.ts - a.ts);
+    const fmt = e => ({ type: e.type, prefix: e.prefix, peer: e.peer, rrc: e.rrc, ts: e.ts });
+
+    // Separate arrays so high-volume announces don't crowd out withdrawals
+    const recentWithdrawals  = sorted.filter(e => e.type === "WITHDRAW").slice(0, 20).map(fmt);
+    const recentAnnouncements = sorted.filter(e => e.type === "ANNOUNCE").slice(0, 10).map(fmt);
+
     return {
       id:               m.id,
       connected:        s.connected,
@@ -186,7 +182,10 @@ export function getRisLive() {
       announcements6h:  s.announcements6h,
       lastEvent:        s.lastEvent,
       status:           s.status,
-      recentEvents,     // last 20 events for display
+      recentWithdrawals,    // up to 20 most recent withdrawals
+      recentAnnouncements,  // up to 10 most recent announcements
+      // legacy alias so existing code doesn't break
+      recentEvents: sorted.slice(0, 20).map(fmt),
     };
   });
 }

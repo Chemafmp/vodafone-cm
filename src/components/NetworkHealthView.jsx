@@ -1280,8 +1280,8 @@ function SignalDetailModal({ signal, market, onClose }) {
       const an1h = ris?.announcements1h ?? 0;
       const wd6h = ris?.withdrawals6h ?? 0;
       const an6h = ris?.announcements6h ?? 0;
-      const withdrawEvents = (ris?.recentEvents || []).filter(e => e.type === "WITHDRAW");
-      const announceEvents = (ris?.recentEvents || []).filter(e => e.type === "ANNOUNCE");
+      const withdrawEvents = ris?.recentWithdrawals || (ris?.recentEvents || []).filter(e => e.type === "WITHDRAW");
+      const announceEvents = ris?.recentAnnouncements || (ris?.recentEvents || []).filter(e => e.type === "ANNOUNCE");
       const wdColor = wd1h >= 20 ? "#dc2626" : wd1h >= 5 ? "#b45309" : "#16a34a";
 
       return (<>
@@ -1781,7 +1781,7 @@ function SignalLayersSection({ market }) {
       summary: market.ris?.connected === false
         ? "WebSocket disconnected — reconnecting…"
         : `${market.ris?.withdrawals1h ?? 0} withdrawals/1h · ${market.ris?.announcements1h ?? 0} announces/1h`,
-      events: (market.ris?.recentEvents || []).filter(e => e.type === "WITHDRAW").slice(0, 3).map(e => ({
+      events: (market.ris?.recentWithdrawals || (market.ris?.recentEvents || []).filter(e => e.type === "WITHDRAW")).slice(0, 3).map(e => ({
         label: `WITHDRAW ${e.prefix} from ${e.peer} (${e.rrc})`,
       })),
     },
