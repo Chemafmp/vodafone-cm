@@ -905,9 +905,9 @@ function PrefixListModal({ market, onClose }) {
                 sortedLog.length === 0 ? (
                   <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 24 }}>
                     <div style={{ fontSize: 16, marginBottom: 8 }}>✓</div>
-                    Sin cambios de prefijos en las últimas 36h.
+                    No prefix changes in the last 36h.
                     <div style={{ fontSize: 10, marginTop: 8 }}>
-                      El log se actualiza cada ~30 min con los polls de extended metrics.
+                      Log updates every ~30 min with extended metrics polls.
                     </div>
                   </div>
                 ) : (
@@ -928,13 +928,13 @@ function PrefixListModal({ market, onClose }) {
                             {totalAdded > 0 && (
                               <span style={{ color: "#16a34a", background: "#f0fdf4",
                                 border: "1px solid #86efac", borderRadius: 4, padding: "1px 6px" }}>
-                                +{totalAdded} anunciados
+                                +{totalAdded} announced
                               </span>
                             )}
                             {totalRemoved > 0 && (
                               <span style={{ color: "#dc2626", background: "#fef2f2",
                                 border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px" }}>
-                                −{totalRemoved} retirados
+                                −{totalRemoved} withdrawn
                               </span>
                             )}
                           </div>
@@ -1038,7 +1038,7 @@ function RpkiDetailModal({ market, onClose }) {
                 {rpki.coverage_pct}<span style={{ fontSize: 20 }}>%</span>
               </div>
               <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
-                cobertura RPKI · {rpki.sampled} prefijos analizados
+                RPKI coverage · {rpki.sampled} prefixes sampled
               </div>
             </div>
 
@@ -1096,8 +1096,9 @@ function RpkiDetailModal({ market, onClose }) {
               border: `1px solid ${T.border}`, borderRadius: 6,
               fontSize: 10, color: T.muted, lineHeight: 1.5,
             }}>
-              💡 Muestra de los primeros 10 prefijos IPv4 de AS{market.asn}.
-              RPKI-valid = el origen AS + longitud de prefijo coinciden con un ROA registrado.
+              💡 Sample of first 10 IPv4 prefixes announced by AS{market.asn}.
+              RPKI-valid = origin AS + prefix length match a registered ROA.
+              Invalid = mismatch. Unknown = no ROA exists.
             </div>
           </div>
         )}
