@@ -3059,7 +3059,7 @@ function CorrelationPanel({ markets }) {
             </div>
           )}
         </div>
-      </div>)}
+      </div>}
     </div>
   );
 }
