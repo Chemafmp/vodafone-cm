@@ -31,6 +31,7 @@ const TicketListView    = lazy(() => import("./components/TicketListView.jsx"));
 const TicketReportsView    = lazy(() => import("./components/TicketReportsView.jsx"));
 const ServiceStatusView    = lazy(() => import("./components/ServiceStatusView.jsx"));
 const NetworkHealthView    = lazy(() => import("./components/NetworkHealthView.jsx"));
+const SignalFusionView     = lazy(() => import("./components/SignalFusionView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -169,7 +170,7 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",network_health:"Network Health",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
+  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",network_health:"Network Health",signal_fusion:"Signal Fusion",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
 
 
   // ── Standalone PWA mode (iOS navigator.standalone or Chrome display-mode) ──────
@@ -274,6 +275,16 @@ export default function App(){
                 bg: "linear-gradient(135deg,#0c2d2a,#0f172a)",
                 border: "#1e3d38",
               },
+              {
+                key: "signal_fusion",
+                icon: "🔀",
+                title: "Signal Fusion",
+                subtitle: "Cross-signal correlation · all layers",
+                detail: "Atlas · BGP · RIS · Radar · IODA · Community",
+                accent: "#8b5cf6",
+                bg: "linear-gradient(135deg,#1e1040,#0f172a)",
+                border: "#2e1a6e",
+              },
             ].map(tile => (
               <button
                 key={tile.key}
@@ -329,6 +340,15 @@ export default function App(){
         "Network Health · RIPE Atlas",
         () => setPwaView(null),
         <NetworkHealthView />
+      );
+    }
+
+    // ── Signal Fusion ─────────────────────────────────────────────────────────
+    if (pwaView === "signal_fusion") {
+      return pwaShell(
+        "Signal Fusion · Cross-signal correlation",
+        () => setPwaView(null),
+        <SignalFusionView onOpenNetworkHealth={() => setPwaView("network_health")} />
       );
     }
   }
@@ -416,7 +436,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","network_health","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","network_health","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -546,6 +566,7 @@ export default function App(){
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
         {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
         {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView/></div>}
+        {view==="signal_fusion"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><SignalFusionView onOpenNetworkHealth={()=>setView("network_health")}/></div>}
 
         {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(
