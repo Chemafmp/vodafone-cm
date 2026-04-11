@@ -32,6 +32,7 @@ import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bg
 import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
+import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
 import { computeCorrelation } from "./lib/correlation.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
@@ -157,21 +158,24 @@ app.get("/api/network-health", (req, res) => {
   const ris     = getRisLive();
   const bgpMap  = Object.fromEntries(bgp.map(b => [b.id, b]));
   const dnsMap  = Object.fromEntries(dns.map(d => [d.id, d]));
-  const iodaMap = Object.fromEntries(ioda.map(i => [i.id, i]));
-  const risMap  = Object.fromEntries(ris.map(r => [r.id, r]));
+  const iodaMap  = Object.fromEntries(ioda.map(i => [i.id, i]));
+  const risMap   = Object.fromEntries(ris.map(r => [r.id, r]));
+  const radar    = getCfRadar();
+  const radarMap = Object.fromEntries(radar.map(r => [r.id, r]));
 
   res.json(atlas.map(m => {
-    const bgpData   = bgpMap[m.id]  || null;
-    const dnsData   = dnsMap[m.id]  || null;
-    const iodaData  = iodaMap[m.id] || null;
-    const risData   = risMap[m.id]  || null;
+    const bgpData   = bgpMap[m.id]   || null;
+    const dnsData   = dnsMap[m.id]   || null;
+    const iodaData  = iodaMap[m.id]  || null;
+    const risData   = risMap[m.id]   || null;
+    const radarData = radarMap[m.id] || null;
 
     // Compute correlation score from all layers
     const correlation = computeCorrelation({
       atlas:  m,          // has status, ratio, current
       bgp:    bgpData,    // has status, current.visibility_pct
       ioda:   iodaData,
-      radar:  null,       // CF Radar — added when token is available
+      radar:  radarData,
       ris:    risData,
     });
 
@@ -218,6 +222,17 @@ app.get("/api/network-health", (req, res) => {
         lastEvent:       risData.lastEvent,
         status:          risData.status,
         recentEvents:    risData.recentEvents,
+      } : null,
+      radar: radarData ? {
+        events:      radarData.events,
+        hasAlert:    radarData.hasAlert,
+        alertCount:  radarData.alertCount,
+        recentCount: radarData.recentCount,
+        status:      radarData.status,
+        ok:          radarData.ok,
+        error:       radarData.error,
+        lastChecked: radarData.lastChecked,
+        configured:  radarData.configured,
       } : null,
       correlation,
     };
@@ -618,11 +633,16 @@ server.listen(PORT, BIND_HOST, () => {
   setInterval(() => {
     tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
     tickRisLive();   // recompute RIS counters every cycle
+    tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] tick error: ${e.message}`)));
   }, RIPE_INTERVAL);
   setTimeout(() => tickIoda(log).catch(e => log(chalk.yellow(`[ioda] first tick error: ${e.message}`))), 25_000);
+  setTimeout(() => tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] first tick error: ${e.message}`))), 35_000);
 
   // RIS Live — persistent WebSocket, starts immediately
   initRisLive(log);
+
+  // Cloudflare Radar — token from CF_RADAR_TOKEN env var
+  initCfRadar(log);
 });
 
 function log(msg) {

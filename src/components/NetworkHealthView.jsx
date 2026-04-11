@@ -20,6 +20,22 @@ const STATUS_META = {
 };
 const sm = s => STATUS_META[s] || STATUS_META.unknown;
 
+function dotColor(status) {
+  if (!status || status === "unknown")                   return "#d1d5db";
+  if (status === "ok")                                   return "#16a34a";
+  if (status === "warn" || status === "warning")         return "#f59e0b";
+  if (status === "alert" || status === "outage")         return "#dc2626";
+  return "#d1d5db";
+}
+
+function scoreColor(score) {
+  if (score == null) return "#9ca3af";
+  if (score >= 90)   return "#16a34a";
+  if (score >= 70)   return "#b45309";
+  if (score >= 40)   return "#d97706";
+  return "#dc2626";
+}
+
 function fmtTime(iso) {
   if (!iso) return "";
   try {
@@ -878,8 +894,8 @@ function PrefixListModal({ market, onClose }) {
                 color: tab === "history" ? (sortedLog.length ? "#b45309" : T.surface) : (sortedLog.length ? "#b45309" : T.muted),
                 borderColor: tab === "history" ? (sortedLog.length ? "#fcd34d" : T.text) : (sortedLog.length ? "#fcd34d" : T.border),
               }}>
-                Historial 36h {sortedLog.length > 0 ? "⚠" : ""}
-                <span style={{ opacity: 0.7, fontWeight: 400 }}> ({sortedLog.length} cambios)</span>
+                History 36h {sortedLog.length > 0 ? "⚠" : ""}
+                <span style={{ opacity: 0.7, fontWeight: 400 }}> ({sortedLog.length} change{sortedLog.length !== 1 ? "s" : ""})</span>
               </button>
             </div>
 
@@ -1107,6 +1123,202 @@ function RpkiDetailModal({ market, onClose }) {
   );
 }
 
+// ─── Signal Layers section (used inside DetailPanel) ─────────────────────────
+function SignalLayersSection({ market }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const signals = [
+    {
+      key:    "atlas",
+      label:  "RIPE Atlas",
+      icon:   "📡",
+      status: market.status,
+      summary: market.ok
+        ? `${market.current?.avg_rtt ?? "—"} ms avg · ${market.ratio ?? "?"}× ratio · ${market.current?.probe_count ?? 0} probes`
+        : market.error || "no data",
+      events: [],
+    },
+    {
+      key:    "bgp",
+      label:  "BGP Visibility",
+      icon:   "🔗",
+      status: market.bgp?.status,
+      summary: market.bgp?.current?.ris_peers_seeing != null
+        ? `${market.bgp.current.ris_peers_seeing}/${market.bgp.current.total_ris_peers} RIS peers · ${market.bgp.current.announced_prefixes ?? "?"} prefixes`
+        : "no data",
+      events: [],
+    },
+    {
+      key:    "ioda",
+      label:  "CAIDA IODA",
+      icon:   "🌐",
+      status: market.ioda?.status,
+      summary: market.ioda?.ok === false
+        ? (market.ioda.error || "error polling IODA")
+        : market.ioda?.activeCount > 0
+          ? `${market.ioda.activeCount} active event${market.ioda.activeCount !== 1 ? "s" : ""} · ${market.ioda.recentCount ?? 0} in last 1h`
+          : "no outage detected",
+      events: (market.ioda?.events || []).filter(e => e.active).slice(0, 3).map(e => ({
+        label: `${e.datasource || "?"} · score ${e.score ?? "?"} · since ${new Date(e.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      })),
+    },
+    {
+      key:    "radar",
+      label:  "Cloudflare Radar",
+      icon:   "☁️",
+      status: market.radar?.status,
+      summary: !market.radar?.configured
+        ? "token not configured — BGP hijack/leak monitoring inactive"
+        : market.radar?.alertCount > 0
+          ? `${market.radar.alertCount} active alert${market.radar.alertCount !== 1 ? "s" : ""} (hijack/leak)`
+          : "no hijacks or leaks detected",
+      events: (market.radar?.events || []).filter(e => e.active).slice(0, 3).map(e => ({
+        label: `${e.type} · ${e.prefix || "prefix unknown"} · AS${e.asn}`,
+      })),
+    },
+    {
+      key:    "ris",
+      label:  "RIS Live",
+      icon:   "🔄",
+      status: market.ris?.status,
+      summary: market.ris?.connected === false
+        ? "WebSocket disconnected — reconnecting…"
+        : `${market.ris?.withdrawals1h ?? 0} withdrawals/1h · ${market.ris?.announcements1h ?? 0} announces/1h`,
+      events: (market.ris?.recentEvents || []).filter(e => e.type === "WITHDRAW").slice(0, 3).map(e => ({
+        label: `WITHDRAW ${e.prefix} from ${e.peer} (${e.rrc})`,
+      })),
+    },
+  ];
+
+  const corrScore   = market.correlation?.score;
+  const corrStatus  = market.correlation?.status;
+  const corrInsight = market.correlation?.insight;
+  const corrAlerts  = market.correlation?.alerts || [];
+  const scoreC      = scoreColor(corrScore);
+
+  return (
+    <div style={{
+      marginBottom: 16,
+      border: `1px solid ${T.border}`, borderRadius: 9,
+      background: T.surface, overflow: "hidden",
+    }}>
+      {/* Collapsed header */}
+      <button
+        onClick={() => setExpanded(o => !o)}
+        style={{
+          width: "100%", padding: "9px 14px", border: "none", cursor: "pointer",
+          background: "none", display: "flex", alignItems: "center", gap: 8, textAlign: "left",
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, flex: 1 }}>
+          Signal Layers
+        </span>
+        {/* Score badge */}
+        {corrScore != null && (
+          <span style={{
+            fontSize: 11, fontWeight: 800, fontFamily: "monospace",
+            color: scoreC, background: `${scoreC}14`,
+            border: `1px solid ${scoreC}44`, borderRadius: 5, padding: "2px 8px",
+          }}>
+            {corrScore}/100
+          </span>
+        )}
+        {/* 5 dots */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {signals.map(s => (
+            <div key={s.key} title={`${s.label}: ${s.status || "no data"}`}
+              style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor(s.status) }} />
+          ))}
+        </div>
+        <span style={{ fontSize: 11, color: T.muted }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${T.border}`, padding: "10px 14px" }}>
+          {/* Signal rows */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+            {signals.map(s => {
+              const normStatus = s.status === "alert" ? "outage"
+                : s.status === "warn"  ? "warning"
+                : s.status || "unknown";
+              const sc = sm(normStatus);
+              return (
+                <div key={s.key} style={{
+                  display: "flex", alignItems: "flex-start", gap: 8,
+                  padding: "7px 10px", borderRadius: 6,
+                  background: T.bg, border: `1px solid ${T.border}`,
+                }}>
+                  <span style={{ fontSize: 14, lineHeight: 1, marginTop: 1 }}>{s.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{s.label}</span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 800, letterSpacing: "0.4px",
+                        color: sc.color, background: sc.bg,
+                        border: `1px solid ${sc.border}`, borderRadius: 4, padding: "1px 5px",
+                      }}>
+                        {(s.status || "NO DATA").toUpperCase()}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.4 }}>
+                      {s.summary}
+                    </div>
+                    {s.events.length > 0 && (
+                      <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                        {s.events.map((ev, i) => (
+                          <div key={i} style={{
+                            fontSize: 9, fontFamily: "monospace",
+                            color: "#dc2626", background: "#fef2f2",
+                            border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 7px",
+                          }}>
+                            {ev.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Correlation insight */}
+          {corrInsight && (
+            <div style={{
+              padding: "9px 12px", borderRadius: 7,
+              background: corrAlerts.length > 0 ? "#fef3c7" : "#f0fdf4",
+              border: `1px solid ${corrAlerts.length > 0 ? "#fcd34d" : "#86efac"}`,
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: "0.4px", marginBottom: 3,
+                color: corrAlerts.length > 0 ? "#b45309" : "#16a34a",
+              }}>
+                CORRELATION — {(corrStatus || "unknown").toUpperCase()}
+              </div>
+              <div style={{ fontSize: 11, color: T.text, lineHeight: 1.5 }}>
+                {corrInsight}
+              </div>
+              {corrAlerts.length > 0 && (
+                <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {corrAlerts.map(a => (
+                    <span key={a} style={{
+                      fontSize: 9, fontWeight: 700,
+                      background: "#fee2e2", color: "#dc2626",
+                      border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px",
+                    }}>
+                      {a.toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Detail panel (modal) ─────────────────────────────────────────────────────
 function DetailPanel({ market, onClose }) {
   const meta   = sm(market.status);
@@ -1281,6 +1493,9 @@ function DetailPanel({ market, onClose }) {
               {market.error || "First measurement in progress…"}
             </div>
           )}
+
+          {/* Signal layers + correlation */}
+          <SignalLayersSection market={market} />
 
           {/* Zoom selector */}
           <div style={{
@@ -1953,8 +2168,35 @@ function MarketCard({ market, onClick }) {
           height={32}
         />
       </div>
-      <div style={{ textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 600, marginTop: 3 }}>
-        details →
+      {/* Signal dots + correlation score row */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 5,
+        marginTop: 7, paddingTop: 6, borderTop: `1px solid ${T.border}`,
+      }}>
+        {[
+          { key: "atlas", label: "Atlas", status: market.status },
+          { key: "bgp",   label: "BGP",   status: market.bgp?.status },
+          { key: "ioda",  label: "IODA",  status: market.ioda?.status },
+          { key: "radar", label: "Radar", status: market.radar?.status },
+          { key: "ris",   label: "RIS",   status: market.ris?.status },
+        ].map(sig => (
+          <div key={sig.key} title={`${sig.label}: ${sig.status || "no data"}`}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor(sig.status) }} />
+            <span style={{ fontSize: 7, color: T.muted }}>{sig.label}</span>
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
+        {market.correlation?.score != null && (
+          <span style={{
+            fontSize: 10, fontWeight: 800, fontFamily: "monospace",
+            color: scoreColor(market.correlation.score),
+            background: `${scoreColor(market.correlation.score)}18`,
+            border: `1px solid ${scoreColor(market.correlation.score)}40`,
+            borderRadius: 4, padding: "1px 5px",
+          }}>{market.correlation.score}</span>
+        )}
+        <span style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>details →</span>
       </div>
     </div>
   );
@@ -1982,6 +2224,184 @@ function SummaryBar({ markets }) {
   );
 }
 
+// ─── Correlation Analysis panel (always visible below market cards) ───────────
+function CorrelationPanel({ markets }) {
+  const signals = [
+    { key: "atlas",  label: "Atlas",  getStatus: m => m.status },
+    { key: "bgp",    label: "BGP",    getStatus: m => m.bgp?.status },
+    { key: "ioda",   label: "IODA",   getStatus: m => m.ioda?.status },
+    { key: "radar",  label: "Radar",  getStatus: m => m.radar?.status },
+    { key: "ris",    label: "RIS",    getStatus: m => m.ris?.status },
+  ];
+
+  const active = markets.filter(m => m.correlation?.score != null && m.correlation.score < 90);
+
+  return (
+    <div style={{
+      marginTop: 20,
+      border: `1px solid ${T.border}`, borderRadius: 10,
+      background: T.surface, overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <span style={{ fontSize: 16 }}>🔗</span>
+        <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>
+          Correlation Analysis
+        </span>
+        <span style={{ fontSize: 11, color: T.muted }}>
+          · {markets.filter(m => m.ok).length}/{markets.length} markets · 5 signal layers
+        </span>
+      </div>
+
+      <div style={{ padding: "14px 18px" }}>
+        {/* Signal matrix */}
+        <div style={{ overflowX: "auto", marginBottom: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 2px" }}>
+            <thead>
+              <tr>
+                <th style={{
+                  fontSize: 9, fontWeight: 700, color: T.muted, textAlign: "left",
+                  padding: "0 0 6px", letterSpacing: "0.5px",
+                }}>MARKET</th>
+                {signals.map(s => (
+                  <th key={s.key} style={{
+                    fontSize: 9, fontWeight: 700, color: T.muted,
+                    textAlign: "center", padding: "0 12px 6px", letterSpacing: "0.5px",
+                  }}>{s.label.toUpperCase()}</th>
+                ))}
+                <th style={{
+                  fontSize: 9, fontWeight: 700, color: T.muted, textAlign: "right",
+                  padding: "0 0 6px 12px", letterSpacing: "0.5px",
+                }}>SCORE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {markets.map(m => {
+                const score = m.correlation?.score;
+                const sc    = scoreColor(score);
+                return (
+                  <tr key={m.id} style={{ background: T.bg }}>
+                    <td style={{
+                      padding: "5px 8px", fontSize: 11, fontWeight: 600,
+                      color: T.text, whiteSpace: "nowrap", borderRadius: "6px 0 0 6px",
+                    }}>
+                      {m.flag} {m.name}
+                    </td>
+                    {signals.map(s => (
+                      <td key={s.key} style={{ textAlign: "center", padding: "5px 12px" }}>
+                        <div title={s.getStatus(m) || "no data"} style={{
+                          width: 10, height: 10, borderRadius: "50%",
+                          background: dotColor(s.getStatus(m)),
+                          margin: "0 auto",
+                        }} />
+                      </td>
+                    ))}
+                    <td style={{
+                      textAlign: "right", padding: "5px 8px 5px 12px",
+                      borderRadius: "0 6px 6px 0",
+                    }}>
+                      {score != null ? (
+                        <span style={{
+                          fontSize: 11, fontWeight: 800, fontFamily: "monospace", color: sc,
+                        }}>{score}</span>
+                      ) : (
+                        <span style={{ fontSize: 10, color: "#9ca3af" }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Legend */}
+        <div style={{
+          display: "flex", gap: 12, flexWrap: "wrap",
+          fontSize: 9, color: T.muted, alignItems: "center", marginBottom: 12,
+        }}>
+          {[
+            { color: "#16a34a", label: "OK" },
+            { color: "#f59e0b", label: "Warning" },
+            { color: "#dc2626", label: "Alert / Outage" },
+            { color: "#d1d5db", label: "No data" },
+          ].map(l => (
+            <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: l.color }} />
+              <span>{l.label}</span>
+            </div>
+          ))}
+          <span style={{ marginLeft: "auto", fontStyle: "italic" }}>
+            Score: 90–100 OK · 70–89 Degraded · 40–69 Warning · &lt;40 Incident
+          </span>
+        </div>
+
+        {/* Active correlations */}
+        <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>
+            Active Correlations {active.length > 0 ? `(${active.length})` : ""}
+          </div>
+
+          {active.length === 0 ? (
+            <div style={{
+              padding: "9px 12px", background: "#f0fdf4",
+              border: "1px solid #86efac", borderRadius: 7,
+              fontSize: 11, color: "#16a34a", fontWeight: 600,
+            }}>
+              ✓ No active correlations — all market scores ≥ 90
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {active.map(m => {
+                const score = m.correlation.score;
+                const sc    = scoreColor(score);
+                const bgC   = score < 40 ? "#fef2f2" : score < 70 ? "#fef3c7" : "#fffbeb";
+                const brC   = score < 40 ? "#fca5a5" : score < 70 ? "#fcd34d" : "#fde68a";
+                return (
+                  <div key={m.id} style={{
+                    padding: "9px 12px", borderRadius: 7,
+                    background: bgC, border: `1px solid ${brC}`,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                      <span style={{ fontSize: 14 }}>{m.flag}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{m.name}</span>
+                      <span style={{ fontSize: 9, color: T.muted }}>AS{m.asn}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 800, fontFamily: "monospace",
+                        color: sc, background: `${sc}14`, border: `1px solid ${sc}44`,
+                        borderRadius: 4, padding: "1px 6px", marginLeft: "auto",
+                      }}>{score}/100</span>
+                    </div>
+                    {m.correlation.insight && (
+                      <div style={{ fontSize: 11, color: T.text, lineHeight: 1.5 }}>
+                        {m.correlation.insight}
+                      </div>
+                    )}
+                    {m.correlation.alerts?.length > 0 && (
+                      <div style={{ marginTop: 5, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {m.correlation.alerts.map(a => (
+                          <span key={a} style={{
+                            fontSize: 9, fontWeight: 700,
+                            background: "#fee2e2", color: "#dc2626",
+                            border: "1px solid #fca5a5", borderRadius: 4, padding: "1px 6px",
+                          }}>{a.toUpperCase()}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main view ────────────────────────────────────────────────────────────────
 export default function NetworkHealthView() {
   const [markets, setMarkets]         = useState([]);
@@ -1996,7 +2416,12 @@ export default function NetworkHealthView() {
         const r = await fetch(`${apiBase()}/api/network-health`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        if (!cancelled) { setMarkets(data); setLastRefresh(new Date()); }
+        if (!cancelled) {
+          setMarkets(data);
+          setLastRefresh(new Date());
+          // Keep DetailPanel fresh if it's open
+          setSelected(prev => prev ? (data.find(m => m.id === prev.id) || prev) : null);
+        }
       } catch { /* retry on next tick */ }
       finally { if (!cancelled) setLoading(false); }
     }
@@ -2070,6 +2495,8 @@ export default function NetworkHealthView() {
           ))}
         </div>
       )}
+
+      {!loading && markets.length > 0 && <CorrelationPanel markets={markets} />}
 
       {!loading && <MetricsGlossary />}
 
