@@ -71,7 +71,7 @@ const SIGNAL_COLS = [
   { key: "ris",    icon: "🔄", label: "RIS Live",  shortLabel: "RIS",    desc: "Real-time BGP stream (RIPE RIS)" },
   { key: "radar",  icon: "☁️", label: "Radar",     shortLabel: "Radar",  desc: "BGP hijack/leak (Cloudflare)" },
   { key: "ioda",   icon: "🌐", label: "IODA",      shortLabel: "IODA",   desc: "Outage detection (CAIDA)" },
-  { key: "smon",   icon: "👥", label: "Community", shortLabel: "Comm.",  desc: "User reports (Downdetector)" },
+  { key: "smon",   icon: "👥", label: "Downdetector", shortLabel: "DD",  desc: "User reports (Downdetector)" },
 ];
 
 // ─── Extract per-signal cell data from merged market ─────────────────────────
@@ -243,7 +243,7 @@ function buildFeed(markets, svcMap) {
         signal: "smon",
         icon: "👥",
         severity: svc.status,
-        text: `Community reports spike: ${svc.complaints} reports`,
+        text: `Downdetector spike: ${svc.complaints} reports`,
         sub: svc.ratio != null ? `×${svc.ratio.toFixed(1)} above baseline` : null,
       });
     }
@@ -517,7 +517,7 @@ const CORR_ZOOMS = [
 ];
 
 const CORR_SERIES = [
-  { key: "smon",     label: "Community",  color: "#f59e0b", area: true  },
+  { key: "smon",     label: "Downdetector", color: "#f59e0b", area: true  },
   { key: "atlas",    label: "Atlas RTT",  color: "#3b82f6", area: false },
   { key: "bgp",      label: "BGP vis%",   color: "#f97316", area: false },
   { key: "iodaBgp",  label: "IODA BGP",   color: "#8b5cf6", area: false },
