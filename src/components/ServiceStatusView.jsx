@@ -404,7 +404,7 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{market.name}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
-              {market.dataSource === "downdetector" ? (
+              {effectiveDataSource(market) === "downdetector" ? (
                 <span style={{ fontSize: 9, fontWeight: 700, color: "#0369a1", background: "#eff6ff",
                   border: "1px solid #93c5fd", borderRadius: 4, padding: "1px 5px" }}>🌐 LIVE</span>
               ) : (
