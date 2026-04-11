@@ -30,6 +30,9 @@ import { tickServiceStatus, getServiceStatus } from "./lib/service-status.js";
 import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas.js";
 import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bgp-visibility.js";
 import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
+import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
+import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
+import { computeCorrelation } from "./lib/correlation.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -145,38 +148,80 @@ app.get("/api/service-status", (req, res) => {
   res.json(getServiceStatus());
 });
 
-// GET /api/network-health — RIPE Atlas latency/loss + BGP visibility + DNS RTT per Vodafone market
+// GET /api/network-health — all signal layers per Vodafone market
 app.get("/api/network-health", (req, res) => {
-  const atlas  = getNetworkHealth();
-  const bgp    = getBgpVisibility();
-  const dns    = getDnsMeasurements();
-  const bgpMap = Object.fromEntries(bgp.map(b => [b.id, b]));
-  const dnsMap = Object.fromEntries(dns.map(d => [d.id, d]));
-  res.json(atlas.map(m => ({
-    ...m,
-    bgp: bgpMap[m.id] ? {
-      current:    bgpMap[m.id].current,
-      history:    bgpMap[m.id].history,
-      status:     bgpMap[m.id].status,
-      ok:         bgpMap[m.id].ok,
-      error:      bgpMap[m.id].error,
-      prefixes:        bgpMap[m.id].prefixes        || null,
-      prefixDiff:      bgpMap[m.id].prefixDiff      || null,
-      prefixChangeLog: bgpMap[m.id].prefixChangeLog || [],
-      rpki:            bgpMap[m.id].rpki            || null,
-      pathLength: bgpMap[m.id].pathLength || null,
-    } : null,
-    dns: dnsMap[m.id] ? {
-      current:      dnsMap[m.id].current,
-      history:      dnsMap[m.id].history,
-      baseline_rtt: dnsMap[m.id].baseline_rtt,
-      ratio:        dnsMap[m.id].ratio,
-      status:       dnsMap[m.id].status,
-      ok:           dnsMap[m.id].ok,
-      error:        dnsMap[m.id].error,
-      probeDetails: dnsMap[m.id].probeDetails || [],
-    } : null,
-  })));
+  const atlas   = getNetworkHealth();
+  const bgp     = getBgpVisibility();
+  const dns     = getDnsMeasurements();
+  const ioda    = getIoda();
+  const ris     = getRisLive();
+  const bgpMap  = Object.fromEntries(bgp.map(b => [b.id, b]));
+  const dnsMap  = Object.fromEntries(dns.map(d => [d.id, d]));
+  const iodaMap = Object.fromEntries(ioda.map(i => [i.id, i]));
+  const risMap  = Object.fromEntries(ris.map(r => [r.id, r]));
+
+  res.json(atlas.map(m => {
+    const bgpData   = bgpMap[m.id]  || null;
+    const dnsData   = dnsMap[m.id]  || null;
+    const iodaData  = iodaMap[m.id] || null;
+    const risData   = risMap[m.id]  || null;
+
+    // Compute correlation score from all layers
+    const correlation = computeCorrelation({
+      atlas:  m,          // has status, ratio, current
+      bgp:    bgpData,    // has status, current.visibility_pct
+      ioda:   iodaData,
+      radar:  null,       // CF Radar — added when token is available
+      ris:    risData,
+    });
+
+    return {
+      ...m,
+      bgp: bgpData ? {
+        current:         bgpData.current,
+        history:         bgpData.history,
+        status:          bgpData.status,
+        ok:              bgpData.ok,
+        error:           bgpData.error,
+        prefixes:        bgpData.prefixes        || null,
+        prefixDiff:      bgpData.prefixDiff      || null,
+        prefixChangeLog: bgpData.prefixChangeLog || [],
+        rpki:            bgpData.rpki            || null,
+        pathLength:      bgpData.pathLength      || null,
+      } : null,
+      dns: dnsData ? {
+        current:      dnsData.current,
+        history:      dnsData.history,
+        baseline_rtt: dnsData.baseline_rtt,
+        ratio:        dnsData.ratio,
+        status:       dnsData.status,
+        ok:           dnsData.ok,
+        error:        dnsData.error,
+        probeDetails: dnsData.probeDetails || [],
+      } : null,
+      ioda: iodaData ? {
+        events:         iodaData.events,
+        hasActiveEvent: iodaData.hasActiveEvent,
+        activeCount:    iodaData.activeCount,
+        recentCount:    iodaData.recentCount,
+        status:         iodaData.status,
+        ok:             iodaData.ok,
+        error:          iodaData.error,
+        lastChecked:    iodaData.lastChecked,
+      } : null,
+      ris: risData ? {
+        connected:       risData.connected,
+        withdrawals1h:   risData.withdrawals1h,
+        withdrawals6h:   risData.withdrawals6h,
+        announcements1h: risData.announcements1h,
+        announcements6h: risData.announcements6h,
+        lastEvent:       risData.lastEvent,
+        status:          risData.status,
+        recentEvents:    risData.recentEvents,
+      } : null,
+      correlation,
+    };
+  }));
 });
 
 const server = http.createServer(app);
@@ -567,6 +612,17 @@ server.listen(PORT, BIND_HOST, () => {
     }, RIPE_INTERVAL);
     setTimeout(() => tickDnsMeasurements(log).catch(e => log(chalk.yellow(`[dns] first tick error: ${e.message}`))), 20_000);
   }).catch(e => log(chalk.yellow(`[dns] init error: ${e.message}`)));
+
+  // CAIDA IODA — tick every 5 min, staggered 25s
+  initIoda(log);
+  setInterval(() => {
+    tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
+    tickRisLive();   // recompute RIS counters every cycle
+  }, RIPE_INTERVAL);
+  setTimeout(() => tickIoda(log).catch(e => log(chalk.yellow(`[ioda] first tick error: ${e.message}`))), 25_000);
+
+  // RIS Live — persistent WebSocket, starts immediately
+  initRisLive(log);
 });
 
 function log(msg) {
@@ -586,6 +642,7 @@ function shutdown(signal) {
       try { entry.proc.kill("SIGTERM"); } catch { /* ignore */ }
     }
   }
+  stopRisLive();
 
   server.close(() => process.exit(0));
   // Force exit after 3s if something hangs

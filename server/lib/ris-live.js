@@ -1,0 +1,207 @@
+// ─── RIPE RIS Live integration ────────────────────────────────────────────────
+// Maintains a persistent WebSocket connection to RIPE RIS Live.
+// wss://ris-live.ripe.net/v1/ws/
+//
+// RIS (Routing Information Service) receives BGP feeds from ~30 route collectors
+// (RRCs) peered with hundreds of ASes globally. RIS Live streams BGP messages
+// in real time.
+//
+// We subscribe to BGP UPDATE messages and filter for any that include a
+// Vodafone ASN in the AS path. This gives us:
+//   - ANNOUNCE: new prefix announced (origin or path involves Vodafone AS)
+//   - WITHDRAW: prefix withdrawn — may indicate route flap or outage
+//
+// No authentication required. Free service.
+// Docs: https://ris-live.ripe.net/
+
+import WebSocket from "ws";
+import { RIPE_MARKETS } from "./ripe-atlas.js";
+
+const RIS_WS_URL   = "wss://ris-live.ripe.net/v1/ws/";
+const RETENTION_MS = 6  * 3600_000;   // keep 6h of events in memory
+const WARN_WD_1H   = 5;               // withdrawals/1h threshold for WARNING
+const ALERT_WD_1H  = 20;             // withdrawals/1h threshold for ALERT
+const RECONNECT_MS = 10_000;          // reconnect delay on disconnect
+
+// Build ASN lookup Set for fast filtering: Set<number>
+const VODAFONE_ASNS = new Set(RIPE_MARKETS.map(m => m.asn));
+// Map ASN → market id for routing events to the right market
+const ASN_TO_MARKET = new Map(RIPE_MARKETS.map(m => [m.asn, m.id]));
+
+// ─── In-memory state ──────────────────────────────────────────────────────────
+// marketId → { events[], withdrawals1h, withdrawals6h, announcements1h, ... }
+const state = new Map();
+
+function initState() {
+  for (const m of RIPE_MARKETS) {
+    state.set(m.id, {
+      events:           [],    // { type, prefix, peer, ts, rrc, path }
+      withdrawals1h:    0,
+      withdrawals6h:    0,
+      announcements1h:  0,
+      announcements6h:  0,
+      lastEvent:        null,
+      status:           "unknown",
+      connected:        false,
+    });
+  }
+}
+
+// ─── Derive counters from event buffer ────────────────────────────────────────
+function recompute(marketId) {
+  const s   = state.get(marketId);
+  const now = Date.now();
+  const t1h = now - 3600_000;
+  const t6h = now - RETENTION_MS;
+
+  // Drop events older than 6h
+  s.events = s.events.filter(e => e.ts > t6h);
+
+  s.withdrawals1h   = s.events.filter(e => e.type === "WITHDRAW"  && e.ts > t1h).length;
+  s.withdrawals6h   = s.events.filter(e => e.type === "WITHDRAW").length;
+  s.announcements1h = s.events.filter(e => e.type === "ANNOUNCE"  && e.ts > t1h).length;
+  s.announcements6h = s.events.filter(e => e.type === "ANNOUNCE").length;
+
+  // Status based on withdrawal rate
+  if (s.withdrawals1h >= ALERT_WD_1H)     s.status = "alert";
+  else if (s.withdrawals1h >= WARN_WD_1H) s.status = "warn";
+  else                                     s.status = "ok";
+}
+
+// ─── Parse a raw RIS message ──────────────────────────────────────────────────
+function handleMessage(raw, log) {
+  let msg;
+  try { msg = JSON.parse(raw); } catch { return; }
+  if (msg.type !== "ris_message") return;
+
+  const d = msg.data;
+  if (!d) return;
+
+  const isAnnounce = d.type === "UPDATE" && d.announcements?.length > 0;
+  const isWithdraw = d.type === "UPDATE" && d.withdrawals?.length  > 0;
+  if (!isAnnounce && !isWithdraw) return;
+
+  // Extract all ASNs from the AS path and find which Vodafone AS is involved
+  const path = d.path || [];
+  // path is array of AS numbers (may contain sets [{...}] for AS sets — flatten)
+  const flatPath = path.flatMap(hop =>
+    typeof hop === "object" && hop.type === "set" ? hop.value : [hop]
+  );
+
+  const matchedAsn = flatPath.find(asn => VODAFONE_ASNS.has(asn));
+  if (!matchedAsn) return;
+
+  const marketId = ASN_TO_MARKET.get(matchedAsn);
+  const s = state.get(marketId);
+  if (!s) return;
+
+  const ts  = (d.timestamp || Date.now() / 1000) * 1000;
+  const rrc = d.host || "unknown";
+  const peer = d.peer || "unknown";
+
+  if (isWithdraw) {
+    for (const prefix of d.withdrawals) {
+      s.events.push({ type: "WITHDRAW", prefix, peer, ts, rrc, asn: matchedAsn });
+    }
+  }
+  if (isAnnounce) {
+    for (const ann of d.announcements) {
+      const prefix = ann.prefixes?.[0] || ann.prefix || "unknown";
+      s.events.push({ type: "ANNOUNCE", prefix, peer, ts, rrc, asn: matchedAsn });
+    }
+  }
+
+  s.lastEvent = Date.now();
+  recompute(marketId);
+}
+
+// ─── WebSocket management ─────────────────────────────────────────────────────
+let ws       = null;
+let logFn    = null;
+let running  = false;
+
+function connect() {
+  if (!running) return;
+
+  logFn?.("[ris] connecting to RIS Live WebSocket…");
+
+  ws = new WebSocket(RIS_WS_URL, { handshakeTimeout: 10_000 });
+
+  ws.on("open", () => {
+    logFn?.("[ris] ✓ connected to wss://ris-live.ripe.net/v1/ws/");
+    for (const s of state.values()) s.connected = true;
+
+    // Subscribe to all BGP UPDATE messages
+    // We filter by ASN in handleMessage — no server-side ASN filter in RIS Live v1
+    ws.send(JSON.stringify({
+      type: "ris_subscribe",
+      data: {
+        type:          "UPDATE",
+        socketOptions: { includeRaw: false },
+      },
+    }));
+  });
+
+  ws.on("message", raw => handleMessage(raw, logFn));
+
+  ws.on("error", err => {
+    logFn?.(`[ris] WebSocket error: ${err.message}`);
+  });
+
+  ws.on("close", (code, reason) => {
+    logFn?.(`[ris] disconnected (${code}): ${reason || "no reason"}. Reconnecting in ${RECONNECT_MS / 1000}s…`);
+    for (const s of state.values()) s.connected = false;
+    if (running) setTimeout(connect, RECONNECT_MS);
+  });
+}
+
+// ─── Periodic cleanup (call from poller tick) ─────────────────────────────────
+export function tickRisLive() {
+  for (const m of RIPE_MARKETS) {
+    recompute(m.id);
+  }
+}
+
+// ─── Public: get current state ────────────────────────────────────────────────
+export function getRisLive() {
+  return RIPE_MARKETS.map(m => {
+    const s = state.get(m.id);
+    // Return latest 20 events (newest first) for the DetailPanel
+    const recentEvents = [...s.events]
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 20)
+      .map(e => ({
+        type:   e.type,
+        prefix: e.prefix,
+        peer:   e.peer,
+        rrc:    e.rrc,
+        ts:     e.ts,
+      }));
+    return {
+      id:               m.id,
+      connected:        s.connected,
+      withdrawals1h:    s.withdrawals1h,
+      withdrawals6h:    s.withdrawals6h,
+      announcements1h:  s.announcements1h,
+      announcements6h:  s.announcements6h,
+      lastEvent:        s.lastEvent,
+      status:           s.status,
+      recentEvents,     // last 20 events for display
+    };
+  });
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+export function initRisLive(log) {
+  initState();
+  logFn  = log;
+  running = true;
+  connect();
+  log?.("[ris] RIS Live module initialised — WebSocket connecting");
+}
+
+// ─── Shutdown (optional, for clean exit) ─────────────────────────────────────
+export function stopRisLive() {
+  running = false;
+  ws?.close();
+}
