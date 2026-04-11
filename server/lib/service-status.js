@@ -1,6 +1,20 @@
-// ─── Service Status — Simulator + optional Downdetector scraper ───────────────
-// Set USE_SCRAPER=1 in env to pull real data from Downdetector HTML pages.
-// Falls back to simulation if scraping fails or USE_SCRAPER is unset.
+// ─── Service Status — Simulator + Downdetector (official API or HTML scraper) ─
+//
+// Data source priority (first configured wins):
+//
+//   1. Official Downdetector Enterprise API  ← REAL data, persisted to Supabase
+//      Activate: set DOWNDETECTOR_CLIENT_ID + DOWNDETECTOR_CLIENT_SECRET in
+//      docker-compose.yml under the `poller` service environment block.
+//      Contact enterprise.downdetector.com to get credentials.
+//
+//   2. HTML scraper (USE_SCRAPER=1)          ← REAL data when it works
+//      Fragile — gets blocked by Cloudflare. Falls back to simulator per market.
+//      Only persists to Supabase when the scrape actually succeeds.
+//      Set USE_SCRAPER=1 in docker-compose.yml to enable.
+//
+//   3. Simulator (default, USE_SCRAPER unset) ← SIMULATED, in-memory only
+//      ±20% noise, sinusoidal time-of-day multiplier, 3% spike probability.
+//      Does NOT write to Supabase — keeps DB clean for when real data arrives.
 //
 // Status thresholds (ratio = complaints / baseline):
 //   OK      < 2.0×
@@ -8,10 +22,12 @@
 //   OUTAGE  ≥ 4.5×
 
 import { scrapeAll } from "./downdetector-scraper.js";
+import { fetchAllOfficial, isConfigured as ddApiConfigured } from "./downdetector-official.js";
 import { createClient } from "@supabase/supabase-js";
 import { isPaused } from "./poller-control.js";
 
-const USE_SCRAPER = process.env.USE_SCRAPER === "1";
+const USE_OFFICIAL_API = ddApiConfigured();           // DOWNDETECTOR_CLIENT_ID + SECRET set
+const USE_SCRAPER      = !USE_OFFICIAL_API && process.env.USE_SCRAPER === "1"; // scraper only if no official API
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -136,11 +152,65 @@ function statusForRatio(ratio) {
  */
 export async function tickServiceStatus(port, log) {
   if (isPaused("service-status")) { log?.("[service-status] ⏸ paused"); return; }
+  if (USE_OFFICIAL_API) {
+    log?.("[service-status] 🌐 using Downdetector official API");
+    await tickFromOfficial(port, log);
+    return;
+  }
   if (USE_SCRAPER) {
     await tickFromScraper(port, log);
     return;
   }
   await tickSimulated(port, log);
+}
+
+// ─── Official API tick ────────────────────────────────────────────────────────
+async function tickFromOfficial(port, log) {
+  const clientId     = process.env.DOWNDETECTOR_CLIENT_ID;
+  const clientSecret = process.env.DOWNDETECTOR_CLIENT_SECRET;
+  const results      = await fetchAllOfficial(clientId, clientSecret, log);
+
+  for (const r of results) {
+    const m = state.get(r.market.id);
+    if (!m) continue;
+
+    if (!r.ok) {
+      // API call failed for this market — simulate so chart stays alive
+      // but do NOT persist to Supabase (keep DB clean for real data)
+      const tod        = todMultiplier();
+      const noise      = rand(0.80, 1.20);
+      const complaints = Math.round(m.baseline * tod * noise);
+      const ratio      = complaints / m.baseline;
+      m.prevStatus = m.status;
+      m.complaints = complaints;
+      m.ratio      = Math.round(ratio * 10) / 10;
+      m.status     = statusForRatio(ratio);
+      m.lastUpdate = Date.now();
+      m.dataSource = "simulated";
+      m.trend      = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
+      continue;
+    }
+
+    const complaints = r.complaints;
+    if (r.baseline !== null) m.baseline = r.baseline;
+    const ratio  = complaints / Math.max(1, m.baseline);
+    const status = statusForRatio(ratio);
+
+    m.prevStatus = m.status;
+    m.complaints = complaints;
+    m.ratio      = Math.round(ratio * 10) / 10;
+    m.status     = status;
+    m.lastUpdate = Date.now();
+    m.dataSource = "downdetector"; // real data → LIVE badge
+    m.trend      = r.trend ? r.trend : [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
+
+    // Persist REAL data to Supabase ✓
+    const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
+    m.history = [...m.history.filter(p => p.ts > Date.now() - RETENTION_H * 3600_000), point];
+    saveCommunitySignal(m.id, complaints, m.ratio);
+
+    await handleStatusTransition(m, port);
+  }
 }
 
 async function tickFromScraper(port, log) {
@@ -263,10 +333,10 @@ async function tickSimulated(port, log) {
     m.dataSource  = "simulated"; // always simulated in this path
     m.trend       = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
-    // Persist to Supabase + append to in-memory history
-    const point = { ts: Date.now(), value: complaints, ratio: m.ratio };
-    m.history = [...m.history.filter(p => p.ts > Date.now() - RETENTION_H * 3600_000), point];
-    saveCommunitySignal(m.id, complaints, m.ratio);
+    // Simulated data — keep in-memory trend only, do NOT write to Supabase.
+    // This keeps community_signals clean so when the real API arrives the DB
+    // only contains genuine Downdetector complaint data.
+    m.trend = [...m.trend.slice(-(HISTORY_LEN - 1)), complaints];
 
     await handleStatusTransition(m, port);
   }
@@ -276,7 +346,7 @@ async function tickSimulated(port, log) {
 async function handleStatusTransition(m, port) {
   if (m.status === "outage" && m.prevStatus !== "outage") {
     try {
-      const src = USE_SCRAPER ? "Downdetector (real data)" : "service status simulator";
+      const src = USE_OFFICIAL_API ? "Downdetector Official API" : USE_SCRAPER ? "Downdetector (scraper)" : "service status simulator";
       const resp = await fetch(`http://localhost:${port}/api/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
