@@ -143,13 +143,13 @@ function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
       return ts >= slotStart && ts <= slotEnd;
     });
 
-    let status = "unknown";
-    if (inSlot.length > 0) {
-      status = "ok";
-      for (const s of inSlot) {
-        if (s.status === "outage")  { status = "outage"; break; }
-        if (s.status === "warning") { status = "warning"; }
-      }
+    // Default to "ok" (green) — absence of a recorded incident = assumed operational.
+    // Only show warning/outage when we have Supabase data that explicitly says so.
+    // This avoids the "all grey" bar when Supabase history is less than 36 h old.
+    let status = "ok";
+    for (const s of inSlot) {
+      if (s.status === "outage")  { status = "outage"; break; }
+      if (s.status === "warning") { status = "warning"; }
     }
 
     slots.push({
