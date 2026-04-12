@@ -697,6 +697,7 @@ function UptimeBar({ days }) {
 
 // ── Cloud Infrastructure Correlation Panel ────────────────────────────────────
 function CloudInfraPanel({ providers, isMobile }) {
+  const [expandedCloud, setExpandedCloud] = useState({});
   const cloudProviderIds = ["aws", "gcp", "azure"];
   const cloudStatus = {};
   for (const id of cloudProviderIds) {
@@ -704,15 +705,15 @@ function CloudInfraPanel({ providers, isMobile }) {
     cloudStatus[id] = p?.status || "unknown";
   }
 
-  // Group dependent providers by hosting cloud
   const hosted = { aws: [], gcp: [], azure: [], own: [], multi: [] };
   for (const p of providers) {
-    if (cloudProviderIds.includes(p.id)) continue; // skip the clouds themselves
+    if (cloudProviderIds.includes(p.id)) continue;
     const bucket = p.cloud || "own";
     if (hosted[bucket]) hosted[bucket].push(p);
   }
 
   const hasRisk = cloudProviderIds.some(id => cloudStatus[id] !== "ok" && cloudStatus[id] !== "unknown");
+  const PREVIEW = isMobile ? 5 : 99; // on mobile show 5, rest behind tap
 
   return (
     <div style={{
@@ -729,16 +730,19 @@ function CloudInfraPanel({ providers, isMobile }) {
           Which providers run on which cloud
         </span>
       </div>
-      <div style={{ padding: "10px 12px", display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, flexWrap: "nowrap" }}>
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8 }}>
         {cloudProviderIds.map(cid => {
-          const cm = CLOUD_META[cid] || CLOUD_META.own;
-          const st = cloudStatus[cid];
-          const sm = STATUS_META[st] || STATUS_META.unknown;
-          const deps = hosted[cid] || [];
+          const cm     = CLOUD_META[cid] || CLOUD_META.own;
+          const st     = cloudStatus[cid];
+          const sm     = STATUS_META[st] || STATUS_META.unknown;
+          const deps   = hosted[cid] || [];
           const affected = deps.filter(p => p.status === "warning" || p.status === "outage");
           const cloudProv = providers.find(x => x.id === cid);
-          // On mobile: collapse service pills and show count instead
-          const maxPills = isMobile ? 5 : 99;
+          const isExpanded = !!expandedCloud[cid];
+          const showAll    = isExpanded || deps.length <= PREVIEW;
+          const visibleDeps = showAll ? deps : deps.slice(0, PREVIEW);
+          const hiddenCount = deps.length - PREVIEW;
+
           return (
             <div key={cid} style={{
               flex: isMobile ? "none" : "1 1 0",
@@ -747,7 +751,14 @@ function CloudInfraPanel({ providers, isMobile }) {
               borderLeft: `4px solid ${sm.dot}`,
               borderRadius: 8, padding: "10px 12px",
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              {/* Header row — always visible, tappable to expand */}
+              <div
+                onClick={() => deps.length > PREVIEW && setExpandedCloud(e => ({ ...e, [cid]: !e[cid] }))}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, marginBottom: 6,
+                  cursor: deps.length > PREVIEW ? "pointer" : "default",
+                }}
+              >
                 <span style={{ fontSize: 16 }}>{cloudProv?.icon || cm.icon}</span>
                 <span style={{ fontWeight: 700, fontSize: 13, color: T.text }}>{cloudProv?.name || cm.label}</span>
                 <span style={{
@@ -755,31 +766,66 @@ function CloudInfraPanel({ providers, isMobile }) {
                   color: sm.color, background: sm.bg,
                   border: `1px solid ${sm.border}`, borderRadius: 5, padding: "2px 7px",
                 }}>{sm.label}</span>
+                {deps.length > PREVIEW && (
+                  <span style={{ fontSize: 12, color: T.muted, marginLeft: 4 }}>
+                    {isExpanded ? "▲" : "▼"}
+                  </span>
+                )}
               </div>
+
               <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>
                 {deps.length} service{deps.length !== 1 ? "s" : ""} hosted here
               </div>
+
               {deps.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {deps.slice(0, maxPills).map(p => {
-                    const pm = STATUS_META[p.status] || STATUS_META.unknown;
-                    return (
-                      <span key={p.id} style={{
-                        fontSize: 10, padding: "2px 6px",
-                        borderRadius: 5, fontWeight: 600,
-                        color: pm.color,
-                        background: pm.bg,
-                        border: `1px solid ${pm.border}`,
-                      }}>
-                        {p.icon} {p.name}
-                      </span>
-                    );
-                  })}
-                  {deps.length > maxPills && (
-                    <span style={{ fontSize: 10, color: T.muted, padding: "2px 6px" }}>+{deps.length - maxPills} more</span>
+                <>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {visibleDeps.map(p => {
+                      const pm = STATUS_META[p.status] || STATUS_META.unknown;
+                      return (
+                        <span key={p.id} style={{
+                          fontSize: 10, padding: "2px 6px",
+                          borderRadius: 5, fontWeight: 600,
+                          color: pm.color, background: pm.bg, border: `1px solid ${pm.border}`,
+                        }}>
+                          {p.icon} {p.name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* Expand button — only when collapsed and there are hidden items */}
+                  {!showAll && hiddenCount > 0 && (
+                    <button
+                      onClick={() => setExpandedCloud(e => ({ ...e, [cid]: true }))}
+                      style={{
+                        marginTop: 8, width: "100%",
+                        background: sm.bg, border: `1px solid ${sm.border}`,
+                        borderRadius: 7, padding: "6px 0",
+                        fontSize: 11, fontWeight: 700, color: sm.color,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      ▼ Show {hiddenCount} more service{hiddenCount !== 1 ? "s" : ""}
+                    </button>
                   )}
-                </div>
+                  {/* Collapse button */}
+                  {isExpanded && deps.length > PREVIEW && (
+                    <button
+                      onClick={() => setExpandedCloud(e => ({ ...e, [cid]: false }))}
+                      style={{
+                        marginTop: 8, width: "100%",
+                        background: T.surface, border: `1px solid ${T.border}`,
+                        borderRadius: 7, padding: "6px 0",
+                        fontSize: 11, fontWeight: 600, color: T.muted,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      ▲ Collapse
+                    </button>
+                  )}
+                </>
               )}
+
               {affected.length > 0 && (
                 <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: sm.color }}>
                   ⚠ {affected.length} service{affected.length !== 1 ? "s" : ""} degraded on this cloud
