@@ -320,6 +320,8 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [copying, setCopying]         = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 700);
+  const [railOpen, setRailOpen] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(initialTicket?.description || "");
   const [closureModal, setClosureModal] = useState(null);
@@ -328,6 +330,13 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [loadingChildren, setLoadingChildren] = useState(false);
   const [createChildOpen, setCreateChildOpen] = useState(false);
   const notesEndRef = useRef();
+
+  // Mobile detection
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
 
   // Full-screen mode: load ticket by ID on mount
   useEffect(() => {
@@ -610,59 +619,84 @@ ESCALATE IF: (one line — specific threshold or condition)`;
       }>
 
         {/* ── TOPBAR ──────────────────────────────────────────────────────── */}
-        <div style={{ padding: "12px 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-          <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 800, color: T.muted, flexShrink: 0 }}>{ticket.id}</span>
-
-          <span style={{ fontSize: 10, fontWeight: 800, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
-            {ticket.type === "project" ? "REQUEST" : ticket.type.toUpperCase()}
-          </span>
-
-          <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 8px", flexShrink: 0,
-            color: isAutoCreated ? "#b45309" : "#6366f1",
-            background: isAutoCreated ? "#fffbeb" : "#eef2ff",
-            border: `1px solid ${isAutoCreated ? "#fcd34d" : "#c7d2fe"}` }}>
-            {isAutoCreated ? "🤖 Auto" : "👤 Manual"}
-          </span>
-
-          {sev && (
-            <span style={{ fontSize: 10, fontWeight: 800, color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
-              {sev.label}
-            </span>
-          )}
-
-          {refireCount > 0 && (
-            <span title={`${refireCount} re-fire${refireCount > 1 ? "s" : ""} since ticket opened`}
-              style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 8px", flexShrink: 0, cursor: "default" }}>
-              ↺ {refireCount}
-            </span>
-          )}
-
-          {/* Title — editable, fills remaining space */}
-          <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: T.text }}>
-            <InlineEdit
-              value={ticket.title}
-              onSave={v => patchTicket({ title: v })}
-              style={{ fontSize: 15, fontWeight: 700, color: T.text, borderBottom: "1px dashed " + T.border }}
-              placeholder="Untitled ticket"
-            />
-          </div>
-
-          {saving && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>saving…</span>}
-
-          <button onClick={copyLink}
-            style={{ padding:"5px 11px", fontSize:11, fontWeight:600, borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color: copying ? "#15803d" : T.muted, fontFamily:"inherit", flexShrink:0 }}>
-            {copying ? "✓ Copied!" : "🔗 Copy link"}
-          </button>
-
-          {fullScreen
-            ? <button onClick={onClose}
-                style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color:T.muted, fontFamily:"inherit", flexShrink:0 }}>
-                ← Back to Tickets
+        {isMobile ? (
+          <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+            {/* Mobile row 1: back + ID + close */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
+              <button onClick={onClose}
+                style={{ background: "none", border: "none", fontSize: 13, color: T.muted, cursor: "pointer", padding: "2px 4px", fontFamily: "inherit", flexShrink: 0 }}>
+                {fullScreen ? "← Back" : "✕"}
               </button>
-            : <button onClick={onClose}
-                style={{ background:"none", border:"none", fontSize:20, color:T.muted, cursor:"pointer", padding:"2px 6px", lineHeight:1, flexShrink:0 }}>✕</button>
-          }
-        </div>
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 800, color: T.muted, flex: 1 }}>{ticket.id}</span>
+              {sev && <span style={{ fontSize: 10, fontWeight: 800, color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>{sev.label}</span>}
+              <span style={{ fontSize: 10, fontWeight: 800, color: statusMeta.color, background: `${statusMeta.color}18`, border: `1px solid ${statusMeta.color}55`, borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>{statusMeta.label}</span>
+            </div>
+            {/* Mobile row 2: title */}
+            <div style={{ padding: "0 14px 10px", fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>
+              {ticket.title}
+            </div>
+            {/* Mobile row 3: badges + details toggle */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 14px 10px", overflowX: "auto" }}>
+              <span style={{ fontSize: 9, fontWeight: 800, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>
+                {ticket.type === "project" ? "REQUEST" : ticket.type.toUpperCase()}
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "2px 6px", flexShrink: 0,
+                color: isAutoCreated ? "#b45309" : "#6366f1",
+                background: isAutoCreated ? "#fffbeb" : "#eef2ff",
+                border: `1px solid ${isAutoCreated ? "#fcd34d" : "#c7d2fe"}` }}>
+                {isAutoCreated ? "🤖 Auto" : "👤 Manual"}
+              </span>
+              {ticket.team && <span style={{ fontSize: 9, color: T.muted, flexShrink: 0 }}>👥 {ticket.team}</span>}
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setRailOpen(v => !v)}
+                style={{ fontSize: 11, fontWeight: 600, color: railOpen ? T.text : T.muted, background: railOpen ? T.border : "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                {railOpen ? "Details ▲" : "Details ▼"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: "12px 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 800, color: T.muted, flexShrink: 0 }}>{ticket.id}</span>
+            <span style={{ fontSize: 10, fontWeight: 800, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
+              {ticket.type === "project" ? "REQUEST" : ticket.type.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 8px", flexShrink: 0,
+              color: isAutoCreated ? "#b45309" : "#6366f1",
+              background: isAutoCreated ? "#fffbeb" : "#eef2ff",
+              border: `1px solid ${isAutoCreated ? "#fcd34d" : "#c7d2fe"}` }}>
+              {isAutoCreated ? "🤖 Auto" : "👤 Manual"}
+            </span>
+            {sev && (
+              <span style={{ fontSize: 10, fontWeight: 800, color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>
+                {sev.label}
+              </span>
+            )}
+            {refireCount > 0 && (
+              <span title={`${refireCount} re-fire${refireCount > 1 ? "s" : ""} since ticket opened`}
+                style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 5, padding: "2px 8px", flexShrink: 0, cursor: "default" }}>
+                ↺ {refireCount}
+              </span>
+            )}
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: T.text }}>
+              <InlineEdit value={ticket.title} onSave={v => patchTicket({ title: v })}
+                style={{ fontSize: 15, fontWeight: 700, color: T.text, borderBottom: "1px dashed " + T.border }}
+                placeholder="Untitled ticket" />
+            </div>
+            {saving && <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>saving…</span>}
+            <button onClick={copyLink}
+              style={{ padding:"5px 11px", fontSize:11, fontWeight:600, borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color: copying ? "#15803d" : T.muted, fontFamily:"inherit", flexShrink:0 }}>
+              {copying ? "✓ Copied!" : "🔗 Copy link"}
+            </button>
+            {fullScreen
+              ? <button onClick={onClose}
+                  style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", fontSize:12, fontWeight:600, borderRadius:7, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color:T.muted, fontFamily:"inherit", flexShrink:0 }}>
+                  ← Back to Tickets
+                </button>
+              : <button onClick={onClose}
+                  style={{ background:"none", border:"none", fontSize:20, color:T.muted, cursor:"pointer", padding:"2px 6px", lineHeight:1, flexShrink:0 }}>✕</button>
+            }
+          </div>
+        )}
 
         {/* ── ALARM LIFECYCLE BANNERS ─────────────────────────────────────── */}
         {showAlarmClearedBanner && (
@@ -698,14 +732,21 @@ ESCALATE IF: (one line — specific threshold or condition)`;
         )}
 
         {/* ── BODY ────────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
 
           {/* ── LEFT RAIL (dark, sidebar-style) ───────────────────────────── */}
           <div style={{
-            width: 220, flexShrink: 0, overflowY: "auto", padding: "16px 14px",
-            borderRight: `1px solid ${T.sidebarBorder}`,
+            width: isMobile ? "100%" : 220,
+            flexShrink: 0,
+            overflowY: "auto",
+            padding: isMobile ? "12px 14px" : "16px 14px",
+            borderRight: isMobile ? "none" : `1px solid ${T.sidebarBorder}`,
+            borderBottom: isMobile ? `1px solid ${T.sidebarBorder}` : "none",
             background: T.sidebar,
-            display: "flex", flexDirection: "column", gap: 14,
+            display: isMobile && !railOpen ? "none" : "flex",
+            flexDirection: "column",
+            gap: isMobile ? 10 : 14,
+            maxHeight: isMobile ? 340 : "none",
           }}>
             {/* Status */}
             <RailField label="Status">
@@ -856,23 +897,27 @@ ESCALATE IF: (one line — specific threshold or condition)`;
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
             {/* ── TABS ──────────────────────────────────────────────────────── */}
-            <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface, overflowX: "auto" }}>
               {[
-                { key: "work",        label: `Work (${notes.length})` },
-                { key: "worklog",     label: `Worklog (${worklogEvents.length})` },
-                { key: "log",         label: `Log (${logEvents.length})` },
-                { key: "attachments", label: `Attachments (${evidence.length})` },
-                { key: "children",    label: `Children (${children.length})`, dot: children.filter(c => !["resolved","closed"].includes(c.status)).length > 0 },
+                { key: "work",        label: isMobile ? `Work` : `Work (${notes.length})` },
+                { key: "worklog",     label: isMobile ? `Worklog` : `Worklog (${worklogEvents.length})`, count: worklogEvents.length },
+                { key: "log",         label: isMobile ? `Log` : `Log (${logEvents.length})` },
+                { key: "attachments", label: isMobile ? `Files` : `Attachments (${evidence.length})` },
+                { key: "children",    label: isMobile ? `Children` : `Children (${children.length})`, dot: children.filter(c => !["resolved","closed"].includes(c.status)).length > 0 },
               ].map(tab => (
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                   style={{
-                    padding: "12px 20px", fontSize: 12, fontWeight: activeTab === tab.key ? 700 : 400,
+                    padding: isMobile ? "10px 14px" : "12px 20px",
+                    fontSize: isMobile ? 11 : 12,
+                    fontWeight: activeTab === tab.key ? 700 : 400,
                     color: activeTab === tab.key ? T.primary : T.muted,
                     background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit",
                     borderBottom: `2px solid ${activeTab === tab.key ? T.primary : "transparent"}`,
-                    marginBottom: -1, transition: "color 0.15s", display: "flex", alignItems: "center", gap: 5,
+                    marginBottom: -1, transition: "color 0.15s", display: "flex", alignItems: "center", gap: 4,
+                    whiteSpace: "nowrap", flexShrink: 0,
                   }}>
                   {tab.label}
+                  {isMobile && tab.count > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.primary, background: `${T.primary}18`, borderRadius: 8, padding: "0 4px" }}>{tab.count}</span>}
                   {tab.dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />}
                 </button>
               ))}
@@ -975,7 +1020,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
             {activeTab === "worklog" && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {/* Entries */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "10px 12px" : "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
                   {worklogEvents.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
                   )}
@@ -1028,7 +1073,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                 </div>
 
                 {/* Input */}
-                <div style={{ flexShrink: 0, padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                <div style={{ flexShrink: 0, padding: isMobile ? "8px 12px" : "12px 22px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
                   <textarea
                     value={worklogText}
                     onChange={e => setWorklogText(e.target.value)}
