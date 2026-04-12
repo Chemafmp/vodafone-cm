@@ -1395,68 +1395,22 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
         {/* ── Alert banner ── */}
         <CorrelationBanner providers={providers} />
 
-        {/* ── Cloud infrastructure correlation ── */}
-        {!loading && providers.length > 0 && (
-          <CloudInfraPanel providers={providers} isMobile={isMobile} />
+        {/* ── Loading / error ── */}
+        {loading && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 160, color: T.muted, gap: 10 }}>
+            <span style={{ fontSize: 20 }}>⟳</span> Polling {providers.length || "…"} providers…
+          </div>
         )}
-
-        {/* ── Active incidents summary block ── */}
-        {allIncidents.length > 0 && (
-          <div style={{ marginBottom: 20, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, overflow: "hidden" }}>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid #fed7aa", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 15 }}>🚨</span>
-              <span style={{ fontWeight: 700, fontSize: 13, color: "#9a3412" }}>
-                Active Incidents ({allIncidents.length})
-              </span>
-            </div>
-            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {allIncidents.map((inc, i) => {
-                const providerTicketUrl = inc.ticketId
-                  ? `${FRONTEND_BASE}/#ticket=${encodeURIComponent(inc.ticketId)}`
-                  : null;
-                return (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 8,
-                    background: "#fff", border: "1px solid #fde68a",
-                    borderLeft: `3px solid ${impactColor(inc.impact)}`,
-                    borderRadius: 8, padding: "8px 10px",
-                  }}>
-                    <span style={{ fontSize: 14, flexShrink: 0 }}>{inc.providerIcon}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {inc.providerName} · {inc.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 2, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ color: impactColor(inc.impact), fontWeight: 600, textTransform: "uppercase", fontSize: 10 }}>{inc.impact}</span>
-                        <span>· {fmtTime(inc.createdAt)}</span>
-                        {providerTicketUrl && (
-                          <a href={providerTicketUrl} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 10, fontWeight: 700, color: "#7c3aed", background: "#ede9fe", border: "1px solid #c4b5fd", borderRadius: 6, padding: "1px 6px", textDecoration: "none" }}>
-                            🎫 {inc.ticketId}
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                    {inc.url && (
-                      <a href={inc.url} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 11, color: "#3b82f6", textDecoration: "none", flexShrink: 0 }}>↗</a>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+        {error && !loading && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "14px 16px", color: "#dc2626", fontSize: 12 }}>
+            ⚠ Fetch error — {error}
           </div>
         )}
 
-        {/* ── Filter bar — two rows ── */}
-        <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 7 }}>
-          {/* Row 1: status + cloud hosting */}
-          <div style={{
-            display: "flex", gap: 6, alignItems: "center",
-            overflowX: "auto", flexWrap: "nowrap",
-            paddingBottom: 2, WebkitOverflowScrolling: "touch",
-          }}>
-            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</span>
+        {/* ── Filter bar ── */}
+        {!loading && providers.length > 0 && (
+          <div style={{ marginBottom: 16, display: "flex", gap: 6, alignItems: "center", overflowX: "auto", flexWrap: "nowrap", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Filter</span>
             {[
               { key: "all",         label: "All" },
               { key: "issues",      label: "🔴 Issues" },
@@ -1471,94 +1425,97 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
                 fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
               }}>{f.label}</button>
             ))}
-            <span style={{ width: 1, height: 16, background: T.border, margin: "0 4px", flexShrink: 0 }} />
-            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cloud</span>
-            {[
-              { key: "all",   label: "All" },
-              { key: "aws",   label: "🟡 AWS" },
-              { key: "gcp",   label: "🔵 GCP" },
-              { key: "azure", label: "🔷 Azure" },
-              { key: "own",   label: "🏢 Own infra" },
-            ].map(f => {
-              const cm = CLOUD_META[f.key];
-              const active = filterCloud === f.key;
-              return (
-                <button key={f.key} onClick={() => setFilterCloud(f.key)} style={{
-                  background: active ? (cm?.color || "#0f172a") : T.surface,
-                  color: active ? "#fff" : (cm?.color || T.text),
-                  border: `1px solid ${active ? (cm?.color || "#0f172a") : T.border}`,
-                  borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer",
-                  fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
-                }}>{f.label}</button>
-              );
-            })}
-          </div>
-          {/* Row 2: categories */}
-          <div style={{
-            display: "flex", gap: 6, alignItems: "center",
-            overflowX: "auto", flexWrap: "nowrap",
-            paddingBottom: 2, WebkitOverflowScrolling: "touch",
-          }}>
-            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Category</span>
-            {cats.map(cat => (
-              <button key={cat} onClick={() => setFilterCat(cat)} style={{
-                background: filterCat === cat ? "#3b82f6" : T.surface,
-                color: filterCat === cat ? "#fff" : T.text,
-                border: `1px solid ${filterCat === cat ? "#3b82f6" : T.border}`,
-                borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer",
-                fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
-              }}>{cat === "all" ? "All" : (CAT_LABELS[cat] || cat)}</button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Loading / error ── */}
-        {loading && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 160, color: T.muted, gap: 10 }}>
-            <span style={{ fontSize: 20 }}>⟳</span> Polling {providers.length || "…"} providers…
-          </div>
-        )}
-        {error && !loading && (
-          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "14px 16px", color: "#dc2626", fontSize: 12 }}>
-            ⚠ Fetch error — {error}
           </div>
         )}
 
-        {/* ── Provider grid grouped by category ── */}
-        {!loading && filtered.length > 0 && groupedCats.map(cat => (
-          <div key={cat} style={{ marginBottom: isMobile ? 20 : 28 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
-              {CAT_LABELS[cat] || cat}
-            </div>
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: isMobile ? 8 : 10,
-            }}>
-              {filtered.filter(p => p.cat === cat).map(p => (
-                <ProviderCard
-                  key={p.id}
-                  p={p}
-                  expanded={!!expanded[p.id]}
-                  onToggle={() => toggleExpand(p.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+        {/* ── Cloud-grouped provider view ── */}
+        {!loading && filtered.length > 0 && (() => {
+          // Cloud sections: AWS, GCP, Azure, Oracle first, then Own infra
+          const cloudSections = [
+            { id: "aws",   label: "AWS",          icon: "🟡", meta: CLOUD_META.aws   },
+            { id: "gcp",   label: "Google Cloud",  icon: "🔵", meta: CLOUD_META.gcp   },
+            { id: "azure", label: "Azure",         icon: "🔷", meta: CLOUD_META.azure },
+            { id: "oracle",label: "Oracle Cloud",  icon: "🔺", meta: CLOUD_META.own   },
+            { id: "own",   label: "Own Infrastructure", icon: "🏢", meta: CLOUD_META.own },
+            { id: "multi", label: "Multi-cloud",   icon: "🌐", meta: CLOUD_META.multi },
+          ];
+
+          return cloudSections.map(section => {
+            const sectionProviders = filtered.filter(p => (p.cloud || "own") === section.id);
+            if (sectionProviders.length === 0) return null;
+
+            const hasIssues = sectionProviders.some(p => p.status === "warning" || p.status === "outage");
+            const outageCount = sectionProviders.filter(p => p.status === "outage").length;
+            const warnCount   = sectionProviders.filter(p => p.status === "warning").length;
+            const okCount     = sectionProviders.filter(p => p.status === "ok").length;
+
+            // Find the base cloud provider entry (if exists in providers, e.g. AWS itself)
+            const cloudProvider = providers.find(p => p.id === section.id);
+
+            const sectionBg     = hasIssues
+              ? (outageCount > 0 ? "#fff8f8" : "#fffdf0")
+              : "transparent";
+            const sectionBorder = hasIssues
+              ? (outageCount > 0 ? "#fecaca" : "#fde68a")
+              : T.border;
+
+            return (
+              <div key={section.id} style={{
+                marginBottom: isMobile ? 20 : 28,
+                background: sectionBg,
+                border: hasIssues ? `1px solid ${sectionBorder}` : "none",
+                borderRadius: hasIssues ? 12 : 0,
+                padding: hasIssues ? (isMobile ? "12px 10px" : "16px 18px") : 0,
+              }}>
+                {/* Section header */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <span style={{ fontSize: 20 }}>{section.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{section.label}</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 1, display: "flex", gap: 8 }}>
+                      <span>{sectionProviders.length} service{sectionProviders.length !== 1 ? "s" : ""}</span>
+                      {okCount > 0 && <span style={{ color: "#16a34a" }}>✓ {okCount} OK</span>}
+                      {warnCount > 0 && <span style={{ color: "#b45309" }}>⚠ {warnCount} degraded</span>}
+                      {outageCount > 0 && <span style={{ color: "#dc2626" }}>✕ {outageCount} outage</span>}
+                    </div>
+                  </div>
+                  {/* Cloud provider own status (if it's a cloud platform) */}
+                  {cloudProvider && cloudProvider.status !== "unknown" && (
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                      color: STATUS_META[cloudProvider.status]?.color || T.muted,
+                      background: STATUS_META[cloudProvider.status]?.bg || T.surface,
+                      border: `1px solid ${STATUS_META[cloudProvider.status]?.border || T.border}`,
+                      borderRadius: 6, padding: "3px 8px", flexShrink: 0,
+                    }}>
+                      Platform {STATUS_META[cloudProvider.status]?.label || cloudProvider.status}
+                    </div>
+                  )}
+                </div>
+
+                {/* Service cards */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))",
+                  gap: isMobile ? 8 : 10,
+                }}>
+                  {sectionProviders.map(p => (
+                    <ProviderCard
+                      key={p.id}
+                      p={p}
+                      expanded={!!expanded[p.id]}
+                      onToggle={() => toggleExpand(p.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          });
+        })()}
 
         {!loading && filtered.length === 0 && !error && (
           <div style={{ textAlign: "center", color: T.muted, padding: 40, fontSize: 13 }}>
             No providers match the current filter.
-          </div>
-        )}
-
-        {/* ── Footer ── */}
-        {!isMobile && (
-          <div style={{ marginTop: 12, padding: "12px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 11, color: T.muted, lineHeight: 1.7 }}>
-            <strong style={{ color: T.text }}>Browser-direct:</strong> GCP · Cloudflare · GitHub · Discord · Atlassian · GitLab · Datadog · PagerDuty · Twilio · Epic · Wise · Figma · Canva · Miro · Shopify · Slack.
-            {" "}<strong style={{ color: T.text }}>Backend-polled:</strong> AWS · Azure · Fastly · Oracle · Binance + others.
-            {" "}Incident updates expand inline. Refresh: 5 min.
           </div>
         )}
 
