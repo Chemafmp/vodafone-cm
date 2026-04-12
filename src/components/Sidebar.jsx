@@ -23,6 +23,7 @@ const ALL_NAV_GROUPS=[
     {id:"service_monitor", icon:"🌍", label:"Service Monitor", sectionLabel:"REAL DATA"},
     {id:"network_health",  icon:"📡", label:"Network Health"},
     {id:"signal_fusion",   icon:"🔀", label:"Signal Fusion"},
+    {id:"cloud_health",    icon:"☁️",  label:"Cloud Health"},
     {id:"livestatus",      icon:"◉",  label:"Live Status"},
     {id:"alarms",          icon:"🔔", label:"Alarms"},
     // ── LAB (simulated fleet) ──────────────────────────────────

@@ -18,74 +18,101 @@ function apiBase() {
 const FRONTEND_BASE = "https://chemafmp.github.io/vodafone-cm";
 
 // ── Provider definitions ──────────────────────────────────────────────────────
-// CORS-accessible from browser (verified):
+// `cloud` = hosting infrastructure: "aws" | "gcp" | "azure" | "own" | "multi"
+// NOTE: Fastly statuspage requires API key (401) — removed.
+// All providers here are CORS-accessible from browser.
 const STATUSPAGE_PROVIDERS = [
-  // ── CDN / Infrastructure ──
-  { id: "cloudflare", name: "Cloudflare", icon: "🟠", cat: "cdn",     url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
-  // ── DevOps / Dev Tools ──
-  { id: "github",     name: "GitHub",     icon: "🐙",  cat: "devtools", url: "https://www.githubstatus.com/api/v2/summary.json" },
-  { id: "atlassian",  name: "Atlassian",  icon: "⬡",   cat: "devtools", url: "https://status.atlassian.com/api/v2/summary.json" },
-  { id: "gitlab",     name: "GitLab",     icon: "🦊",  cat: "devtools", url: "https://status.gitlab.com/api/v2/summary.json" },
-  // ── Observability ──
-  { id: "datadog",    name: "Datadog",    icon: "🐕",  cat: "obs",      url: "https://status.datadoghq.com/api/v2/summary.json" },
-  { id: "pagerduty",  name: "PagerDuty",  icon: "📟",  cat: "obs",      url: "https://status.pagerduty.com/api/v2/summary.json" },
-  // ── Comms / Collaboration ──
-  { id: "twilio",     name: "Twilio",     icon: "📞",  cat: "comms",    url: "https://status.twilio.com/api/v2/summary.json" },
-  { id: "discord",    name: "Discord",    icon: "🎮",  cat: "comms",    url: "https://discordstatus.com/api/v2/summary.json" },
-  { id: "zoom",       name: "Zoom",       icon: "📹",  cat: "comms",    url: "https://status.zoom.us/api/v2/summary.json" },
-  // ── Gaming ──
-  { id: "epic",       name: "Epic Games", icon: "🎯",  cat: "gaming",   url: "https://status.epicgames.com/api/v2/summary.json" },
-  // ── Fintech / Payments ──
-  { id: "wise",       name: "Wise",       icon: "💳",  cat: "fintech",  url: "https://status.wise.com/api/v2/summary.json" },
-  // ── Design / Collaboration ──
-  { id: "figma",      name: "Figma",      icon: "🎨",  cat: "design",   url: "https://status.figma.com/api/v2/summary.json" },
-  { id: "canva",      name: "Canva",      icon: "🖌",  cat: "design",   url: "https://status.canva.com/api/v2/summary.json" },
-  { id: "miro",       name: "Miro",       icon: "🪄",  cat: "design",   url: "https://status.miro.com/api/v2/summary.json" },
-  // ── E-commerce ──
-  { id: "shopify",    name: "Shopify",    icon: "🛒",  cat: "ecomm",    url: "https://www.shopifystatus.com/api/v2/summary.json" },
+  // ── CDN ───────────────────────────────────────────────────────────────────
+  { id: "cloudflare",  name: "Cloudflare",   icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
+  // ── DevOps / Dev Tools ────────────────────────────────────────────────────
+  { id: "github",      name: "GitHub",       icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
+  { id: "atlassian",   name: "Atlassian",    icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
+  { id: "gitlab",      name: "GitLab",       icon: "🦊",  cat: "devtools", cloud: "gcp",   url: "https://status.gitlab.com/api/v2/summary.json" },
+  // ── Observability ─────────────────────────────────────────────────────────
+  { id: "datadog",     name: "Datadog",      icon: "🐕",  cat: "obs",      cloud: "aws",   url: "https://status.datadoghq.com/api/v2/summary.json" },
+  { id: "pagerduty",   name: "PagerDuty",    icon: "📟",  cat: "obs",      cloud: "aws",   url: "https://status.pagerduty.com/api/v2/summary.json" },
+  // ── Security / SASE ───────────────────────────────────────────────────────
+  { id: "forcepoint",  name: "Forcepoint",   icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
+  { id: "crowdstrike", name: "CrowdStrike",  icon: "🦅",  cat: "security", cloud: "aws",   url: "https://status.crowdstrike.com/api/v2/summary.json" },
+  // ── Identity ──────────────────────────────────────────────────────────────
+  { id: "okta",        name: "Okta",         icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
+  { id: "duo",         name: "Duo Security", icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
+  // ── Comms / Collaboration ─────────────────────────────────────────────────
+  { id: "zoom",        name: "Zoom",         icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
+  { id: "discord",     name: "Discord",      icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
+  { id: "twilio",      name: "Twilio",       icon: "📞",  cat: "comms",    cloud: "aws",   url: "https://status.twilio.com/api/v2/summary.json" },
+  // ── Gaming ────────────────────────────────────────────────────────────────
+  { id: "epic",        name: "Epic Games",   icon: "🎯",  cat: "gaming",   cloud: "aws",   url: "https://status.epicgames.com/api/v2/summary.json" },
+  { id: "roblox",      name: "Roblox",       icon: "🧱",  cat: "gaming",   cloud: "aws",   url: "https://status.roblox.com/api/v2/summary.json" },
+  // ── Fintech / Payments ────────────────────────────────────────────────────
+  { id: "stripe",      name: "Stripe",       icon: "💜",  cat: "fintech",  cloud: "aws",   url: "https://status.stripe.com/api/v2/summary.json" },
+  { id: "wise",        name: "Wise",         icon: "💳",  cat: "fintech",  cloud: "aws",   url: "https://status.wise.com/api/v2/summary.json" },
+  { id: "adyen",       name: "Adyen",        icon: "💰",  cat: "fintech",  cloud: "own",   url: "https://www.adyenstatus.com/api/v2/summary.json" },
+  { id: "paypal",      name: "PayPal",       icon: "🅿️",  cat: "fintech",  cloud: "own",   url: "https://www.paypal-status.com/api/v2/summary.json" },
+  // ── Crypto ────────────────────────────────────────────────────────────────
+  { id: "kraken",      name: "Kraken",       icon: "🐙",  cat: "crypto",   cloud: "own",   url: "https://status.kraken.com/api/v2/summary.json" },
+  { id: "moonpay",     name: "MoonPay",      icon: "🌙",  cat: "crypto",   cloud: "aws",   url: "https://status.moonpay.com/api/v2/summary.json" },
+  // ── Design ────────────────────────────────────────────────────────────────
+  { id: "figma",       name: "Figma",        icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
+  { id: "canva",       name: "Canva",        icon: "🖌",  cat: "design",   cloud: "aws",   url: "https://status.canva.com/api/v2/summary.json" },
+  { id: "miro",        name: "Miro",         icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
+  // ── E-commerce ────────────────────────────────────────────────────────────
+  { id: "shopify",     name: "Shopify",      icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
+  // ── Web3 ──────────────────────────────────────────────────────────────────
+  { id: "opensea",     name: "OpenSea",      icon: "🌊",  cat: "web3",     cloud: "aws",   url: "https://status.opensea.io/api/v2/summary.json" },
 ];
 
-// CORS-blocked — data comes from backend /api/cloud-health (when deployed):
+// CORS-blocked or custom API — data comes from backend /api/cloud-health:
 const BACKEND_ONLY_META = [
-  // Cloud providers (CORS-blocked)
-  { id: "aws",       name: "AWS",          icon: "🟡", cat: "cloud",   statusUrl: "https://health.aws.amazon.com" },
-  { id: "azure",     name: "Azure",        icon: "🔷", cat: "cloud",   statusUrl: "https://azure.status.microsoft" },
-  { id: "fastly",    name: "Fastly",       icon: "⚡",  cat: "cdn",     statusUrl: "https://www.fastlystatus.com" },
-  { id: "oracle",    name: "Oracle Cloud", icon: "🔺",  cat: "cloud",   statusUrl: "https://ocistatus.oraclecloud.com" },
-  // Custom APIs (backend polled)
-  { id: "slack",     name: "Slack",        icon: "💬",  cat: "comms",   statusUrl: "https://status.slack.com" },
-  { id: "binance",   name: "Binance",      icon: "🟡", cat: "fintech",  statusUrl: "https://www.binance.com/en/official-verification" },
-  { id: "revolut",   name: "Revolut",      icon: "💜",  cat: "fintech",  statusUrl: "https://www.revolut.com/en-US/legal/system-status/" },
-  { id: "paypal",    name: "PayPal",       icon: "🔵",  cat: "fintech",  statusUrl: "https://www.paypal-status.com" },
-  { id: "opensea",   name: "OpenSea",      icon: "🌊",  cat: "web3",     statusUrl: "https://status.opensea.io" },
+  { id: "aws",     name: "AWS",          icon: "🟡", cat: "cloud",  cloud: "own", statusUrl: "https://health.aws.amazon.com" },
+  { id: "azure",   name: "Azure",        icon: "🔷", cat: "cloud",  cloud: "own", statusUrl: "https://azure.status.microsoft" },
+  { id: "oracle",  name: "Oracle Cloud", icon: "🔺",  cat: "cloud",  cloud: "own", statusUrl: "https://ocistatus.oraclecloud.com" },
+  { id: "slack",   name: "Slack",        icon: "💬",  cat: "comms",  cloud: "aws", statusUrl: "https://status.slack.com" },
+  { id: "binance", name: "Binance",      icon: "🟡", cat: "crypto",  cloud: "aws", statusUrl: "https://www.binance.com" },
 ];
+
+// ── Cloud hosting metadata ────────────────────────────────────────────────────
+const CLOUD_META = {
+  aws:   { label: "AWS",   icon: "🟡", color: "#f59e0b", bg: "#fffbeb", border: "#fde68a" },
+  gcp:   { label: "GCP",   icon: "🔵", color: "#3b82f6", bg: "#eff6ff", border: "#bfdbfe" },
+  azure: { label: "Azure", icon: "🔷", color: "#6366f1", bg: "#eef2ff", border: "#c7d2fe" },
+  own:   { label: "Own",   icon: "🏢", color: "#64748b", bg: "#f8fafc", border: "#e2e8f0" },
+  multi: { label: "Multi", icon: "🌐", color: "#8b5cf6", bg: "#f5f3ff", border: "#ddd6fe" },
+};
 
 const STATUS_PAGE_URLS = {
-  cloudflare: "https://www.cloudflarestatus.com",
-  fastly:     "https://www.fastlystatus.com",
-  github:     "https://www.githubstatus.com",
-  atlassian:  "https://status.atlassian.com",
-  gitlab:     "https://status.gitlab.com",
-  oracle:     "https://ocistatus.oraclecloud.com",
-  zoom:       "https://status.zoom.us",
-  discord:    "https://discordstatus.com",
-  datadog:    "https://status.datadoghq.com",
-  pagerduty:  "https://status.pagerduty.com",
-  twilio:     "https://status.twilio.com",
-  epic:       "https://status.epicgames.com",
-  wise:       "https://status.wise.com",
-  figma:      "https://status.figma.com",
-  canva:      "https://status.canva.com",
-  miro:       "https://status.miro.com",
-  shopify:    "https://www.shopifystatus.com",
-  slack:      "https://status.slack.com",
-  binance:    "https://www.binance.com",
-  revolut:    "https://www.revolut.com/en-US/legal/system-status/",
-  paypal:     "https://www.paypal-status.com",
-  opensea:    "https://status.opensea.io",
-  aws:        "https://health.aws.amazon.com",
-  gcp:        "https://status.cloud.google.com",
-  azure:      "https://azure.status.microsoft",
+  cloudflare:  "https://www.cloudflarestatus.com",
+  github:      "https://www.githubstatus.com",
+  atlassian:   "https://status.atlassian.com",
+  gitlab:      "https://status.gitlab.com",
+  oracle:      "https://ocistatus.oraclecloud.com",
+  zoom:        "https://status.zoom.us",
+  discord:     "https://discordstatus.com",
+  datadog:     "https://status.datadoghq.com",
+  pagerduty:   "https://status.pagerduty.com",
+  twilio:      "https://status.twilio.com",
+  epic:        "https://status.epicgames.com",
+  roblox:      "https://status.roblox.com",
+  wise:        "https://status.wise.com",
+  stripe:      "https://status.stripe.com",
+  adyen:       "https://www.adyenstatus.com",
+  paypal:      "https://www.paypal-status.com",
+  kraken:      "https://status.kraken.com",
+  moonpay:     "https://status.moonpay.com",
+  figma:       "https://status.figma.com",
+  canva:       "https://status.canva.com",
+  miro:        "https://status.miro.com",
+  shopify:     "https://www.shopifystatus.com",
+  slack:       "https://status.slack.com",
+  binance:     "https://www.binance.com",
+  opensea:     "https://status.opensea.io",
+  forcepoint:  "https://csg.status.forcepoint.com",
+  crowdstrike: "https://status.crowdstrike.com",
+  okta:        "https://status.okta.com",
+  duo:         "https://status.duosecurity.com",
+  aws:         "https://health.aws.amazon.com",
+  gcp:         "https://status.cloud.google.com",
+  azure:       "https://azure.status.microsoft",
 };
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
@@ -385,11 +412,11 @@ async function fetchSlack() {
   };
 }
 
-// Only fetch providers accessible from browser:
+// Only fetch providers accessible from browser (GCP + Slack have custom fetchers):
 async function fetchBrowserProviders() {
   const results = await Promise.allSettled([
-    fetchGCP().catch(e => errProvider({ id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud" }, e)),
-    fetchSlack().catch(e => errProvider({ id: "slack", name: "Slack", icon: "💬", cat: "comms" }, e)),
+    fetchGCP().catch(e   => errProvider({ id: "gcp",   name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "own"  }, e)),
+    fetchSlack().catch(e => errProvider({ id: "slack",  name: "Slack",        icon: "💬", cat: "comms", cloud: "aws"  }, e)),
     ...STATUSPAGE_PROVIDERS.map(p => fetchStatuspage(p).catch(e => errProvider(p, e))),
   ]);
   return results.map(r => r.status === "fulfilled" ? r.value : r.reason);
@@ -411,6 +438,9 @@ const CAT_LABELS = {
   comms:    "💬 Comms",
   gaming:   "🎮 Gaming",
   fintech:  "💰 Fintech",
+  security: "🔒 Security",
+  identity: "🔐 Identity",
+  crypto:   "🔗 Crypto",
   design:   "🎨 Design",
   ecomm:    "🛒 E-commerce",
   web3:     "🌐 Web3",
@@ -665,6 +695,104 @@ function UptimeBar({ days }) {
   );
 }
 
+// ── Cloud Infrastructure Correlation Panel ────────────────────────────────────
+function CloudInfraPanel({ providers }) {
+  const cloudProviderIds = ["aws", "gcp", "azure"];
+  const cloudStatus = {};
+  for (const id of cloudProviderIds) {
+    const p = providers.find(x => x.id === id);
+    cloudStatus[id] = p?.status || "unknown";
+  }
+
+  // Group dependent providers by hosting cloud
+  const hosted = { aws: [], gcp: [], azure: [], own: [], multi: [] };
+  for (const p of providers) {
+    if (cloudProviderIds.includes(p.id)) continue; // skip the clouds themselves
+    const bucket = p.cloud || "own";
+    if (hosted[bucket]) hosted[bucket].push(p);
+  }
+
+  const hasRisk = cloudProviderIds.some(id => cloudStatus[id] !== "ok" && cloudStatus[id] !== "unknown");
+
+  return (
+    <div style={{
+      background: T.surface, border: `1px solid ${T.border}`,
+      borderRadius: 10, marginBottom: 20, overflow: "hidden",
+    }}>
+      <div style={{
+        padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", gap: 8, background: T.bg,
+      }}>
+        <span style={{ fontSize: 15 }}>🔗</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: T.text }}>Cloud Infrastructure Correlation</span>
+        <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>
+          Which providers run on which cloud
+        </span>
+      </div>
+      <div style={{ padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {cloudProviderIds.map(cid => {
+          const cm = CLOUD_META[cid] || CLOUD_META.own;
+          const st = cloudStatus[cid];
+          const sm = STATUS_META[st] || STATUS_META.unknown;
+          const deps = hosted[cid] || [];
+          const affected = deps.filter(p => p.status === "warning" || p.status === "outage");
+          const cloudProv = providers.find(x => x.id === cid);
+          return (
+            <div key={cid} style={{
+              flex: "1 1 200px", minWidth: 160,
+              background: st !== "ok" && st !== "unknown" ? sm.bg : T.bg,
+              border: `1px solid ${st !== "ok" && st !== "unknown" ? sm.border : T.border}`,
+              borderLeft: `4px solid ${sm.dot}`,
+              borderRadius: 8, padding: "10px 12px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 16 }}>{cloudProv?.icon || cm.icon}</span>
+                <span style={{ fontWeight: 700, fontSize: 13, color: T.text }}>{cloudProv?.name || cm.label}</span>
+                <span style={{
+                  marginLeft: "auto", fontSize: 11, fontWeight: 700,
+                  color: sm.color, background: sm.bg,
+                  border: `1px solid ${sm.border}`, borderRadius: 5, padding: "2px 7px",
+                }}>{sm.label}</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>
+                {deps.length} service{deps.length !== 1 ? "s" : ""} hosted here
+              </div>
+              {deps.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {deps.map(p => {
+                    const pm = STATUS_META[p.status] || STATUS_META.unknown;
+                    return (
+                      <span key={p.id} style={{
+                        fontSize: 10, padding: "2px 6px",
+                        borderRadius: 5, fontWeight: 600,
+                        color: pm.color,
+                        background: pm.bg,
+                        border: `1px solid ${pm.border}`,
+                      }}>
+                        {p.icon} {p.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {affected.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: sm.color }}>
+                  ⚠ {affected.length} service{affected.length !== 1 ? "s" : ""} degraded on this cloud
+                </div>
+              )}
+              {hasRisk && st !== "ok" && st !== "unknown" && deps.length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 10, color: "#7c2d12", background: "#fff7ed", borderRadius: 4, padding: "3px 6px" }}>
+                  Downstream impact possible
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Provider Card ─────────────────────────────────────────────────────────────
 function ProviderCard({ p, expanded, onToggle }) {
   const m         = STATUS_META[p.status] || STATUS_META.unknown;
@@ -674,6 +802,7 @@ function ProviderCard({ p, expanded, onToggle }) {
     : null;
   const statusPageUrl = STATUS_PAGE_URLS[p.id] || p.statusUrl || null;
   const isBackendOnly = !!p.backendOnly;
+  const cm = p.cloud ? (CLOUD_META[p.cloud] || CLOUD_META.own) : null;
 
   return (
     <div style={{
@@ -698,6 +827,13 @@ function ProviderCard({ p, expanded, onToggle }) {
           <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{p.name}</div>
           <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span>{CAT_LABELS[p.cat] || p.cat}</span>
+            {cm && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: cm.color,
+                background: cm.bg, border: `1px solid ${cm.border}`,
+                borderRadius: 5, padding: "1px 6px",
+              }}>{cm.icon} {cm.label}</span>
+            )}
             {isBackendOnly && (
               <span style={{ fontSize: 10, color: "#6366f1", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 5, padding: "1px 6px" }}>
                 via backend
@@ -1087,6 +1223,11 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
         {/* ── Alert banner ── */}
         <CorrelationBanner providers={providers} />
+
+        {/* ── Cloud infrastructure correlation ── */}
+        {!loading && providers.length > 0 && (
+          <CloudInfraPanel providers={providers} />
+        )}
 
         {/* ── Active incidents summary block ── */}
         {allIncidents.length > 0 && (

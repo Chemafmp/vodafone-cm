@@ -16,7 +16,11 @@
 // }
 
 import { createClient } from "@supabase/supabase-js";
-import { isPaused } from "./poller-control.js";
+import { gunzip as _gunzip } from "node:zlib";
+import { promisify }         from "node:util";
+import { isPaused }          from "./poller-control.js";
+
+const gunzip = promisify(_gunzip);
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -30,25 +34,48 @@ if (SUPABASE_URL && SUPABASE_KEY) {
 const FETCH_TIMEOUT = 12_000; // 12s per provider
 
 // ── Atlassian Statuspage v2 providers ────────────────────────────────────────
+// `cloud` = hosting infrastructure: "aws" | "gcp" | "azure" | "own" | "multi"
+// NOTE: Fastly removed — their statuspage (fastly.statuspage.io) requires API key (401).
 const STATUSPAGE_PROVIDERS = [
-  { id: "cloudflare", name: "Cloudflare",   icon: "🟠", cat: "cdn",     url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
-  { id: "fastly",     name: "Fastly",       icon: "⚡",  cat: "cdn",     url: "https://www.fastlystatus.com/api/v2/summary.json" },
-  { id: "github",     name: "GitHub",       icon: "🐙",  cat: "devtools", url: "https://www.githubstatus.com/api/v2/summary.json" },
-  { id: "atlassian",  name: "Atlassian",    icon: "⬡",   cat: "devtools", url: "https://status.atlassian.com/api/v2/summary.json" },
-  { id: "gitlab",     name: "GitLab",       icon: "🦊",  cat: "devtools", url: "https://status.gitlab.com/api/v2/summary.json" },
-  { id: "oracle",     name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    url: "https://ocistatus.oraclecloud.com/api/v2/summary.json" },
-  { id: "zoom",       name: "Zoom",         icon: "📹",  cat: "comms",    url: "https://status.zoom.us/api/v2/summary.json" },
-  { id: "discord",    name: "Discord",      icon: "🎮",  cat: "comms",    url: "https://discordstatus.com/api/v2/summary.json" },
-  { id: "datadog",    name: "Datadog",      icon: "🐕",  cat: "obs",      url: "https://status.datadoghq.com/api/v2/summary.json" },
-  { id: "pagerduty",  name: "PagerDuty",    icon: "📟",  cat: "obs",      url: "https://status.pagerduty.com/api/v2/summary.json" },
-  { id: "twilio",     name: "Twilio",       icon: "📞",  cat: "comms",    url: "https://status.twilio.com/api/v2/summary.json" },
-  { id: "epic",       name: "Epic Games",   icon: "🎯",  cat: "gaming",   url: "https://status.epicgames.com/api/v2/summary.json" },
-  { id: "wise",       name: "Wise",         icon: "💳",  cat: "fintech",  url: "https://status.wise.com/api/v2/summary.json" },
-  { id: "figma",      name: "Figma",        icon: "🎨",  cat: "design",   url: "https://status.figma.com/api/v2/summary.json" },
-  { id: "canva",      name: "Canva",        icon: "🖌",  cat: "design",   url: "https://status.canva.com/api/v2/summary.json" },
-  { id: "miro",       name: "Miro",         icon: "🪄",  cat: "design",   url: "https://status.miro.com/api/v2/summary.json" },
-  { id: "shopify",    name: "Shopify",      icon: "🛒",  cat: "ecomm",    url: "https://www.shopifystatus.com/api/v2/summary.json" },
-  { id: "opensea",    name: "OpenSea",      icon: "🌊",  cat: "web3",     url: "https://status.opensea.io/api/v2/summary.json" },
+  // ── CDN / Infrastructure ──────────────────────────────────────────────────
+  { id: "cloudflare",   name: "Cloudflare",    icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
+  // ── Cloud ─────────────────────────────────────────────────────────────────
+  { id: "oracle",       name: "Oracle Cloud",  icon: "🔺",  cat: "cloud",   cloud: "own",   url: "https://ocistatus.oraclecloud.com/api/v2/summary.json" },
+  // ── DevOps / Dev Tools ────────────────────────────────────────────────────
+  { id: "github",       name: "GitHub",        icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
+  { id: "atlassian",    name: "Atlassian",     icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
+  { id: "gitlab",       name: "GitLab",        icon: "🦊",  cat: "devtools", cloud: "gcp",   url: "https://status.gitlab.com/api/v2/summary.json" },
+  // ── Observability ─────────────────────────────────────────────────────────
+  { id: "datadog",      name: "Datadog",       icon: "🐕",  cat: "obs",      cloud: "aws",   url: "https://status.datadoghq.com/api/v2/summary.json" },
+  { id: "pagerduty",    name: "PagerDuty",     icon: "📟",  cat: "obs",      cloud: "aws",   url: "https://status.pagerduty.com/api/v2/summary.json" },
+  // ── Security / SASE / Identity ───────────────────────────────────────────
+  { id: "forcepoint",   name: "Forcepoint",    icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
+  { id: "crowdstrike",  name: "CrowdStrike",   icon: "🦅",  cat: "security", cloud: "aws",   url: "https://status.crowdstrike.com/api/v2/summary.json" },
+  { id: "okta",         name: "Okta",          icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
+  { id: "duo",          name: "Duo Security",  icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
+  // ── Comms / Collaboration ─────────────────────────────────────────────────
+  { id: "zoom",         name: "Zoom",          icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
+  { id: "discord",      name: "Discord",       icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
+  { id: "twilio",       name: "Twilio",        icon: "📞",  cat: "comms",    cloud: "aws",   url: "https://status.twilio.com/api/v2/summary.json" },
+  // ── Gaming ────────────────────────────────────────────────────────────────
+  { id: "epic",         name: "Epic Games",    icon: "🎯",  cat: "gaming",   cloud: "aws",   url: "https://status.epicgames.com/api/v2/summary.json" },
+  { id: "roblox",       name: "Roblox",        icon: "🧱",  cat: "gaming",   cloud: "aws",   url: "https://status.roblox.com/api/v2/summary.json" },
+  // ── Fintech / Payments ────────────────────────────────────────────────────
+  { id: "stripe",       name: "Stripe",        icon: "💜",  cat: "fintech",  cloud: "aws",   url: "https://status.stripe.com/api/v2/summary.json" },
+  { id: "wise",         name: "Wise",          icon: "💳",  cat: "fintech",  cloud: "aws",   url: "https://status.wise.com/api/v2/summary.json" },
+  { id: "adyen",        name: "Adyen",         icon: "💰",  cat: "fintech",  cloud: "own",   url: "https://www.adyenstatus.com/api/v2/summary.json" },
+  { id: "paypal",       name: "PayPal",        icon: "🅿️",  cat: "fintech",  cloud: "own",   url: "https://www.paypal-status.com/api/v2/summary.json" },
+  // ── Crypto ────────────────────────────────────────────────────────────────
+  { id: "kraken",       name: "Kraken",        icon: "🐙",  cat: "crypto",   cloud: "own",   url: "https://status.kraken.com/api/v2/summary.json" },
+  { id: "moonpay",      name: "MoonPay",       icon: "🌙",  cat: "crypto",   cloud: "aws",   url: "https://status.moonpay.com/api/v2/summary.json" },
+  // ── Design / Collaboration ────────────────────────────────────────────────
+  { id: "figma",        name: "Figma",         icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
+  { id: "canva",        name: "Canva",         icon: "🖌",  cat: "design",   cloud: "aws",   url: "https://status.canva.com/api/v2/summary.json" },
+  { id: "miro",         name: "Miro",          icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
+  // ── E-commerce ────────────────────────────────────────────────────────────
+  { id: "shopify",      name: "Shopify",       icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
+  // ── Web3 ──────────────────────────────────────────────────────────────────
+  { id: "opensea",      name: "OpenSea",       icon: "🌊",  cat: "web3",     cloud: "aws",   url: "https://status.opensea.io/api/v2/summary.json" },
 ];
 
 // ── In-memory state ───────────────────────────────────────────────────────────
@@ -81,10 +108,28 @@ async function fetchWithTimeout(url, opts = {}) {
     return await fetch(url, {
       ...opts,
       signal: ctrl.signal,
-      headers: { "User-Agent": "BodaphoneNOC/1.0", ...(opts.headers || {}) },
+      headers: {
+        "User-Agent":      "BodaphoneNOC/1.0",
+        "Accept":          "application/json, text/plain, */*",
+        // "identity" tells the server: don't compress — avoids gzip decode issues
+        // when Node.js fetch doesn't auto-decompress (custom headers drop Accept-Encoding)
+        "Accept-Encoding": "identity",
+        ...(opts.headers || {}),
+      },
     });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Parse JSON with a readable error showing the first bytes of the actual response */
+async function safeJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const preview = text.slice(0, 120).replace(/[\x00-\x1f]/g, "·");
+    throw new Error(`Non-JSON response (${res.status}) from ${res.url} — got: ${preview}`);
   }
 }
 
@@ -106,7 +151,7 @@ function errProvider(meta, error) {
 async function fetchStatuspage(provider) {
   const r = await fetchWithTimeout(provider.url);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await r.json();
+  const d = await safeJson(r);
 
   const indicator = d.status?.indicator || "none";
 
@@ -145,26 +190,45 @@ async function fetchStatuspage(provider) {
 }
 
 // ── AWS fetcher ───────────────────────────────────────────────────────────────
-// AWS migrated to health.aws.amazon.com. The classic data.json still exists.
+// AWS Health Dashboard: health.aws.amazon.com/public/currentevents
+// Response is gzip-compressed + UTF-16 LE JSON — requires manual decode.
 async function fetchAWS() {
-  const meta = { id: "aws", name: "AWS", icon: "🟡", cat: "cloud" };
+  const meta = { id: "aws", name: "AWS", icon: "🟡", cat: "cloud", cloud: "own" };
 
-  const r = await fetchWithTimeout("https://status.aws.amazon.com/data.json");
+  // Fetch raw bytes — we'll handle gzip + encoding manually
+  const r = await fetchWithTimeout("https://health.aws.amazon.com/public/currentevents", {
+    headers: { "Accept-Encoding": "gzip", "Accept": "application/json" },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await r.json();
 
-  // d.current = array of active events (status 0=resolved, 1=informational, 2=degraded/outage)
-  const active = (d.current || []).filter(e => e.status !== 0);
+  const raw = Buffer.from(await r.arrayBuffer());
 
-  // Prefer EU region events for Vodafone correlation
-  const EU_RE = /eu-west|eu-central|eu-north|ireland|frankfurt|paris|milan|spain/i;
+  let events;
+  try {
+    // Decompress if gzip (magic bytes 0x1f 0x8b)
+    const bytes = (raw[0] === 0x1f && raw[1] === 0x8b) ? await gunzip(raw) : raw;
+    // AWS returns UTF-16 LE (possibly with BOM 0xFF 0xFE)
+    const hasBom = bytes[0] === 0xFF && bytes[1] === 0xFE;
+    const text   = hasBom ? bytes.slice(2).toString("utf16le") : bytes.toString("utf16le");
+    events = JSON.parse(text);
+  } catch {
+    // Fallback: try plain UTF-8
+    events = JSON.parse(raw.toString("utf8"));
+  }
+
+  // Shape: [{ date, arn, region_name, status, service, service_name, summary, event_log[] }]
+  // status: "1"=ok, "2"=informational, "3"=degraded, "4"=outage
+  const all    = Array.isArray(events) ? events : [];
+  const active = all.filter(e => parseInt(e.status) > 1);
+
+  const EU_RE = /eu-west|eu-central|eu-north|ireland|frankfurt|paris|milan|spain|london|amsterdam/i;
   const euEvents = active.filter(e =>
-    EU_RE.test(e.service + " " + e.summary + " " + (e.url || ""))
+    EU_RE.test(`${e.region_name} ${e.service} ${e.summary}`)
   );
   const shown = euEvents.length > 0 ? euEvents : active.slice(0, 5);
 
-  const hasOutage  = shown.some(e => e.status >= 2);
-  const hasWarning = shown.some(e => e.status >= 1);
+  const hasOutage  = shown.some(e => parseInt(e.status) >= 3);
+  const hasWarning = shown.some(e => parseInt(e.status) >= 2);
 
   return {
     ...meta,
@@ -174,13 +238,13 @@ async function fetchAWS() {
       ? "All Systems Operational"
       : `${active.length} active event${active.length !== 1 ? "s" : ""}`,
     activeIncidents: shown.map(e => ({
-      id:        `${e.service}-${e.date}`,
-      name:      e.summary || e.service,
-      impact:    e.status >= 2 ? "major" : "minor",
+      id:        e.arn || `aws-${e.date}`,
+      name:      e.summary || e.service_name || e.service,
+      impact:    parseInt(e.status) >= 3 ? "major" : "minor",
       status:    "investigating",
-      createdAt: new Date(e.date * 1000).toISOString(),
+      createdAt: new Date(parseInt(e.date) * 1000).toISOString(),
       updatedAt: new Date().toISOString(),
-      url:       e.url || null,
+      url:       "https://health.aws.amazon.com",
     })),
     components:  [],
     lastUpdated: new Date().toISOString(),
@@ -191,11 +255,11 @@ async function fetchAWS() {
 
 // ── GCP fetcher ───────────────────────────────────────────────────────────────
 async function fetchGCP() {
-  const meta = { id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud" };
+  const meta = { id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "own" };
 
   const r = await fetchWithTimeout("https://status.cloud.google.com/incidents.json");
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const incidents = await r.json();
+  const incidents = await safeJson(r);
 
   const now = Date.now();
   const DAY  = 24 * 60 * 60 * 1000;
@@ -240,11 +304,16 @@ async function fetchGCP() {
 // ── Azure fetcher ─────────────────────────────────────────────────────────────
 // Azure publishes an Atom/RSS feed — parse it with regex (no external lib)
 async function fetchAzure() {
-  const meta = { id: "azure", name: "Azure", icon: "🔷", cat: "cloud" };
+  const meta = { id: "azure", name: "Azure", icon: "🔷", cat: "cloud", cloud: "own" };
 
-  const r = await fetchWithTimeout("https://azure.status.microsoft/en-us/status/feed/");
+  const r = await fetchWithTimeout("https://azure.status.microsoft/en-us/status/feed/", {
+    headers: { Accept: "application/xml, text/xml, */*" },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const xml = await r.text();
+  if (!xml.includes("<feed") && !xml.includes("<?xml")) {
+    throw new Error(`Expected XML feed, got: ${xml.slice(0, 80).replace(/[\x00-\x1f]/g, "·")}`);
+  }
 
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(m => {
     const s     = m[1];
@@ -291,10 +360,10 @@ async function fetchAzure() {
 
 // ── Slack fetcher ─────────────────────────────────────────────────────────────
 async function fetchSlack() {
-  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms" };
+  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms", cloud: "aws" };
   const r = await fetchWithTimeout("https://status.slack.com/api/v2.0.0/current");
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await r.json();
+  const d = await safeJson(r);
 
   const activeIncidents = (d.active_incidents || []).map(i => ({
     id:        i.id || String(Math.random()),
@@ -320,10 +389,10 @@ async function fetchSlack() {
 
 // ── Binance fetcher ───────────────────────────────────────────────────────────
 async function fetchBinance() {
-  const meta = { id: "binance", name: "Binance", icon: "🟡", cat: "fintech" };
+  const meta = { id: "binance", name: "Binance", icon: "🟡", cat: "crypto", cloud: "aws" };
   const r = await fetchWithTimeout("https://api.binance.com/sapi/v1/system/status");
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await r.json();
+  const d = await safeJson(r);
   // { status: 0, msg: "normal" } or { status: 1, msg: "system maintenance" }
   const isOk = d.status === 0;
   return {
@@ -391,11 +460,11 @@ export async function tickCloudHealth(log) {
   if (isPaused("cloud-health")) { log?.("[cloud-health] ⏸ paused"); return; }
 
   const customProviders = [
-    fetchAWS().catch(e    => errProvider({ id:"aws",     name:"AWS",          icon:"🟡", cat:"cloud"   }, e)),
-    fetchGCP().catch(e    => errProvider({ id:"gcp",     name:"Google Cloud", icon:"🔵", cat:"cloud"   }, e)),
-    fetchAzure().catch(e  => errProvider({ id:"azure",   name:"Azure",        icon:"🔷", cat:"cloud"   }, e)),
-    fetchSlack().catch(e  => errProvider({ id:"slack",   name:"Slack",        icon:"💬", cat:"comms"   }, e)),
-    fetchBinance().catch(e=> errProvider({ id:"binance", name:"Binance",      icon:"🟡", cat:"fintech" }, e)),
+    fetchAWS().catch(e    => errProvider({ id:"aws",     name:"AWS",          icon:"🟡", cat:"cloud",  cloud:"own" }, e)),
+    fetchGCP().catch(e    => errProvider({ id:"gcp",     name:"Google Cloud", icon:"🔵", cat:"cloud",  cloud:"own" }, e)),
+    fetchAzure().catch(e  => errProvider({ id:"azure",   name:"Azure",        icon:"🔷", cat:"cloud",  cloud:"own" }, e)),
+    fetchSlack().catch(e  => errProvider({ id:"slack",   name:"Slack",        icon:"💬", cat:"comms",  cloud:"aws" }, e)),
+    fetchBinance().catch(e=> errProvider({ id:"binance", name:"Binance",      icon:"🟡", cat:"crypto", cloud:"aws" }, e)),
   ];
 
   const statuspageProviders = STATUSPAGE_PROVIDERS.map(p =>
