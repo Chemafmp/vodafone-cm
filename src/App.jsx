@@ -20,8 +20,10 @@ import { fetchTickets, computeSubStatus, seedDemoTickets } from "./utils/tickets
 const MyWorkView      = lazy(() => import("./components/MyWorkView.jsx"));
 const ChangesView     = lazy(() => import("./components/ChangesView.jsx"));
 const TimelineView    = lazy(() => import("./components/TimelineView.jsx"));
-const NetworkInventory = lazy(() => import("./components/NetworkInventory.jsx"));
-const TopologyView    = lazy(() => import("./components/TopologyView.jsx"));
+const NetworkInventory     = lazy(() => import("./components/NetworkInventory.jsx"));
+const TopologyView         = lazy(() => import("./components/TopologyView.jsx"));
+const NetworkInventoryReal = lazy(() => import("./components/NetworkInventoryReal.jsx"));
+const TopologyReal         = lazy(() => import("./components/TopologyReal.jsx"));
 const LiveStatusView  = lazy(() => import("./components/LiveStatusView.jsx"));
 const AlarmsView      = lazy(() => import("./components/AlarmsView.jsx"));
 const EventsView      = lazy(() => import("./components/EventsView.jsx"));
@@ -114,7 +116,7 @@ export default function App(){
     return () => clearInterval(t);
   }, [app, refreshTicketCounts]);
 
-  const APP_DEFAULTS = { changes: "changes", monitoring: "livestatus", network: "network", tickets: "tickets_all" };
+  const APP_DEFAULTS = { changes: "changes", monitoring: "livestatus", network: "network_real", tickets: "tickets_all" };
   const handleSelectApp = (a) => { setApp(a); setView(APP_DEFAULTS[a]); };
   const handleBack = () => { setApp(null); };
 
@@ -170,7 +172,17 @@ export default function App(){
     .sort((a,b) => new Date(a.scheduledFor||0) - new Date(b.scheduledFor||0));
   const myActionable = myUpcoming.filter(c => ["Scheduled","In Execution"].includes(c.status));
 
-  const VIEW_TITLES = {changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",network:"Network Inventory",topology:"Topology",livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",service_monitor:"Service Monitor",network_health:"Network Health",signal_fusion:"Signal Fusion",tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports"};
+  const VIEW_TITLES = {
+    changes:"Changes",mywork:"My Work",timeline:"Timeline",peakcal:"Change Freeze",
+    network_real:"Inventory — Real",  topology_real:"Topology — Real",
+    network_sim:"Inventory — Lab",    topology_sim:"Topology — Lab",
+    // legacy aliases (no-op guard)
+    network:"Network Inventory",      topology:"Topology",
+    livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",
+    service_monitor:"Service Monitor",network_health:"Network Health",signal_fusion:"Signal Fusion",
+    tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",
+    tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports",
+  };
 
 
   // ── Standalone PWA mode (iOS navigator.standalone or Chrome display-mode) ──────
@@ -436,7 +448,7 @@ export default function App(){
       })()}
 
       <Suspense fallback={<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13,gap:8}}><span style={{fontSize:18,animation:"spin 1s linear infinite"}}>⟳</span> Loading…</div>}>
-      <div style={{flex:1,overflowY:["topology","network","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,overflowY:["topology_real","topology_sim","network_real","network_sim","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?"hidden":"auto",padding:["topology_real","topology_sim","network_real","network_sim","alarms","events","observability","livestatus","service_monitor","network_health","signal_fusion","tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)?0:"20px 24px",display:"flex",flexDirection:"column"}}>
 
         {/* MY WORK */}
         {view==="mywork"&&<MyWorkView user={user} crs={crs} onSelect={selectChange}/>}
@@ -553,11 +565,17 @@ export default function App(){
         {/* PEAK CALENDAR — managed via FreezeManager */}
         {view==="peakcal"&&<FreezeManager peaks={peaks} setPeaks={setPeaks}/>}
 
-        {/* NETWORK INVENTORY */}
-        {view==="network"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkInventory changes={changes}/></div>}
+        {/* NETWORK INVENTORY — REAL */}
+        {view==="network_real"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkInventoryReal/></div>}
 
-        {/* TOPOLOGY WEATHERMAP */}
-        {view==="topology"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
+        {/* TOPOLOGY — REAL */}
+        {view==="topology_real"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyReal/></div>}
+
+        {/* NETWORK INVENTORY — LAB (simulated fleet) */}
+        {view==="network_sim"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkInventory changes={changes}/></div>}
+
+        {/* TOPOLOGY — LAB (simulated fleet) */}
+        {view==="topology_sim"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
         {/* MONITORING */}
         {view==="livestatus"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}

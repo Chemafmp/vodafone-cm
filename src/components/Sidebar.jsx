@@ -1,5 +1,8 @@
 import { T } from "../data/constants.js";
 
+// LAB items visible in dev (VITE_SHOW_LAB=true) but hidden in prod (VITE_SHOW_LAB=false)
+const SHOW_LAB = import.meta.env.VITE_SHOW_LAB !== "false";
+
 const ALL_NAV_GROUPS=[
   { label:"OPERATIONS", app:"changes", items:[
     {id:"changes",  icon:"↻", label:"Changes",        badgeKey:"pending"},
@@ -8,8 +11,12 @@ const ALL_NAV_GROUPS=[
     {id:"peakcal",  icon:"❄", label:"Freeze Periods"},
   ]},
   { label:"NETWORK", app:"network", items:[
-    {id:"network",  icon:"🗺", label:"Inventory"},
-    {id:"topology", icon:"🔗", label:"Topology"},
+    // ── REAL DATA ──────────────────────────────────────────────
+    {id:"network_real",  icon:"🌐", label:"Inventory",  sectionLabel:"REAL DATA"},
+    {id:"topology_real", icon:"🗺",  label:"Topology"},
+    // ── LAB (simulated fleet) ──────────────────────────────────
+    {id:"network_sim",   icon:"🔧", label:"Inventory",  lab:true, sectionLabel:"LAB"},
+    {id:"topology_sim",  icon:"🔧", label:"Topology",   lab:true},
   ]},
   { label:"MONITORING", app:"monitoring", items:[
     {id:"livestatus",      icon:"◉",  label:"Live Status"},
@@ -76,13 +83,13 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
             <span style={{fontSize:18,lineHeight:1,fontWeight:300}}>+</span> New Freeze Period
           </button>
         )}
-        {view==="network" && (
+        {(view==="network_real"||view==="network_sim") && (
           <button onClick={()=>{}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#0f766e,#0d9488)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(13,148,136,0.4)",letterSpacing:"0.1px"}}>
             <span style={{fontSize:15,lineHeight:1}}>📋</span> Export Inventory
           </button>
         )}
-        {view==="topology" && (
-          <button onClick={()=>setView("network")} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(29,78,216,0.4)",letterSpacing:"0.1px"}}>
+        {(view==="topology_real"||view==="topology_sim") && (
+          <button onClick={()=>setView(view==="topology_real"?"network_real":"network_sim")} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"11px 14px",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(29,78,216,0.4)",letterSpacing:"0.1px"}}>
             <span style={{fontSize:15,lineHeight:1}}>🗺</span> Open Inventory
           </button>
         )}
@@ -93,6 +100,10 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
         {navGroups.map((group,gi)=>{
           const openCount    = group.summaryKeys ? (badges[group.summaryKeys.open]    ?? null) : null;
           const criticalCount= group.summaryKeys ? (badges[group.summaryKeys.critical] ?? null) : null;
+
+          // Filter items: hide lab items if SHOW_LAB is false
+          const visibleItems = group.items.filter(item => !item.lab || SHOW_LAB);
+
           return (
           <div key={group.label} style={{marginBottom:4}}>
             {/* Group header + optional summary */}
@@ -109,22 +120,54 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
               )}
             </div>
 
-            {group.items.map(item=>{
+            {visibleItems.map((item, idx)=>{
               const badge      = item.badgeKey ? badges[item.badgeKey] : null;
               const badgeColor = item.badgeColor || "#e40000";
+              const prevItem   = visibleItems[idx - 1];
+              const showSection = item.sectionLabel && (!prevItem || prevItem.lab !== item.lab);
+
               return (
-                <button key={item.id} disabled={item.disabled} onClick={()=>!item.disabled&&setView(item.id)}
-                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",
-                    cursor:item.disabled?"default":"pointer",fontFamily:"inherit",marginBottom:2,
-                    background:view===item.id?"rgba(255,255,255,0.1)":"transparent",
-                    color:item.disabled?"rgba(255,255,255,0.2)":view===item.id?"#fff":T.sidebarMuted,
-                    fontSize:13,fontWeight:view===item.id?600:400,transition:"background 0.15s,color 0.15s",
-                    opacity:item.disabled?0.5:1}}>
-                  <span style={{fontSize:14,opacity:item.disabled?0.4:view===item.id?1:0.7}}>{item.icon}</span>
-                  {item.label}
-                  {badge>0&&<span style={{marginLeft:"auto",background:badgeColor,color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px",minWidth:20,textAlign:"center"}}>{badge>99?"99+":badge}</span>}
-                  {item.disabled&&<span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,0.2)",fontWeight:600,letterSpacing:"0.5px"}}>SOON</span>}
-                </button>
+                <div key={item.id}>
+                  {/* Sub-section divider */}
+                  {showSection && (
+                    <div style={{
+                      display:"flex", alignItems:"center", gap:6,
+                      padding:"8px 12px 4px",
+                      marginTop: idx > 0 ? 6 : 0,
+                    }}>
+                      <div style={{flex:1, height:1, background:"rgba(255,255,255,0.08)"}}/>
+                      <span style={{
+                        fontSize:8, fontWeight:800, letterSpacing:"1px",
+                        textTransform:"uppercase",
+                        color: item.lab ? "#f59e0b" : "rgba(255,255,255,0.4)",
+                      }}>
+                        {item.sectionLabel}
+                      </span>
+                      <div style={{flex:1, height:1, background:"rgba(255,255,255,0.08)"}}/>
+                    </div>
+                  )}
+
+                  <button disabled={item.disabled} onClick={()=>!item.disabled&&setView(item.id)}
+                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",
+                      cursor:item.disabled?"default":"pointer",fontFamily:"inherit",marginBottom:2,
+                      background:view===item.id?"rgba(255,255,255,0.1)":"transparent",
+                      color:item.disabled?"rgba(255,255,255,0.2)":view===item.id?"#fff":T.sidebarMuted,
+                      fontSize:13,fontWeight:view===item.id?600:400,transition:"background 0.15s,color 0.15s",
+                      opacity:item.disabled?0.5:1}}>
+                    <span style={{fontSize:14,opacity:item.disabled?0.4:view===item.id?1:0.7}}>{item.icon}</span>
+                    {item.label}
+                    {/* LAB badge */}
+                    {item.lab && (
+                      <span style={{marginLeft:"auto",background:"rgba(245,158,11,0.15)",
+                        color:"#f59e0b",border:"1px solid rgba(245,158,11,0.3)",
+                        borderRadius:6,fontSize:8,fontWeight:800,padding:"1px 5px",
+                        letterSpacing:"0.5px",textTransform:"uppercase"}}>LAB</span>
+                    )}
+                    {/* Count badge (non-lab items) */}
+                    {!item.lab && badge>0&&<span style={{marginLeft:"auto",background:badgeColor,color:"#fff",borderRadius:10,fontSize:10,fontWeight:700,padding:"1px 7px",minWidth:20,textAlign:"center"}}>{badge>99?"99+":badge}</span>}
+                    {item.disabled&&<span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,0.2)",fontWeight:600,letterSpacing:"0.5px"}}>SOON</span>}
+                  </button>
+                </div>
               );
             })}
           </div>

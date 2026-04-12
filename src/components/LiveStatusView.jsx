@@ -164,7 +164,7 @@ function ChangeBadge({ change, onClick }) {
 }
 
 /* ── FilterBar ── */
-function FilterBar({ sevFilter, setSevFilter, layerFilter, setLayerFilter, search, setSearch, showHealthy, setShowHealthy, allExpanded, onExpandAll, onCollapseAll }) {
+function FilterBar({ sevFilter, setSevFilter, layerFilter, setLayerFilter, search, setSearch, showHealthy, setShowHealthy, allExpanded, onExpandAll, onCollapseAll, showLab, setShowLab }) {
   const layers = Object.keys(LAYER_COLORS);
   return (
     <div style={{
@@ -224,6 +224,21 @@ function FilterBar({ sevFilter, setSevFilter, layerFilter, setLayerFilter, searc
           color: showHealthy ? "#15803d" : T.muted,
         }}>
         {showHealthy ? "✓ " : ""}Healthy
+      </button>
+
+      {/* LAB toggle */}
+      <button onClick={() => setShowLab(v => !v)}
+        title={showLab ? "Lab data included — click to hide simulated fleet" : "Lab data hidden — click to include simulated fleet"}
+        style={{
+          padding: "4px 10px", fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: "pointer",
+          border: `1px solid ${showLab ? "rgba(245,158,11,0.5)" : T.border}`, fontFamily: "inherit",
+          background: showLab ? "rgba(245,158,11,0.1)" : "transparent",
+          color: showLab ? "#b45309" : T.muted,
+          display: "flex", alignItems: "center", gap: 4,
+        }}>
+        <span style={{ fontSize: 8, fontWeight: 800, background: showLab ? "#f59e0b" : "#94a3b8",
+          color: "#fff", borderRadius: 3, padding: "1px 4px" }}>LAB</span>
+        {showLab ? "On" : "Off"}
       </button>
 
       {/* Expand / Collapse */}
@@ -336,6 +351,7 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
   const [sevFilter, setSevFilter] = useState("ALL");
   const [layerFilter, setLayerFilter] = useState("ALL");
   const [showHealthy, setShowHealthy] = useState(false);
+  const [showLab, setShowLab] = useState(true); // false = hide simulated-fleet data
   // Time tick
   const [now, setNow] = useState(Date.now());
 
@@ -372,16 +388,20 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
     // O(1) lookup for node metadata
     const metaMap = Object.fromEntries(inventoryNodes.map(n => [n.id, n]));
 
+    // When LAB is hidden, suppress all simulated-fleet data
+    const activeSnapshots = showLab ? nodeSnapshots : {};
+    const activeAlarms    = showLab ? liveAlarms    : [];
+
     // Union of nodes with snapshots ∪ nodes with open alarms
     const nodeIds = new Set([
-      ...Object.keys(nodeSnapshots),
-      ...liveAlarms.filter(a => a.status !== "RESOLVED").map(a => a.nodeId),
+      ...Object.keys(activeSnapshots),
+      ...activeAlarms.filter(a => a.status !== "RESOLVED").map(a => a.nodeId),
     ]);
 
     // Build per-node records
     const allNodes = [...nodeIds].map(id => {
-      const snap = nodeSnapshots[id];
-      const alarms = liveAlarms
+      const snap = activeSnapshots[id];
+      const alarms = activeAlarms
         .filter(a => a.nodeId === id && a.status !== "RESOLVED")
         .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
       const health = classify(snap, alarms);
@@ -486,7 +506,7 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
     }).sort((a, b) => HEALTH[b.worst].rank - HEALTH[a.worst].rank || b.alarmCount - a.alarmCount);
 
     return { countryGroups, globalCounts };
-  }, [liveAlarms, nodeSnapshots, crs, inventoryNodes, sevFilter, layerFilter, showHealthy, search]);
+  }, [liveAlarms, nodeSnapshots, crs, inventoryNodes, showLab, sevFilter, layerFilter, showHealthy, search]);
 
   const toggleNode = id => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   const toggleSection = id => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
@@ -556,10 +576,29 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
         search={search} setSearch={setSearch}
         showHealthy={showHealthy} setShowHealthy={setShowHealthy}
         onExpandAll={expandAll} onCollapseAll={collapseAll}
+        showLab={showLab} setShowLab={setShowLab}
       />
 
+      {/* ─── Lab hidden state ─── */}
+      {!showLab && (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          padding:"60px 20px", gap:12, color:T.muted, textAlign:"center" }}>
+          <div style={{ fontSize:36 }}>🔬</div>
+          <div style={{ fontSize:14, fontWeight:600, color:T.text }}>Lab data hidden</div>
+          <div style={{ fontSize:12, maxWidth:400, lineHeight:1.6 }}>
+            Simulated fleet data is suppressed. Real-data live status from network health signals will appear here in a future update.
+          </div>
+          <button onClick={() => setShowLab(true)}
+            style={{ marginTop:8, padding:"8px 16px", borderRadius:8, fontSize:12, fontWeight:600,
+              fontFamily:"inherit", cursor:"pointer", background:"rgba(245,158,11,0.1)",
+              border:"1px solid rgba(245,158,11,0.4)", color:"#b45309" }}>
+            Show Lab data
+          </button>
+        </div>
+      )}
+
       {/* ─── Nominal state ─── */}
-      {!hasIncidents && (
+      {showLab && !hasIncidents && (
         <div style={{
           background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10,
           padding: "30px 20px", textAlign: "center", color: "#15803d", fontSize: 14, fontWeight: 700,
@@ -569,7 +608,7 @@ export default function LiveStatusView({ liveAlarms = [], nodeSnapshots = {}, po
       )}
 
       {/* ─── Country sections ─── */}
-      {countryGroups.map(cg => {
+      {showLab && countryGroups.map(cg => {
         const isCollapsed = !!collapsed[cg.country];
         const worst = HEALTH[cg.worst];
         return (

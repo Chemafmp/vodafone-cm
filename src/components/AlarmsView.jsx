@@ -120,6 +120,7 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
   const [sevFilter, setSevFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false); // false = only devices with active alarms
+  const [showLab, setShowLab] = useState(true);  // false = hide simulated-fleet alarms
   const [fCountry, setFCountry] = useState("ALL");
   const [fSite, setFSite] = useState("ALL");
   const [fService, setFService] = useState("ALL");
@@ -142,7 +143,8 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
 
   /* ── filtered alarms ── */
   const filteredAlarms = useMemo(() => {
-    let a = [...ALARMS, ...enrichedLive];
+    // When lab is hidden, suppress all simulated-fleet data (seed + live poller)
+    let a = showLab ? [...ALARMS, ...enrichedLive] : [];
     if (statusFilter === "ACTIVE") a = a.filter(x => x.status !== "RESOLVED");
     else if (statusFilter === "RESOLVED") a = a.filter(x => x.status === "RESOLVED");
     if (sevFilter !== "ALL") a = a.filter(x => x.severity === sevFilter);
@@ -165,7 +167,7 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
       a = a.filter(x => x.message.toLowerCase().includes(q) || x.nodeId.toLowerCase().includes(q) || x.detail.toLowerCase().includes(q));
     }
     return a;
-  }, [NODES, enrichedLive, statusFilter, sevFilter, search, fCountry, fSite, fService, fType]);
+  }, [NODES, enrichedLive, showLab, statusFilter, sevFilter, search, fCountry, fSite, fService, fType]);
 
   /* ── build tree data ── */
   const tree = useMemo(() => {
@@ -216,7 +218,7 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
 
   /* ── summary counts ── */
   const totalCounts = useMemo(() => {
-    const all = [...ALARMS, ...enrichedLive];
+    const all = showLab ? [...ALARMS, ...enrichedLive] : [];
     const active = all.filter(a => a.status !== "RESOLVED");
     return {
       total: all.length,
@@ -226,12 +228,12 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
       minor: active.filter(a=>a.severity==="Minor").length,
       resolved: all.filter(a=>a.status==="RESOLVED").length,
     };
-  }, [enrichedLive]);
+  }, [enrichedLive, showLab]);
 
   const toggle = useCallback((key, setter) => setter(prev => ({...prev, [key]: !prev[key]})), []);
 
   /* ── selected detail ── */
-  const allAlarms = useMemo(() => [...ALARMS, ...enrichedLive], [enrichedLive]);
+  const allAlarms = useMemo(() => showLab ? [...ALARMS, ...enrichedLive] : [], [showLab, enrichedLive]);
   const selAlarm = selectedType === "alarm" ? allAlarms.find(a => a.id === selected) : null;
   const selDevice = selectedType === "device" ? nodeMap[selected] : null;
   const selNode = selAlarm ? nodeMap[selAlarm.nodeId] : null;
@@ -318,10 +320,42 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
           cursor:"pointer", transition:"all 0.15s", whiteSpace:"nowrap" }}>
         {showAll ? "🔍 All Devices" : "⚠️ Alarmed Only"}
       </button>
+      {/* LAB toggle */}
+      <button onClick={() => setShowLab(p => !p)}
+        title={showLab ? "Lab alarms included — click to hide simulated fleet data" : "Lab alarms hidden — click to include simulated fleet data"}
+        style={{ padding:"7px 12px", borderRadius:8, fontSize:11, fontWeight:700,
+          fontFamily:"inherit", cursor:"pointer", transition:"all 0.15s", whiteSpace:"nowrap",
+          border: showLab ? "1px solid rgba(245,158,11,0.5)" : `1px solid ${T.border}`,
+          background: showLab ? "rgba(245,158,11,0.1)" : T.surface,
+          color: showLab ? "#b45309" : T.muted,
+          display:"flex", alignItems:"center", gap:5 }}>
+        <span style={{ fontSize:9, fontWeight:800, background: showLab ? "#f59e0b" : "#94a3b8",
+          color:"#fff", borderRadius:4, padding:"1px 4px", letterSpacing:"0.3px" }}>LAB</span>
+        {showLab ? "Included" : "Hidden"}
+      </button>
     </div>
 
+    {/* No-lab empty state */}
+    {!showLab && (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+        flex:1, gap:12, color:T.muted }}>
+        <div style={{ fontSize:36 }}>🔬</div>
+        <div style={{ fontSize:14, fontWeight:600, color:T.text }}>Lab alarms hidden</div>
+        <div style={{ fontSize:12, maxWidth:400, textAlign:"center", lineHeight:1.6 }}>
+          Simulated fleet data is suppressed. Real-data alarms from RIPE Atlas, BGP, and signal
+          correlation will appear here in a future update.
+        </div>
+        <button onClick={() => setShowLab(true)}
+          style={{ marginTop:8, padding:"8px 16px", borderRadius:8, fontSize:12, fontWeight:600,
+            fontFamily:"inherit", cursor:"pointer", background:"rgba(245,158,11,0.1)",
+            border:"1px solid rgba(245,158,11,0.4)", color:"#b45309" }}>
+          Show Lab alarms
+        </button>
+      </div>
+    )}
+
     {/* ── Main: Tree + Detail panel ── */}
-    <div style={{ display:"flex", gap:16, flex:1, minHeight:0, overflow:"hidden" }}>
+    {showLab && <div style={{ display:"flex", gap:16, flex:1, minHeight:0, overflow:"hidden" }}>
       {/* ── Tree panel ── */}
       <div style={{ flex:1, overflow:"auto", background:T.surface, border:`1px solid ${T.border}`, borderRadius:12 }}>
         {tree.map(c => <div key={c.country}>
@@ -533,7 +567,7 @@ export default function AlarmsView({ liveAlarms = [], pollerConnected = false, o
           })()}
         </>}
       </Card>}
-    </div>
+    </div>}
   </div>;
 }
 
