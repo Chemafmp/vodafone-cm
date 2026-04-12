@@ -614,7 +614,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
     <div style={containerStyle} onClick={!fullScreen ? (e => e.target === e.currentTarget && onClose()) : undefined}>
 
       <div style={fullScreen
-        ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }
+        ? { flex: 1, display: "flex", flexDirection: "column", overflow: isMobile ? "auto" : "hidden" }
         : { marginLeft: "auto", width: "92%", maxWidth: 1200, background: T.bg, display: "flex", flexDirection: "column", height: "100%", boxShadow: "-8px 0 48px rgba(0,0,0,0.25)" }
       }>
 
@@ -732,7 +732,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
         )}
 
         {/* ── BODY ────────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: isMobile ? "visible" : "hidden" }}>
 
           {/* ── LEFT RAIL (dark, sidebar-style) ───────────────────────────── */}
           <div style={{
@@ -894,7 +894,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
           </div>
 
           {/* ── RIGHT — TABS + CONTENT ─────────────────────────────────────── */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
 
             {/* ── TABS ──────────────────────────────────────────────────────── */}
             <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface, overflowX: "auto" }}>
@@ -925,7 +925,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── WORK TAB ───────────────────────────────────────────────────── */}
             {activeTab === "work" && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
 
                 {/* Description block */}
                 <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -968,7 +968,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                 </div>
 
                 {/* Notes feed */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
                   {notes.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", textAlign: "center", padding: "28px 0" }}>
                       No notes yet — add context, paste command output, share findings.
@@ -1018,9 +1018,9 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── WORKLOG TAB ─────────────────────────────────────────────────── */}
             {activeTab === "worklog" && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
                 {/* Entries */}
-                <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "10px 12px" : "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
                   {worklogEvents.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
                   )}
@@ -1094,7 +1094,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── LOG TAB ─────────────────────────────────────────────────────── */}
             {activeTab === "log" && (
-              <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
+              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
                 {logEvents.length === 0 && (
                   <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No events yet.</div>
                 )}
@@ -1156,7 +1156,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── ATTACHMENTS TAB ──────────────────────────────────────────────── */}
             {activeTab === "attachments" && (
-              <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
+              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
                 {evidence.length === 0 && (
                   <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", marginBottom: 20 }}>No attachments yet.</div>
                 )}
@@ -1229,7 +1229,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── CHILDREN TAB ──────────────────────────────────────────────── */}
             {activeTab === "children" && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
                 {/* Header */}
                 <div style={{ padding: "14px 22px 10px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ flex: 1 }}>
@@ -1244,7 +1244,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                   </button>
                 </div>
                 {/* List */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
                   {loadingChildren && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Loading…</div>
                   )}
