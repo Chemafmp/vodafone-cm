@@ -99,8 +99,11 @@ app.use((req, res, next) => {
 app.use("/api/tickets", ticketsRouter);
 
 // ─── Auto-ticket toggle (env-controlled only, no public HTTP endpoint) ────────
-const autoTicketsEnabled = process.env.AUTO_TICKETS !== "false";
-log(chalk.cyan(`[tickets] auto-create ${autoTicketsEnabled ? "ENABLED" : "DISABLED"} (AUTO_TICKETS=${process.env.AUTO_TICKETS ?? "unset"})`));
+// Fleet (simulated lab) alarm tickets are disabled by default.
+// Real network alarms (hijack, Atlas, BGP, etc.) create tickets via dedicated paths.
+// Set AUTO_TICKETS=true in env to re-enable fleet auto-ticketing (e.g. for testing).
+const autoTicketsEnabled = process.env.AUTO_TICKETS === "true";
+log(chalk.cyan(`[tickets] fleet auto-create ${autoTicketsEnabled ? "ENABLED (AUTO_TICKETS=true)" : "DISABLED (default — real network alarms create tickets via dedicated paths)"}"`));
 
 // GET /health — simple liveness probe for Fly.io / load balancers
 app.get("/health", (req, res) => {

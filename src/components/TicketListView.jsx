@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { T } from "../data/constants.js";
 import {
   TICKET_COLORS, SEV_META, TICKET_STATUS_META, TICKET_TEAMS,
-  fetchTickets, updateTicket, deleteTicket, computeSubStatus, SLA_RESOLVE,
+  fetchTickets, updateTicket, deleteTicket, seedDemoTickets, computeSubStatus, SLA_RESOLVE,
 } from "../utils/ticketsDb.js";
 import CreateTicketModal from "./CreateTicketModal.jsx";
 
@@ -143,8 +143,11 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
     finally { setBulkApplying(false); }
   }
 
-  // Lab ticket = any impacted node matches the simulated fleet pattern (node-N)
-  const isLabTicket = t => (t.impacted_nodes || []).some(n => /^node-\d+$/.test(n));
+  // Lab ticket = auto-created from alarm AND no node starts with "market-" (real network prefix)
+  // Fleet nodes: fj-suva-pe-01, ib-town-cr-01, etc. Real: market-es, market-uk, etc.
+  const isLabTicket = t =>
+    t.source === "alarm" &&
+    !(t.impacted_nodes || []).some(n => n.startsWith("market-"));
 
   // Client-side text search + SLA watch + Lab filter
   const filtered = useMemo(() => {
@@ -194,7 +197,19 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
             {slaAtRisk > 0 && <span style={{ color: "#b45309", fontWeight: 700 }}> · {slaAtRisk} SLA at risk</span>}
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Demo ticket controls — LAB section */}
+          <button
+            title="Generate 20 realistic demo tickets (LAB data)"
+            onClick={async () => { try { await seedDemoTickets(); await load(); } catch(e) { console.error(e); } }}
+            style={{
+              padding: "7px 12px", fontSize: 11, fontWeight: 600, borderRadius: 7, cursor: "pointer",
+              background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.4)",
+              color: "#b45309", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5,
+            }}>
+            <span style={{ fontSize: 9, fontWeight: 800, background: "#f59e0b", color: "#fff", borderRadius: 3, padding: "1px 4px" }}>LAB</span>
+            ⟳ Demo tickets
+          </button>
           <button onClick={() => setCreating(true)}
             style={{
               padding: "9px 18px", fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: "pointer",
