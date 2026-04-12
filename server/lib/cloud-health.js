@@ -15,7 +15,17 @@
 //   error: string | null,
 // }
 
+import { createClient } from "@supabase/supabase-js";
 import { isPaused } from "./poller-control.js";
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const RETENTION_H  = 36;
+
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+}
 
 const FETCH_TIMEOUT = 12_000; // 12s per provider
 
@@ -332,6 +342,50 @@ async function fetchBinance() {
   };
 }
 
+// ── Supabase persistence ──────────────────────────────────────────────────────
+async function saveToSupabase(providers) {
+  if (!supabase || !providers?.length) return;
+  try {
+    const rows = providers.map(p => ({
+      provider_id:    p.id,
+      provider_name:  p.name,
+      status:         p.status || "unknown",
+      indicator:      p.indicator || "unknown",
+      incident_count: (p.activeIncidents || []).length,
+      description:    p.description || null,
+      measured_at:    new Date().toISOString(),
+    }));
+    await supabase.from("cloud_provider_status").insert(rows);
+  } catch { /* non-fatal */ }
+}
+
+async function cleanupOldData(logFn) {
+  if (!supabase) return;
+  try {
+    const cutoff = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
+    const { count } = await supabase
+      .from("cloud_provider_status")
+      .delete()
+      .lt("measured_at", cutoff)
+      .select("id", { count: "exact", head: true });
+    if (count > 0) logFn?.(`[cloud-health] cleaned ${count} rows older than ${RETENTION_H}h`);
+  } catch { /* non-fatal */ }
+}
+
+export async function getCloudStatusHistory() {
+  if (!supabase) return [];
+  try {
+    const since = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("cloud_provider_status")
+      .select("provider_id, status, indicator, incident_count, description, measured_at")
+      .gte("measured_at", since)
+      .order("measured_at", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch { return []; }
+}
+
 // ── Tick ──────────────────────────────────────────────────────────────────────
 export async function tickCloudHealth(log) {
   if (isPaused("cloud-health")) { log?.("[cloud-health] ⏸ paused"); return; }
@@ -350,6 +404,9 @@ export async function tickCloudHealth(log) {
 
   const results = await Promise.all([...customProviders, ...statuspageProviders]);
   state = results;
+
+  await saveToSupabase(state).catch(() => {});
+  await cleanupOldData(log).catch(() => {});
 
   const ok      = state.filter(s => s.status === "ok").length;
   const issues  = state.filter(s => s.status === "warning" || s.status === "outage").length;

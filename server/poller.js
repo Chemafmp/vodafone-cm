@@ -38,7 +38,7 @@ import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
 import { initRipeStatEnrichment, tickRipeStatEnrichment, getEnrichment } from "./lib/ripe-stat-enrichment.js";
-import { initCloudHealth, tickCloudHealth, getCloudHealth, setProviderTicketId } from "./lib/cloud-health.js";
+import { initCloudHealth, tickCloudHealth, getCloudHealth, setProviderTicketId, getCloudStatusHistory } from "./lib/cloud-health.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -160,6 +160,16 @@ app.get("/api/service-status", (req, res) => {
 // GET /api/cloud-health — cloud / CDN / infra provider status (AWS, GCP, Azure, Cloudflare…)
 app.get("/api/cloud-health", (req, res) => {
   res.json(getCloudHealth());
+});
+
+// GET /api/cloud-health/history — last 36h of status snapshots for all providers
+app.get("/api/cloud-health/history", async (req, res) => {
+  try {
+    const data = await getCloudStatusHistory();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/network-health — all signal layers per Vodafone market

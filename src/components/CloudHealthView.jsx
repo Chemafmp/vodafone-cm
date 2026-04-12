@@ -294,6 +294,48 @@ function computeUptimeHours(incidents, numHours = 36) {
   return slots;
 }
 
+/**
+ * Compute 36 hourly uptime slots from Supabase snapshot rows for one provider.
+ * Returns null if no data found for this provider.
+ */
+function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
+  const rows = (snapshots || []).filter(s => s.provider_id === providerId);
+  if (!rows.length) return null;
+
+  const slots = [];
+  const now   = new Date();
+  for (let i = numHours - 1; i >= 0; i--) {
+    const slotStart = new Date(now);
+    slotStart.setMinutes(0, 0, 0);
+    slotStart.setHours(slotStart.getHours() - i);
+    const slotEnd = new Date(slotStart);
+    slotEnd.setMinutes(59, 59, 999);
+
+    const inSlot = rows.filter(s => {
+      const ts = new Date(s.measured_at);
+      return ts >= slotStart && ts <= slotEnd;
+    });
+
+    let status = "unknown";
+    if (inSlot.length > 0) {
+      status = "ok";
+      for (const s of inSlot) {
+        if (s.status === "outage")  { status = "outage"; break; }
+        if (s.status === "warning") { status = "warning"; }
+      }
+    }
+
+    slots.push({
+      date: new Date(slotStart),
+      status,
+      incidents: inSlot
+        .filter(s => s.incident_count > 0)
+        .map(s => ({ name: s.description || "Incident", impact: s.status === "outage" ? "major" : "minor" })),
+    });
+  }
+  return slots;
+}
+
 async function fetchSlack() {
   const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms" };
   const [curRes, histRes] = await Promise.allSettled([
@@ -888,13 +930,15 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
   async function refresh() {
     try {
-      const [browserResult, backendResult] = await Promise.allSettled([
+      const [browserResult, backendResult, historyResult] = await Promise.allSettled([
         fetchBrowserProviders(),
         fetch(`${base}/api/cloud-health`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${base}/api/cloud-health/history`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
 
       let browserProviders = browserResult.status === "fulfilled" ? browserResult.value : [];
       const backendData    = backendResult.status === "fulfilled"  ? backendResult.value  : null;
+      const historyData    = historyResult.status === "fulfilled"  ? historyResult.value  : null;
 
       let allProviders = [...browserProviders];
 
@@ -926,6 +970,14 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
           backendOnly:     true,
         }));
         allProviders = [...allProviders, ...backendPlaceholders];
+      }
+
+      // Enrich uptimeDays from Supabase history (overrides Atlassian incidents-based uptime)
+      if (Array.isArray(historyData) && historyData.length > 0) {
+        allProviders = allProviders.map(p => {
+          const snapshotUptime = computeUptimeFromSnapshots(historyData, p.id);
+          return snapshotUptime ? { ...p, uptimeDays: snapshotUptime } : p;
+        });
       }
 
       setProviders(allProviders);
