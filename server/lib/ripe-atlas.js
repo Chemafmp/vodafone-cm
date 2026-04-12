@@ -22,11 +22,13 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 const RIPE_BASE       = "https://atlas.ripe.net/api/v2";
 const MSM_ID          = 1001;      // built-in: continuous ICMP ping to k.root-servers.net
-const HISTORY_POINTS  = 432;       // 36 h at 5 min/tick (12 ticks/h × 36)
-const PROBE_REFRESH_H = 24;        // re-fetch probe IDs every 24 h
-const RESULT_WINDOW_M = 15;        // primary look-back window (minutes)
-const FALLBACK_WINDOW_M = 60;      // fallback for markets with sparse probes (e.g. TR with 1 probe)
-const FETCH_TIMEOUT   = 20_000;
+const HISTORY_POINTS      = 432;   // 36 h at 5 min/tick (12 ticks/h × 36)
+const PROBE_REFRESH_H     = 24;    // re-fetch probe IDs every 24 h
+const RESULT_WINDOW_M     = 15;    // primary look-back window (minutes)
+const FALLBACK_WINDOW_M   = 60;    // fallback for markets with sparse probes (e.g. TR with 1 probe)
+const FETCH_TIMEOUT       = 20_000;
+const MIN_BASELINE_POINTS = 12;    // 1h of ticks before baseline is considered reliable
+const BASELINE_TRIM_PCT   = 0.10;  // trim top 10% of RTT values before computing mean (spike rejection)
 
 // Verified Vodafone ASNs (consumer/broadband networks, not global backbone)
 export const RIPE_MARKETS = [
@@ -308,14 +310,25 @@ async function pollMarket(m, log) {
   // Rolling history (keep last HISTORY_POINTS)
   s.history = [...s.history.slice(-(HISTORY_POINTS - 1)), metrics];
 
-  // Dynamic baseline: mean avg_rtt over history window
-  const baseValues   = s.history.map(h => h.avg_rtt).filter(v => v > 0);
-  s.baseline_rtt     = baseValues.length
-    ? Math.round((baseValues.reduce((a, b) => a + b, 0) / baseValues.length) * 10) / 10
-    : metrics.avg_rtt;
-
-  s.ratio        = Math.round((metrics.avg_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
-  s.status       = statusForRatio(s.ratio);
+  // Dynamic baseline: trimmed mean of avg_rtt over history window.
+  // Requires MIN_BASELINE_POINTS ticks (~1h) before baseline is reliable —
+  // status stays "unknown" during ramp-up to avoid false alerts on startup.
+  // Top BASELINE_TRIM_PCT of values are dropped to prevent transient spikes
+  // from inflating the baseline and masking future real degradations.
+  const rawValues = s.history.map(h => h.avg_rtt).filter(v => v > 0);
+  if (rawValues.length >= MIN_BASELINE_POINTS) {
+    const sorted    = [...rawValues].sort((a, b) => a - b);
+    const trimCount = Math.max(1, Math.floor(sorted.length * BASELINE_TRIM_PCT));
+    const trimmed   = sorted.slice(0, sorted.length - trimCount); // drop top TRIM_PCT
+    s.baseline_rtt  = Math.round((trimmed.reduce((a, b) => a + b, 0) / trimmed.length) * 10) / 10;
+    s.ratio         = Math.round((metrics.avg_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
+    s.status        = statusForRatio(s.ratio);
+  } else {
+    // Not enough history yet — seed baseline with current value but suppress alerting
+    s.baseline_rtt = s.baseline_rtt || metrics.avg_rtt;
+    s.ratio        = 1.0;
+    s.status       = "unknown";
+  }
   s.current      = metrics;
   s.probeDetails = computeProbeDetails(results, s.probes);
   s.ok           = true;

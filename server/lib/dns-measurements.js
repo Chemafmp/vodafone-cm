@@ -22,11 +22,13 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 const RIPE_BASE       = "https://atlas.ripe.net/api/v2";
 const MSM_ID          = 10001;     // built-in: DNS SOA to k.root-servers.net
-const HISTORY_POINTS  = 432;       // 36h at 5 min/tick
-const PROBE_REFRESH_H = 24;        // re-fetch probe IDs every 24h
-const RESULT_WINDOW_M = 15;        // look back 15 min for latest results
-const FETCH_TIMEOUT   = 15_000;
-const RETENTION_H     = 36;
+const HISTORY_POINTS      = 432;   // 36h at 5 min/tick
+const PROBE_REFRESH_H     = 24;    // re-fetch probe IDs every 24h
+const RESULT_WINDOW_M     = 15;    // look back 15 min for latest results
+const FETCH_TIMEOUT       = 15_000;
+const RETENTION_H         = 36;
+const MIN_BASELINE_POINTS = 12;    // 1h of ticks before baseline is reliable
+const BASELINE_TRIM_PCT   = 0.10;  // trim top 10% of DNS RTT values (spike rejection)
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
 let supabase = null;
@@ -280,14 +282,22 @@ async function pollMarket(m, log) {
   // Rolling history
   s.history = [...s.history.slice(-(HISTORY_POINTS - 1)), metrics];
 
-  // Dynamic baseline: mean dns_rtt over history window
-  const baseValues = s.history.map(h => h.dns_rtt).filter(v => v > 0);
-  s.baseline_rtt   = baseValues.length
-    ? Math.round((baseValues.reduce((a, b) => a + b, 0) / baseValues.length) * 10) / 10
-    : metrics.dns_rtt;
-
-  s.ratio      = Math.round((metrics.dns_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
-  s.status     = statusForRatio(s.ratio);
+  // Dynamic baseline: trimmed mean of dns_rtt over history window.
+  // Same logic as ripe-atlas.js: requires MIN_BASELINE_POINTS ticks (~1h)
+  // before alerting, and trims top BASELINE_TRIM_PCT to reject spikes.
+  const rawValues = s.history.map(h => h.dns_rtt).filter(v => v > 0);
+  if (rawValues.length >= MIN_BASELINE_POINTS) {
+    const sorted    = [...rawValues].sort((a, b) => a - b);
+    const trimCount = Math.max(1, Math.floor(sorted.length * BASELINE_TRIM_PCT));
+    const trimmed   = sorted.slice(0, sorted.length - trimCount);
+    s.baseline_rtt  = Math.round((trimmed.reduce((a, b) => a + b, 0) / trimmed.length) * 10) / 10;
+    s.ratio         = Math.round((metrics.dns_rtt / Math.max(0.1, s.baseline_rtt)) * 10) / 10;
+    s.status        = statusForRatio(s.ratio);
+  } else {
+    s.baseline_rtt = s.baseline_rtt || metrics.dns_rtt;
+    s.ratio        = 1.0;
+    s.status       = "unknown";
+  }
   s.current    = metrics;
   s.probeDetails = computeDnsProbeDetails(results, s.probes);
   s.ok         = true;

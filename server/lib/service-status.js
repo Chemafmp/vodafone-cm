@@ -56,7 +56,9 @@ const SERVICES = [
   { id: "tv",           name: "TV / IPTV",      icon: "📺", weight: 0.12 },
 ];
 
-const HISTORY_LEN = 2880; // 24h at 30s/tick (in-memory trend for sparkline)
+const HISTORY_LEN         = 2880;  // 24h at 30s/tick (in-memory trend for sparkline)
+const MIN_DYNAMIC_POINTS  = 48;    // 24 min of real ticks before dynamic baseline activates
+const BASELINE_TRIM_PCT   = 0.15;  // trim top 15% of complaint values (incident spike rejection)
 
 // ─── Supabase persistence helpers ────────────────────────────────────────────
 // community_signals: one row per market per tick (every 30s).
@@ -143,6 +145,19 @@ function statusForRatio(ratio) {
   return "ok";
 }
 
+// Compute a dynamic baseline from real Supabase history.
+// Uses trimmed mean: drops top BASELINE_TRIM_PCT of values (complaint spikes
+// during incidents) so the baseline represents normal operation, not the
+// average including outages. Falls back to staticBaseline when insufficient data.
+function computeDynamicBaseline(history, staticBaseline) {
+  const values = history.map(p => p.value).filter(v => v >= 0);
+  if (values.length < MIN_DYNAMIC_POINTS) return staticBaseline;
+  const sorted    = [...values].sort((a, b) => a - b);
+  const trimCount = Math.max(1, Math.floor(sorted.length * BASELINE_TRIM_PCT));
+  const trimmed   = sorted.slice(0, sorted.length - trimCount); // drop top 15%
+  return Math.max(1, Math.round(trimmed.reduce((a, b) => a + b, 0) / trimmed.length));
+}
+
 // ─── Tick function ────────────────────────────────────────────────────────────
 /**
  * Called every 30s. Updates all market states and triggers auto-ticket
@@ -192,7 +207,13 @@ async function tickFromOfficial(port, log) {
     }
 
     const complaints = r.complaints;
-    if (r.baseline !== null) m.baseline = r.baseline;
+    // API may provide a baseline; if not, prefer dynamic baseline from history
+    // (trimmed mean of real data — more accurate than static seed after 24+ min)
+    if (r.baseline !== null) {
+      m.baseline = r.baseline;
+    } else {
+      m.baseline = computeDynamicBaseline(m.history, m.baseline);
+    }
     const ratio  = complaints / Math.max(1, m.baseline);
     const status = statusForRatio(ratio);
 
@@ -249,8 +270,13 @@ async function tickFromScraper(port, log) {
     }
 
     const complaints = r.complaints;
-    // If we got a real baseline from the chart series, use it; otherwise keep the sim baseline
-    if (r.baseline !== null) m.baseline = r.baseline;
+    // If scraper returned a baseline from chart series use it; otherwise compute
+    // dynamic baseline from real Supabase history (trimmed mean, spike-resistant)
+    if (r.baseline !== null) {
+      m.baseline = r.baseline;
+    } else {
+      m.baseline = computeDynamicBaseline(m.history, m.baseline);
+    }
     const ratio   = complaints / Math.max(1, m.baseline);
     const status  = statusForRatio(ratio);
 
