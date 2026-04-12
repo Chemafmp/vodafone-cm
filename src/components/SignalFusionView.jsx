@@ -1134,6 +1134,130 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth, cloudDat
   );
 }
 
+// ─── Cloud Status Strip ───────────────────────────────────────────────────────
+// Persistent bar above the matrix/feed — shows AWS / GCP / Azure health at a glance.
+// On mobile wraps to two rows. Tapping a cloud pill opens its detail.
+
+function CloudStatusStrip({ cloudData, isMobile }) {
+  const [detail, setDetail] = useState(null); // expanded cloud id
+
+  if (!cloudData?.length) return null;
+
+  const cloudIds = ["aws", "gcp", "azure"];
+  const clouds = cloudIds
+    .map(id => cloudData.find(p => p.id === id))
+    .filter(Boolean);
+
+  if (!clouds.length) return null;
+
+  const allOk = clouds.every(c => c.status === "ok" || c.status === "unknown");
+
+  const stColor = s => s === "outage" ? "#dc2626" : s === "warning" ? "#b45309" : s === "ok" ? "#16a34a" : "#64748b";
+  const stBg    = s => s === "outage" ? "#fef2f2" : s === "warning" ? "#fffbeb" : s === "ok" ? "#f0fdf4" : T.surface;
+  const stBorder= s => s === "outage" ? "#fecaca" : s === "warning" ? "#fde68a" : s === "ok" ? "#bbf7d0" : T.border;
+  const stLabel = s => s === "outage" ? "OUTAGE" : s === "warning" ? "DEGRADED" : s === "ok" ? "OK" : "—";
+
+  return (
+    <div style={{ padding: isMobile ? "6px 10px" : "6px 20px", borderBottom: `1px solid ${T.border}`, background: T.bg }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>
+          ☁️ Cloud infra
+        </span>
+        {clouds.map(c => {
+          const deps     = cloudData.filter(p => !cloudIds.includes(p.id) && p.cloud === c.id);
+          const degraded = deps.filter(p => p.status === "warning" || p.status === "outage");
+          const isOpen   = detail === c.id;
+          return (
+            <div key={c.id} style={{ position: "relative" }}>
+              {/* Pill */}
+              <button
+                onClick={() => setDetail(isOpen ? null : c.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "4px 10px",
+                  background: stBg(c.status),
+                  border: `1px solid ${stBorder(c.status)}`,
+                  borderRadius: 20, cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                <span style={{ fontSize: 13 }}>{c.icon}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: stColor(c.status) }}>
+                  {c.name}
+                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: 800, color: stColor(c.status),
+                  background: `${stColor(c.status)}18`,
+                  border: `1px solid ${stColor(c.status)}33`,
+                  borderRadius: 4, padding: "1px 5px",
+                }}>
+                  {stLabel(c.status)}
+                </span>
+                {degraded.length > 0 && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: stColor(c.status) }}>
+                    ·{degraded.length}↓
+                  </span>
+                )}
+                <span style={{ fontSize: 10, color: T.muted }}>{isOpen ? "▲" : "▼"}</span>
+              </button>
+
+              {/* Dropdown: list of services on this cloud */}
+              {isOpen && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200,
+                  background: T.surface, border: `1px solid ${stBorder(c.status)}`,
+                  borderRadius: 10, padding: "10px 12px",
+                  minWidth: 220, maxWidth: 320,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 8 }}>
+                    {c.icon} {c.name} — {deps.length} services
+                  </div>
+                  {/* Error / description */}
+                  {c.error && (
+                    <div style={{ fontSize: 10, color: "#b45309", background: "#fffbeb", borderRadius: 5, padding: "4px 8px", marginBottom: 8 }}>
+                      ⚠ {c.error}
+                    </div>
+                  )}
+                  {!c.error && c.description && (
+                    <div style={{ fontSize: 10, color: stColor(c.status), background: stBg(c.status), borderRadius: 5, padding: "4px 8px", marginBottom: 8, fontWeight: 600 }}>
+                      {stLabel(c.status)}: {c.description}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {deps.map(p => {
+                      const sc = stColor(p.status);
+                      return (
+                        <span key={p.id} style={{
+                          fontSize: 10, padding: "2px 7px", borderRadius: 5, fontWeight: 600,
+                          color: sc, background: stBg(p.status), border: `1px solid ${stBorder(p.status)}`,
+                        }}>{p.icon} {p.name}</span>
+                      );
+                    })}
+                  </div>
+                  {c.activeIncidents?.length > 0 && (
+                    <div style={{ marginTop: 8, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+                      {c.activeIncidents.slice(0, 2).map((inc, i) => (
+                        <div key={i} style={{ fontSize: 10, color: stColor("outage"), marginTop: 3, lineHeight: 1.4 }}>
+                          🚨 {inc.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!allOk && (
+          <span style={{ fontSize: 10, color: "#b45309", fontWeight: 600, marginLeft: "auto" }}>
+            Cloud cascade risk — check Event Feed ↓
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── About These Metrics ─────────────────────────────────────────────────────
 
 const ABOUT_ITEMS = [
@@ -1396,6 +1520,9 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
           </label>
         </div>
       </div>
+
+      {/* Cloud status strip — persistent below tab bar */}
+      <CloudStatusStrip cloudData={cloudData} isMobile={isMobile} />
 
       {/* Main content area */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
