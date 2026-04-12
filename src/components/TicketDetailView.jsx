@@ -990,6 +990,23 @@ RESPOND IN THIS FORMAT ONLY. Be concise. No explanations. Max 12 lines total.
                         <div style={{ margin: 0, padding: "10px 14px", fontSize: 11, lineHeight: 1.6, color: isAuto ? "#0c4a6e" : T.text }}>
                           {renderMd(ev.content)}
                         </div>
+                        {isAuto && (
+                          <div style={{ padding: "6px 14px 10px", display: "flex", justifyContent: "flex-end" }}>
+                            <button
+                              onClick={copyAiPrompt}
+                              title="Copy a structured AI prompt with all ticket context — paste into Claude, ChatGPT, etc."
+                              style={{
+                                display: "flex", alignItems: "center", gap: 5,
+                                padding: "4px 10px", fontSize: 10, fontWeight: 600, borderRadius: 6,
+                                cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s",
+                                background: copiedPrompt ? "#f0fdf4" : "#e0f2fe",
+                                border: `1px solid ${copiedPrompt ? "#86efac" : "#bae6fd"}`,
+                                color: copiedPrompt ? "#15803d" : "#0369a1",
+                              }}>
+                              {copiedPrompt ? "✓ Prompt copied!" : "🤖 Copy AI Prompt"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1005,20 +1022,7 @@ RESPOND IN THIS FORMAT ONLY. Be concise. No explanations. Max 12 lines total.
                     rows={4}
                     style={{ width: "100%", padding: "8px 10px", fontSize: 11, fontFamily: "monospace", lineHeight: 1.6, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }}
                   />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-                    <button
-                      onClick={copyAiPrompt}
-                      title="Copy a structured AI prompt with all ticket context — paste into Claude, ChatGPT, etc."
-                      style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 7,
-                        cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s",
-                        background: copiedPrompt ? "#f0fdf4" : "#f8fafc",
-                        border: `1px solid ${copiedPrompt ? "#86efac" : "#e2e8f0"}`,
-                        color: copiedPrompt ? "#15803d" : "#64748b",
-                      }}>
-                      {copiedPrompt ? "✓ Prompt copied!" : "🤖 Copy AI Prompt"}
-                    </button>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
                     <button onClick={postWorklog} disabled={postingWorklog || !worklogText.trim()}
                       style={{ padding: "7px 20px", fontSize: 12, fontWeight: 700, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "#374151", border: "none", color: "#fff", opacity: postingWorklog || !worklogText.trim() ? 0.5 : 1 }}>
                       {postingWorklog ? "…" : "Add entry"}
