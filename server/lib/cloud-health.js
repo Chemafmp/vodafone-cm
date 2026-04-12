@@ -523,12 +523,11 @@ async function cleanupOldData(logFn) {
   if (!supabase) return;
   try {
     const cutoff = new Date(Date.now() - RETENTION_H * 3600 * 1000).toISOString();
-    const { count } = await supabase
+    const { error } = await supabase
       .from("cloud_provider_status")
       .delete()
-      .lt("measured_at", cutoff)
-      .select("id", { count: "exact", head: true });
-    if (count > 0) logFn?.(`[cloud-health] cleaned ${count} rows older than ${RETENTION_H}h`);
+      .lt("measured_at", cutoff);
+    if (!error) logFn?.(`[cloud-health] pruned rows older than ${RETENTION_H}h`);
   } catch { /* non-fatal */ }
 }
 
