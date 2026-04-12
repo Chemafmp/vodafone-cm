@@ -229,7 +229,7 @@ export default function TopologyReal() {
               background: showTransit ? "rgba(99,102,241,0.15)" : T.card,
               color: showTransit ? "#a5b4fc" : T.muted,
               cursor:"pointer", fontFamily:"inherit" }}>
-            🔗 Transit Peers {transitNodes.length > 0 ? `(${transitNodes.length})` : ""}
+            🔗 Transit {showTransit ? "on" : "off"}
           </button>
           <button onClick={resetView}
             style={{ fontSize:10, fontWeight:600, padding:"5px 10px", borderRadius:8,
@@ -239,11 +239,15 @@ export default function TopologyReal() {
           </button>
         </div>
 
-        {/* Zoom hint */}
+        {/* Hint */}
         <div style={{ position:"absolute", top:12, right:12, zIndex:10,
           fontSize:10, color:T.muted, background:T.card,
-          border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px" }}>
-          Scroll to zoom · Drag to pan
+          border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px",
+          display:"flex", flexDirection:"column", gap:2, textAlign:"right" }}>
+          <span>Scroll to zoom · Drag to pan</span>
+          {showTransit && transitNodes.length > 0 && !selected && (
+            <span style={{ color:"#a5b4fc" }}>Click a market to see its transit peers</span>
+          )}
         </div>
 
         {/* Legend */}
@@ -287,30 +291,30 @@ export default function TopologyReal() {
           <g transform={`translate(${tx},${ty}) scale(${scale})`}
             style={{ transformOrigin:"center" }}>
 
-            {/* Background rings */}
-            {[r2 * 0.55, r2 * 1.05, ...(showTransit && transitNodes.length ? [r3 * 1.0] : [])].map((r, i) => (
+            {/* Background rings — outer ring only when a market is selected with transit ON */}
+            {[r2 * 0.55, r2 * 1.05, ...(showTransit && selected && transitNodes.some(t => t.markets.includes(selected)) ? [r3] : [])].map((r, i) => (
               <circle key={i} cx={cx} cy={cy} r={r}
                 fill="none" stroke={T.border} strokeWidth={1}
-                strokeDasharray="4 8" opacity={0.4}/>
+                strokeDasharray="4 8" opacity={0.35}/>
             ))}
 
-            {/* ── Transit edges (market → transit node) ── */}
-            {showTransit && transitNodes.map(tn =>
-              tn.markets.map(marketId => {
-                const from = positions[marketId];
+            {/* ── Transit edges — ONLY for selected market ── */}
+            {showTransit && selected && transitNodes
+              .filter(tn => tn.markets.includes(selected))
+              .map(tn => {
+                const from = positions[selected];
                 if (!from) return null;
-                const isHighlighted = selected === marketId || (selected && tn.markets.includes(selected));
                 return (
-                  <line key={`${tn.asn}-${marketId}`}
+                  <line key={`${tn.asn}-${selected}`}
                     x1={from.x} y1={from.y} x2={tn.x} y2={tn.y}
-                    stroke={isHighlighted ? "#818cf8" : "rgba(99,102,241,0.45)"}
-                    strokeWidth={isHighlighted ? 2 : 1.5}
-                    strokeDasharray="5 5"
-                    opacity={isHighlighted ? 1 : 0.65}
+                    stroke="#818cf8"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    opacity={0.85}
                   />
                 );
               })
-            )}
+            }
 
             {/* ── Hub-spoke edges (market → INT) ── */}
             {MARKET_IDS.filter(id => id !== "int").map(id => {
@@ -322,38 +326,40 @@ export default function TopologyReal() {
               return (
                 <line key={id}
                   x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                  stroke={isHL ? col : "rgba(148,163,184,0.35)"}
-                  strokeWidth={isHL ? 2.5 : 1.5}
+                  stroke={isHL ? col : "rgba(148,163,184,0.25)"}
+                  strokeWidth={isHL ? 2.5 : 1}
                   strokeDasharray={m.status === "ok" || m.status === "loading" ? "none" : "6 4"}
-                  opacity={isHL ? 1 : 0.6}
+                  opacity={isHL ? 1 : 0.5}
                 />
               );
             })}
 
-            {/* ── Transit provider nodes ── */}
-            {showTransit && transitNodes.map(tn => {
-              const isHL = selected && tn.markets.includes(selected);
-              const label = tn.orgName.length > 11 ? tn.orgName.slice(0, 10) + "…" : tn.orgName;
-              const boxW  = 64, boxH = 22;
-              return (
-                <g key={tn.asn}>
-                  <rect x={tn.x - boxW/2} y={tn.y - boxH/2} width={boxW} height={boxH} rx={5}
-                    fill={isHL ? "rgba(99,102,241,0.25)" : "rgba(30,41,59,0.85)"}
-                    stroke={isHL ? "#818cf8" : "rgba(99,102,241,0.55)"}
-                    strokeWidth={isHL ? 1.5 : 1}
-                    filter="url(#shadowLight)"/>
-                  <text x={tn.x} y={tn.y - 2} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={9} fontWeight={isHL ? 700 : 600}
-                    fill={isHL ? "#c7d2fe" : "#94a3b8"}>
-                    {label}
-                  </text>
-                  <text x={tn.x} y={tn.y + 8} textAnchor="middle"
-                    fontSize={7.5} fill="rgba(99,102,241,0.7)" fontWeight={500}>
-                    AS{tn.asn} · {tn.markets.length} markets
-                  </text>
-                </g>
-              );
-            })}
+            {/* ── Transit provider nodes — ONLY for selected market's peers ── */}
+            {showTransit && selected && transitNodes
+              .filter(tn => tn.markets.includes(selected))
+              .map(tn => {
+                const label = tn.orgName.length > 14 ? tn.orgName.slice(0, 13) + "…" : tn.orgName;
+                const boxW  = Math.max(72, label.length * 7 + 16);
+                const boxH  = 28;
+                return (
+                  <g key={tn.asn}>
+                    <rect x={tn.x - boxW/2} y={tn.y - boxH/2} width={boxW} height={boxH} rx={6}
+                      fill="rgba(30,41,59,0.92)"
+                      stroke="#818cf8"
+                      strokeWidth={1.5}
+                      filter="url(#shadowLight)"/>
+                    <text x={tn.x} y={tn.y - 3} textAnchor="middle" dominantBaseline="middle"
+                      fontSize={10} fontWeight={700} fill="#c7d2fe">
+                      {label}
+                    </text>
+                    <text x={tn.x} y={tn.y + 9} textAnchor="middle"
+                      fontSize={8} fill="rgba(165,180,252,0.65)" fontWeight={500}>
+                      AS{tn.asn} · {tn.markets.length} mkts
+                    </text>
+                  </g>
+                );
+              })
+            }
 
             {/* ── Market nodes ── */}
             {MARKET_IDS.map(id => {
