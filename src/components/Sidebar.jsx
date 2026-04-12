@@ -103,8 +103,8 @@ export default function Sidebar({ app, view, setView, user, onLogout, onBack, ba
           const openCount    = group.summaryKeys ? (badges[group.summaryKeys.open]    ?? null) : null;
           const criticalCount= group.summaryKeys ? (badges[group.summaryKeys.critical] ?? null) : null;
 
-          // Filter items: hide lab items if SHOW_LAB is false
-          const visibleItems = group.items.filter(item => !item.lab || SHOW_LAB);
+          // All items always visible — LAB badge provides visual distinction
+          const visibleItems = group.items;
 
           return (
           <div key={group.label} style={{marginBottom:4}}>
