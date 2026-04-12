@@ -502,14 +502,25 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
       : "unknown";
 
     const nodes = (ticket.impacted_nodes || []).join(", ") || "—";
-    const recentWorklog = worklogEvents.slice(-4).map(e =>
-      `  - [${fmtTs(e.created_at)}] ${e.actor_name || "System"}: ${e.content?.slice(0, 200) || ""}`)
+
+    // Automation notes: full content (they are structured guides — never truncate)
+    // Human worklog entries: last 4, capped at 600 chars each
+    const autoNotes = worklogEvents
+      .filter(e => e.event_type === "automation_note")
+      .map(e => `[AUTO ${fmtTs(e.created_at)} — ${e.actor_name || "System"}]\n${e.content || ""}`)
+      .join("\n\n");
+
+    const humanWorklog = worklogEvents
+      .filter(e => e.event_type !== "automation_note")
+      .slice(-4)
+      .map(e => `  - [${fmtTs(e.created_at)}] ${e.actor_name || "System"}: ${e.content?.slice(0, 600) || ""}`)
       .join("\n");
+
     const evidenceList = evidence.map(e =>
       `  - [${e.type}] ${e.label || e.url || ""}`)
       .join("\n");
 
-    return `You are a NOC troubleshooting assistant. Help me diagnose and resolve this incident.
+    return `You are a NOC troubleshooting assistant. Help me diagnose and resolve this network incident quickly and accurately.
 
 TICKET: ${ticket.id}
 TYPE: ${ticket.type?.toUpperCase() || "INCIDENT"} | SEVERITY: ${ticket.severity?.toUpperCase() || "—"} | STATUS: ${ticket.status}
@@ -518,19 +529,23 @@ IMPACTED: ${nodes}
 OPENED: ${ageStr}
 TEAM: ${ticket.team || "—"}
 
-DESCRIPTION:
+INCIDENT DETAILS:
 ${ticket.description || ticket.title || "No description."}
 
-${recentWorklog ? `RECENT WORKLOG (last ${worklogEvents.slice(-4).length} entries):\n${recentWorklog}` : "WORKLOG: empty"}
-
-${evidenceList ? `EVIDENCE:\n${evidenceList}` : "EVIDENCE: none attached"}
+${autoNotes ? `AUTOMATED ANALYSIS (BNOC system-generated, use as starting point):\n${autoNotes}` : ""}
+${humanWorklog ? `\nENGINEER WORKLOG:\n${humanWorklog}` : ""}
+${evidenceList ? `\nEVIDENCE:\n${evidenceList}` : ""}
 
 ---
-RESPOND IN THIS FORMAT ONLY. Be concise. No explanations. Max 12 lines total.
+RESPOND IN THIS EXACT FORMAT. English only. No prose. Max 15 lines total.
 
-1. TOP CAUSES (max 3, ranked by likelihood, one line each)
-2. ACTIONS NOW (max 4 specific steps — what command, what dashboard, what to check)
-3. ESCALATE IF: (one line — threshold to escalate)`;
+TOP CAUSES (ranked 1→3 by likelihood, one line each — include specific technical reason):
+
+ACTIONS NOW (max 5 — be specific: exact URL, CLI command, or dashboard name):
+
+KEY PREFIXES / IPs TO INVESTIGATE (list any specific prefixes, ASNs or IPs from the description worth checking first):
+
+ESCALATE IF: (one line — specific threshold or condition)`;
   }
 
   function copyAiPrompt() {
