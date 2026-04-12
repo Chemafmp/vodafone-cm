@@ -162,13 +162,19 @@ function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false
         <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{market.flag}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{market.name}</div>
-          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
-            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()}
-            {market.baseline != null && <span> vs {market.baseline}/h</span>}
-            {" · "}
-            <span style={{ color: market.ratio >= 4.5 ? "#dc2626" : market.ratio >= 2 ? "#b45309" : T.muted }}>
-              {market.ratio}×
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 3 }}>
+            <span>
+              {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()}
+              {market.baseline != null && <span> vs {market.baseline}/h</span>}
+              {" · "}
+              <span style={{ color: market.ratio >= 4.5 ? "#dc2626" : market.ratio >= 2 ? "#b45309" : T.muted }}>
+                {market.ratio}×
+              </span>
             </span>
+            <span
+              title={"NOW vs BASELINE · RATIO\n\nNOW: current complaints per hour\nBASELINE: normal level (rolling average)\nRATIO: how many times above normal\n\n1× = normal  ·  2× = warning  ·  4.5× = outage"}
+              style={{ fontSize: 9, color: T.muted, opacity: 0.6, cursor: "help", flexShrink: 0, userSelect: "none" }}
+            >ⓘ</span>
           </div>
           {effectiveDataSource(market) === "downdetector" ? (
             <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
@@ -854,7 +860,7 @@ export default function ServiceStatusView({ mobile = false, onOpenTicket, hideTi
               display: "grid",
               gridTemplateColumns: isMobile
                 ? "repeat(2, 1fr)"
-                : "repeat(auto-fill, minmax(190px, 1fr))",
+                : "repeat(auto-fill, minmax(220px, 1fr))",
               gap: isMobile ? 8 : 12,
             }}>
               {displayMarkets.map(m => (
