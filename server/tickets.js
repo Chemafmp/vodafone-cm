@@ -503,6 +503,35 @@ router.post("/:id/evidence", async (req, res) => {
   }
 });
 
+// ── DELETE /api/tickets/:id — hard delete ticket + events + evidence ──────────
+router.delete("/:id", async (req, res) => {
+  try {
+    const db = getDb();
+    const id = req.params.id;
+
+    // Verify ticket exists
+    const { data: ticket, error: fetchErr } = await db
+      .from("tickets")
+      .select("id, title")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !ticket) return res.status(404).json({ error: "Ticket not found" });
+
+    // Delete child records first (FK may not have CASCADE)
+    await db.from("ticket_events").delete().eq("ticket_id", id);
+    await db.from("ticket_evidence").delete().eq("ticket_id", id);
+
+    // Delete ticket
+    const { error } = await db.from("tickets").delete().eq("id", id);
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ ok: true, id, title: ticket.title });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── DELETE /api/tickets/:id/evidence/:evidenceId ──────────────────────────────
 router.delete("/:id/evidence/:evidenceId", async (req, res) => {
   try {
