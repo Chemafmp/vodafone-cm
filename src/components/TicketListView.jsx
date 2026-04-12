@@ -75,6 +75,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
   const [teamFilter, setTeamFilter] = useState("all");
   const [ownerFilter] = useState(defaultMine ? currentUser?.name : "all");
   const [search, setSearch] = useState("");
+  const [showLab, setShowLab] = useState(true); // false = hide simulated-fleet tickets
 
   // Tick for SLA countdown
   useEffect(() => {
@@ -110,9 +111,13 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
     return () => clearInterval(t);
   }, [load]);
 
-  // Client-side text search + SLA watch filter
+  // Lab ticket = any impacted node matches the simulated fleet pattern (node-N)
+  const isLabTicket = t => (t.impacted_nodes || []).some(n => /^node-\d+$/.test(n));
+
+  // Client-side text search + SLA watch + Lab filter
   const filtered = useMemo(() => {
     let result = tickets;
+    if (!showLab) result = result.filter(t => !isLabTicket(t));
     if (defaultSlaWatch) {
       result = result.filter(t => {
         const sub = computeSubStatus(t);
@@ -128,7 +133,7 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
       (t.impacted_nodes || []).some(n => n.toLowerCase().includes(q)) ||
       (t.tags || []).some(tag => tag.toLowerCase().includes(q))
     );
-  }, [tickets, search, defaultSlaWatch]);
+  }, [tickets, search, defaultSlaWatch, showLab]);
 
   function openTicket(t) {
     window.open(`#ticket=${encodeURIComponent(t.id)}`, "_blank");
@@ -241,6 +246,24 @@ export default function TicketListView({ currentUser, users = [], defaultType, d
           <option value="all">All Teams</option>
           {TICKET_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
+
+        {/* LAB toggle */}
+        <button onClick={() => setShowLab(p => !p)}
+          title={showLab ? "Lab tickets included — click to hide simulated fleet tickets" : "Lab tickets hidden — click to show simulated fleet tickets"}
+          style={{
+            padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+            fontFamily: "inherit", cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap",
+            border: showLab ? "1px solid rgba(245,158,11,0.5)" : `1px solid ${T.border}`,
+            background: showLab ? "rgba(245,158,11,0.08)" : "transparent",
+            color: showLab ? "#b45309" : T.muted,
+            display: "flex", alignItems: "center", gap: 5,
+          }}>
+          <span style={{
+            fontSize: 9, fontWeight: 800, background: showLab ? "#f59e0b" : "#94a3b8",
+            color: "#fff", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.3px",
+          }}>LAB</span>
+          {showLab ? "Included" : "Hidden"}
+        </button>
 
         {/* Search */}
         <div style={{ position: "relative", flex: "1 1 180px", minWidth: 140 }}>

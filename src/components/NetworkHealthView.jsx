@@ -2038,6 +2038,7 @@ function DetailPanel({ market, onClose }) {
   const [probeOpen, setProbeOpen] = useState(false);
   const [prefixOpen, setPrefixOpen] = useState(false);
   const [rpkiOpen, setRpkiOpen] = useState(false);
+  const [hijackOpen, setHijackOpen] = useState(false);
 
   const data = applyZoom(market.history, zoom);
   const bl   = market.baseline_rtt;
@@ -2284,9 +2285,9 @@ function DetailPanel({ market, onClose }) {
                 </span>
               </div>
 
-              {/* Stat row: Prefixes / RPKI / AS Path */}
+              {/* Stat row: Prefixes / RPKI / AS Path / Hijack */}
               <div style={{
-                display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14,
+                display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 14,
               }}>
                 {/* Announced Prefixes — clickable → PrefixListModal */}
                 {(() => {
@@ -2403,6 +2404,37 @@ function DetailPanel({ market, onClose }) {
                       ) : (
                         <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>pending…</div>
                       )}
+                    </div>
+                  );
+                })()}
+                {/* BGP Hijack Candidates — clickable → HijackCandidatesModal */}
+                {(() => {
+                  const count = market.ris?.hijackCandidateCount ?? 0;
+                  const hasCandidates = count > 0;
+                  const color = hasCandidates ? "#dc2626" : "#16a34a";
+                  return (
+                    <div
+                      onClick={hasCandidates ? () => setHijackOpen(true) : undefined}
+                      style={{
+                        padding: "9px 11px", background: T.bg,
+                        border: `1px solid ${hasCandidates ? "#fca5a5" : T.border}`,
+                        borderRadius: 7,
+                        cursor: hasCandidates ? "pointer" : "default",
+                        transition: "border-color 0.15s",
+                      }}
+                    >
+                      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                        HIJACK CAND. {hasCandidates && <span style={{ fontSize: 8, color: "#dc2626" }}>↗ list</span>}
+                      </div>
+                      <div style={{
+                        fontSize: 20, fontWeight: 800, fontFamily: "monospace",
+                        color, lineHeight: 1,
+                      }}>
+                        {count}
+                      </div>
+                      <div style={{ fontSize: 9, color: hasCandidates ? "#dc2626" : T.muted, marginTop: 3 }}>
+                        {hasCandidates ? "review needed" : "clear"}
+                      </div>
                     </div>
                   );
                 })()}
@@ -2605,6 +2637,112 @@ function DetailPanel({ market, onClose }) {
           onClose={() => setRpkiOpen(false)}
         />
       )}
+      {hijackOpen && (
+        <HijackCandidatesModal
+          market={market}
+          onClose={() => setHijackOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Hijack Candidates Modal ──────────────────────────────────────────────────
+function HijackCandidatesModal({ market, onClose }) {
+  const candidates = market.ris?.recentHijackCandidates || [];
+
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    return new Date(ts).toLocaleString("en-GB", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  return (
+    <div style={{
+      position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+      backdropFilter: "blur(2px)",
+    }} onClick={onClose}>
+      <div style={{
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
+        width: "min(520px, 95vw)", maxHeight: "80vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+      }} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{
+          padding: "14px 18px 12px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <span style={{ fontSize: 16 }}>🚨</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>
+              BGP Hijack Candidates — {market.name} {market.flag}
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+              Prefix announcements where the origin ASN is not a known Vodafone AS.
+              False positives possible (CDN/transit partners). Review before escalating.
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
+            color: T.muted, fontSize: 18, lineHeight: 1, padding: "2px 6px",
+          }}>×</button>
+        </div>
+
+        {/* Content */}
+        <div style={{ overflowY: "auto", padding: "14px 18px" }}>
+          {candidates.length === 0 ? (
+            <div style={{ color: T.muted, fontSize: 13, textAlign: "center", padding: "24px 0" }}>
+              No hijack candidates recorded.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {candidates.map((c, i) => (
+                <div key={i} style={{
+                  background: T.bg, border: "1px solid #fca5a5", borderRadius: 8,
+                  padding: "10px 12px",
+                }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: "monospace" }}>
+                        {c.prefix}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <span>
+                          <span style={{ fontWeight: 600 }}>Origin ASN:</span>{" "}
+                          <span style={{ color: "#dc2626", fontWeight: 700, fontFamily: "monospace" }}>AS{c.originAsn}</span>
+                          {" "}(unexpected)
+                        </span>
+                        <span>
+                          <span style={{ fontWeight: 600 }}>Expected:</span>{" "}
+                          <span style={{ color: "#16a34a", fontFamily: "monospace" }}>AS{c.matchedAsn}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap", flexShrink: 0 }}>
+                      {fmtTs(c.ts)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{
+            marginTop: 14, padding: "10px 12px", background: "#fffbeb",
+            border: "1px solid #fcd34d", borderRadius: 8, fontSize: 11, color: "#92400e",
+            lineHeight: 1.5,
+          }}>
+            <strong>What to check:</strong> Verify the origin ASN via{" "}
+            <a href="https://stat.ripe.net" target="_blank" rel="noopener noreferrer"
+              style={{ color: "#0891b2" }}>RIPE Stat</a>{" "}or{" "}
+            <a href="https://bgp.he.net" target="_blank" rel="noopener noreferrer"
+              style={{ color: "#0891b2" }}>BGP Hurricane Electric</a>.
+            If unexpected, contact the upstream provider and check Cloudflare Radar for correlated events.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2992,13 +3130,18 @@ function MarketCard({ market, onClick }) {
         marginTop: 7, paddingTop: 6, borderTop: `1px solid ${T.border}`,
       }}>
         {[
-          { key: "atlas", label: "Atlas", status: market.status },
-          { key: "bgp",   label: "BGP",   status: market.bgp?.status },
-          { key: "ioda",  label: "IODA",  status: market.ioda?.status },
-          { key: "radar", label: "Radar", status: market.radar?.status },
-          { key: "ris",   label: "RIS",   status: market.ris?.status },
+          { key: "atlas",  label: "Atlas",  status: market.status },
+          { key: "bgp",    label: "BGP",    status: market.bgp?.status },
+          { key: "ioda",   label: "IODA",   status: market.ioda?.status },
+          { key: "radar",  label: "Radar",  status: market.radar?.status },
+          { key: "ris",    label: "RIS",    status: market.ris?.status },
+          {
+            key: "hijack", label: "Hijack",
+            status: (market.ris?.hijackCandidateCount ?? 0) > 0 ? "warn" : "ok",
+            title: `Hijack candidates: ${market.ris?.hijackCandidateCount ?? 0}`,
+          },
         ].map(sig => (
-          <div key={sig.key} title={`${sig.label}: ${sig.status || "no data"}`}
+          <div key={sig.key} title={sig.title || `${sig.label}: ${sig.status || "no data"}`}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor(sig.status) }} />
             <span style={{ fontSize: 7, color: T.muted }}>{sig.label}</span>

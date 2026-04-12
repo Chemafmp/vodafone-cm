@@ -256,6 +256,19 @@ export function initRisLive(log) {
   log?.("[ris] RIS Live module initialised — WebSocket connecting");
 }
 
+// ─── Inject a synthetic hijack candidate (for simulation/testing) ─────────────
+export function injectHijackCandidate(marketId, { prefix, originAsn, matchedAsn }) {
+  const s = state.get(marketId);
+  if (!s) return false;
+  const ts = Date.now();
+  s.suspectedHijacks.push({ prefix, originAsn, matchedAsn, ts });
+  if (s.suspectedHijacks.length > 50) s.suspectedHijacks.shift();
+  // Also push as an ANNOUNCE event so it appears in the event list
+  s.events.push({ type: "ANNOUNCE", prefix, peer: "simulated", ts, rrc: "simulated", asn: matchedAsn, originAsn, isHijack: true });
+  recompute(marketId);
+  return true;
+}
+
 // ─── Shutdown (optional, for clean exit) ─────────────────────────────────────
 export function stopRisLive() {
   running = false;
