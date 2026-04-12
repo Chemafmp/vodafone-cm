@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { T } from "../data/constants.js";
 
 const POLLER = import.meta.env.VITE_POLLER_WS
@@ -19,7 +19,6 @@ const STATUS_LABEL = {
 };
 
 const NEIGHBOUR_TYPE_LABEL = { left: "Upstream", uncertain: "Peer" };
-const NEIGHBOUR_TYPE_COLOR = { left: "#2563eb", uncertain: "#7c3aed" };
 
 const MARKET_IDS = ["uk","de","es","it","pt","nl","ie","gr","tr","int"];
 const FLAGS = { uk:"🇬🇧", de:"🇩🇪", es:"🇪🇸", it:"🇮🇹", pt:"🇵🇹",
@@ -27,14 +26,13 @@ const FLAGS = { uk:"🇬🇧", de:"🇩🇪", es:"🇪🇸", it:"🇮🇹", pt:"
 const NAMES = { uk:"UK", de:"DE", es:"ES", it:"IT", pt:"PT",
                 nl:"NL", ie:"IE", gr:"GR", tr:"TR", int:"INT" };
 
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 3;
+
 function layoutMarkets(cx, cy, r1, r2) {
-  const inner = ["int"];
-  const outer = MARKET_IDS.filter(id => id !== "int");
   const positions = {};
-  inner.forEach((id, i) => {
-    const angle = (i / inner.length) * 2 * Math.PI - Math.PI / 2;
-    positions[id] = { x: cx + r1 * Math.cos(angle), y: cy + r1 * Math.sin(angle) };
-  });
+  positions["int"] = { x: cx, y: cy };
+  const outer = MARKET_IDS.filter(id => id !== "int");
   outer.forEach((id, i) => {
     const angle = (i / outer.length) * 2 * Math.PI - Math.PI / 2;
     positions[id] = { x: cx + r2 * Math.cos(angle), y: cy + r2 * Math.sin(angle) };
@@ -42,9 +40,9 @@ function layoutMarkets(cx, cy, r1, r2) {
   return positions;
 }
 
-// Compute transit nodes: ASNs that appear as upstream (left) in 2+ markets
-function computeTransitNodes(enrichment, positions, r3) {
-  const asnMarkets = new Map();  // asn → [marketId]
+// Compute transit nodes: ASNs appearing as upstream (left) in 2+ markets
+function computeTransitNodes(enrichment, cx, cy, r3) {
+  const asnMarkets = new Map();
   for (const m of enrichment) {
     for (const n of m.neighbours) {
       if (n.type === "left") {
@@ -54,43 +52,50 @@ function computeTransitNodes(enrichment, positions, r3) {
     }
   }
 
-  // Keep transit ASNs seen in 2+ Vodafone markets, sorted by market count desc
   const shared = [...asnMarkets.entries()]
-    .filter(([, mArr]) => mArr.length >= 2)
+    .filter(([, arr]) => arr.length >= 2)
     .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 12);  // cap at 12 to avoid clutter
+    .slice(0, 12);
 
-  return shared.map(([asn, mArr], i) => {
+  return shared.map(([asn, arr], i) => {
     const angle = (i / shared.length) * 2 * Math.PI - Math.PI / 2;
     return {
       asn,
-      orgName: mArr[0].orgName || `AS${asn}`,
-      markets: mArr.map(m => m.marketId),
-      x: positions.int.x + r3 * Math.cos(angle),
-      y: positions.int.y + r3 * Math.sin(angle),
+      orgName: arr[0]?.orgName || `AS${asn}`,
+      markets: arr.map(m => m.marketId),
+      x: cx + r3 * Math.cos(angle),
+      y: cy + r3 * Math.sin(angle),
     };
   });
 }
 
 export default function TopologyReal() {
-  const svgRef = useRef(null);
-  const [markets, setMarkets] = useState(() =>
+  const containerRef = useRef(null);
+  const svgRef       = useRef(null);
+  const dragRef      = useRef(null);   // { startX, startY, startTx, startTy }
+
+  const [markets, setMarkets]       = useState(() =>
     Object.fromEntries(MARKET_IDS.map(id => [id, { id, status:"loading", score:null, metrics:{} }]))
   );
   const [enrichment, setEnrichment] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selected,   setSelected]   = useState(null);
   const [showTransit, setShowTransit] = useState(true);
-  const [lastFetch, setLastFetch] = useState(null);
-  const [dims, setDims] = useState({ w:800, h:600 });
+  const [lastFetch,  setLastFetch]  = useState(null);
+  const [dims,       setDims]       = useState({ w:900, h:600 });
 
-  /* Responsive SVG */
+  // Pan + Zoom state
+  const [tx, setTx]     = useState(0);
+  const [ty, setTy]     = useState(0);
+  const [scale, setScale] = useState(1);
+
+  /* Responsive dims */
   useEffect(() => {
-    if (!svgRef.current) return;
+    if (!containerRef.current) return;
     const ro = new ResizeObserver(([e]) => {
       const { width, height } = e.contentRect;
       setDims({ w: Math.max(400, width), h: Math.max(300, height) });
     });
-    ro.observe(svgRef.current.parentElement);
+    ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
 
@@ -109,14 +114,14 @@ export default function TopologyReal() {
             next[m.id] = {
               id: m.id,
               status: m.correlation?.status || m.status || "ok",
-              score: m.correlation?.score ?? null,
+              score:  m.correlation?.score ?? null,
               metrics: {
-                rtt:     m.current?.avg_rtt,
-                bgp:     m.bgp?.current?.visibility_pct,
-                ris:     m.ris?.withdrawals1h,
-                ioda:    m.ioda?.activeCount ?? 0,
+                rtt:  m.current?.avg_rtt,
+                bgp:  m.bgp?.current?.visibility_pct,
+                ris:  m.ris?.withdrawals1h,
+                ioda: m.ioda?.activeCount ?? 0,
               },
-              insight: m.correlation?.insight,
+              insight:    m.correlation?.insight,
               totalProbes: m.totalProbes,
             };
           });
@@ -124,11 +129,10 @@ export default function TopologyReal() {
         });
         setLastFetch(new Date());
       } catch {
-        if (!cancelled) {
+        if (!cancelled)
           setMarkets(prev => Object.fromEntries(
             Object.keys(prev).map(id => [id, { ...prev[id], status:"error" }])
           ));
-        }
       }
     }
     fetchHealth();
@@ -136,7 +140,7 @@ export default function TopologyReal() {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  /* BGP enrichment — poll every 10 min (data cached 1h server-side) */
+  /* BGP enrichment — server caches 1h, we poll every 10 min */
   useEffect(() => {
     let cancelled = false;
     async function fetchEnrichment() {
@@ -152,16 +156,49 @@ export default function TopologyReal() {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  const cx = dims.w / 2, cy = dims.h / 2;
-  const r1 = Math.min(cx, cy) * 0.18;
-  const r2 = Math.min(cx, cy) * 0.60;
-  const r3 = Math.min(cx, cy) * 0.88;
-  const positions = layoutMarkets(cx, cy, r1, r2);
+  /* ── Layout maths ── */
+  const cx = dims.w / 2;
+  const cy = dims.h / 2;
+  const r1 = 22;                              // INT center offset (kept tiny — center IS the hub)
+  const r2 = Math.min(cx, cy) * 0.52;        // Vodafone market ring
+  const r3 = Math.min(cx, cy) * 0.82;        // Transit provider ring (was 0.88 — less clipping)
+  const positions = useMemo(() => layoutMarkets(cx, cy, r1, r2), [cx, cy, r2]);
 
   const transitNodes = useMemo(
-    () => (showTransit && enrichment.length ? computeTransitNodes(enrichment, positions, r3) : []),
-    [enrichment, showTransit, cx, cy, r1, r2, r3]  // eslint-disable-line react-hooks/exhaustive-deps
+    () => (showTransit && enrichment.length ? computeTransitNodes(enrichment, cx, cy, r3) : []),
+    [enrichment, showTransit, cx, cy, r3]
   );
+
+  /* ── Pan & Zoom handlers ── */
+  const onWheel = useCallback((e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setScale(s => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s * delta)));
+  }, []);
+
+  const onMouseDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startTx: tx, startTy: ty };
+  }, [tx, ty]);
+
+  const onMouseMove = useCallback((e) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setTx(dragRef.current.startTx + dx);
+    setTy(dragRef.current.startTy + dy);
+  }, []);
+
+  const onMouseUp = useCallback(() => { dragRef.current = null; }, []);
+
+  const resetView = () => { setTx(0); setTy(0); setScale(1); };
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
 
   const selMarket = selected ? markets[selected] : null;
   const selEnrich = selected ? enrichment.find(e => e.id === selected) : null;
@@ -169,8 +206,8 @@ export default function TopologyReal() {
   return (
     <div style={{ display:"flex", height:"100%", overflow:"hidden", background:T.bg }}>
 
-      {/* ── SVG Topology ── */}
-      <div ref={svgRef} style={{ flex:1, position:"relative", overflow:"hidden" }}>
+      {/* ── SVG canvas ── */}
+      <div ref={containerRef} style={{ flex:1, position:"relative", overflow:"hidden" }}>
 
         {/* Toolbar */}
         <div style={{ position:"absolute", top:12, left:12, zIndex:10,
@@ -178,7 +215,7 @@ export default function TopologyReal() {
           <div style={{ fontSize:11, fontWeight:700, color:T.text, background:T.card,
             border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px",
             display:"flex", alignItems:"center", gap:6 }}>
-            <span>🗺</span> BGP ASN Topology — Vodafone Markets
+            🗺 BGP ASN Topology — Vodafone Markets
           </div>
           {lastFetch && (
             <div style={{ fontSize:10, color:T.muted, background:T.card,
@@ -188,11 +225,25 @@ export default function TopologyReal() {
           )}
           <button onClick={() => setShowTransit(v => !v)}
             style={{ fontSize:10, fontWeight:700, padding:"5px 10px", borderRadius:8,
-              border:`1px solid ${showTransit ? "#2563eb" : T.border}`,
-              background: showTransit ? "rgba(37,99,235,0.12)" : T.card,
-              color: showTransit ? "#60a5fa" : T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+              border:`1px solid ${showTransit ? "#6366f1" : T.border}`,
+              background: showTransit ? "rgba(99,102,241,0.15)" : T.card,
+              color: showTransit ? "#a5b4fc" : T.muted,
+              cursor:"pointer", fontFamily:"inherit" }}>
             🔗 Transit Peers {transitNodes.length > 0 ? `(${transitNodes.length})` : ""}
           </button>
+          <button onClick={resetView}
+            style={{ fontSize:10, fontWeight:600, padding:"5px 10px", borderRadius:8,
+              border:`1px solid ${T.border}`, background:T.card, color:T.muted,
+              cursor:"pointer", fontFamily:"inherit" }}>
+            ⊙ Reset view
+          </button>
+        </div>
+
+        {/* Zoom hint */}
+        <div style={{ position:"absolute", top:12, right:12, zIndex:10,
+          fontSize:10, color:T.muted, background:T.card,
+          border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px" }}>
+          Scroll to zoom · Drag to pan
         </div>
 
         {/* Legend */}
@@ -207,19 +258,19 @@ export default function TopologyReal() {
           ))}
           {showTransit && transitNodes.length > 0 && (
             <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:T.muted }}>
-              <span style={{ width:10, height:10, borderRadius:2, background:"rgba(99,102,241,0.25)",
-                border:"1px solid #6366f1", flexShrink:0 }}/>
+              <span style={{ width:10, height:6, borderRadius:2,
+                background:"rgba(99,102,241,0.3)", border:"1px solid #6366f1", flexShrink:0 }}/>
               Transit (2+ markets)
             </div>
           )}
         </div>
 
-        <svg width={dims.w} height={dims.h} style={{ display:"block" }}>
+        <svg ref={svgRef} width={dims.w} height={dims.h}
+          style={{ display:"block", cursor: dragRef.current ? "grabbing" : "grab" }}
+          onMouseDown={onMouseDown} onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+
           <defs>
-            <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#1e293b" stopOpacity="0.03"/>
-              <stop offset="100%" stopColor="#0f172a" stopOpacity="0.08"/>
-            </radialGradient>
             <filter id="glow">
               <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
               <feMerge>
@@ -227,115 +278,136 @@ export default function TopologyReal() {
                 <feMergeNode in="SourceGraphic"/>
               </feMerge>
             </filter>
-            <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L6,3 z" fill="rgba(99,102,241,0.5)"/>
-            </marker>
+            <filter id="shadowLight">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.3"/>
+            </filter>
           </defs>
 
-          {/* Background grid rings */}
-          {[r1 * 1.5, r2 * 0.8, r2 * 1.08, ...(showTransit && transitNodes.length ? [r3] : [])].map((r, i) => (
-            <circle key={i} cx={cx} cy={cy} r={r}
-              fill="none" stroke={T.border} strokeWidth={1} strokeDasharray="4 6" opacity={0.5}/>
-          ))}
+          {/* All content inside this group — pan + zoom applied here */}
+          <g transform={`translate(${tx},${ty}) scale(${scale})`}
+            style={{ transformOrigin:"center" }}>
 
-          {/* Transit edges: market → transit node */}
-          {showTransit && transitNodes.map(tn => {
-            const isHighlighted = selected && tn.markets.includes(selected);
-            return tn.markets.map(marketId => {
-              const from = positions[marketId];
-              if (!from) return null;
+            {/* Background rings */}
+            {[r2 * 0.55, r2 * 1.05, ...(showTransit && transitNodes.length ? [r3 * 1.0] : [])].map((r, i) => (
+              <circle key={i} cx={cx} cy={cy} r={r}
+                fill="none" stroke={T.border} strokeWidth={1}
+                strokeDasharray="4 8" opacity={0.4}/>
+            ))}
+
+            {/* ── Transit edges (market → transit node) ── */}
+            {showTransit && transitNodes.map(tn =>
+              tn.markets.map(marketId => {
+                const from = positions[marketId];
+                if (!from) return null;
+                const isHighlighted = selected === marketId || (selected && tn.markets.includes(selected));
+                return (
+                  <line key={`${tn.asn}-${marketId}`}
+                    x1={from.x} y1={from.y} x2={tn.x} y2={tn.y}
+                    stroke={isHighlighted ? "#818cf8" : "rgba(99,102,241,0.45)"}
+                    strokeWidth={isHighlighted ? 2 : 1.5}
+                    strokeDasharray="5 5"
+                    opacity={isHighlighted ? 1 : 0.65}
+                  />
+                );
+              })
+            )}
+
+            {/* ── Hub-spoke edges (market → INT) ── */}
+            {MARKET_IDS.filter(id => id !== "int").map(id => {
+              const from = positions[id];
+              const to   = positions["int"];
+              const m    = markets[id] || {};
+              const col  = STATUS_COLOR[m.status] || "#94a3b8";
+              const isHL = selected === id || selected === "int";
               return (
-                <line key={`${tn.asn}-${marketId}`}
-                  x1={from.x} y1={from.y} x2={tn.x} y2={tn.y}
-                  stroke={isHighlighted ? "#6366f1" : "rgba(99,102,241,0.25)"}
-                  strokeWidth={isHighlighted ? 1.5 : 1}
-                  strokeDasharray="3 4"
-                  opacity={isHighlighted ? 0.9 : 0.5}
+                <line key={id}
+                  x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+                  stroke={isHL ? col : "rgba(148,163,184,0.35)"}
+                  strokeWidth={isHL ? 2.5 : 1.5}
+                  strokeDasharray={m.status === "ok" || m.status === "loading" ? "none" : "6 4"}
+                  opacity={isHL ? 1 : 0.6}
                 />
               );
-            });
-          })}
+            })}
 
-          {/* Edges: outer markets → INT hub */}
-          {MARKET_IDS.filter(id => id !== "int").map(id => {
-            const from = positions[id];
-            const to = positions["int"];
-            const mStatus = markets[id]?.status || "loading";
-            const col = STATUS_COLOR[mStatus] || "#94a3b8";
-            const isHighlighted = selected === id || selected === "int";
-            return (
-              <line key={id}
-                x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                stroke={isHighlighted ? col : T.border}
-                strokeWidth={isHighlighted ? 2 : 1}
-                strokeDasharray={mStatus === "ok" ? "none" : "5 4"}
-                opacity={isHighlighted ? 0.9 : 0.4}
-              />
-            );
-          })}
-
-          {/* Transit provider nodes */}
-          {showTransit && transitNodes.map(tn => {
-            const isHighlighted = selected && tn.markets.includes(selected);
-            const shortName = tn.orgName.length > 12 ? tn.orgName.slice(0, 10) + "…" : tn.orgName;
-            return (
-              <g key={tn.asn}>
-                <rect x={tn.x - 28} y={tn.y - 10} width={56} height={20} rx={4}
-                  fill={isHighlighted ? "rgba(99,102,241,0.2)" : "rgba(99,102,241,0.08)"}
-                  stroke={isHighlighted ? "#6366f1" : "rgba(99,102,241,0.4)"}
-                  strokeWidth={isHighlighted ? 1.5 : 1}/>
-                <text x={tn.x} y={tn.y + 1} textAnchor="middle" dominantBaseline="middle"
-                  fontSize={8} fontWeight={isHighlighted ? 700 : 500}
-                  fill={isHighlighted ? "#a5b4fc" : "rgba(165,180,252,0.7)"}>
-                  {shortName}
-                </text>
-                <text x={tn.x} y={tn.y + 14} textAnchor="middle"
-                  fontSize={7} fill="rgba(99,102,241,0.5)">
-                  AS{tn.asn}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Nodes */}
-          {MARKET_IDS.map(id => {
-            const pos = positions[id];
-            const m = markets[id] || {};
-            const col = STATUS_COLOR[m.status] || "#94a3b8";
-            const isCenter = id === "int";
-            const r = isCenter ? 30 : 24;
-            const isSelected = id === selected;
-            return (
-              <g key={id} style={{ cursor:"pointer" }}
-                onClick={() => setSelected(isSelected ? null : id)}>
-                {m.status && m.status !== "ok" && m.status !== "loading" && (
-                  <circle cx={pos.x} cy={pos.y} r={r + 6}
-                    fill="none" stroke={col} strokeWidth={1.5} opacity={0.25}/>
-                )}
-                {isSelected && (
-                  <circle cx={pos.x} cy={pos.y} r={r + 4}
-                    fill="none" stroke="#2563eb" strokeWidth={2.5} opacity={0.6}/>
-                )}
-                <circle cx={pos.x} cy={pos.y} r={r}
-                  fill={T.card} stroke={isSelected ? "#2563eb" : col}
-                  strokeWidth={isSelected ? 3 : 2}
-                  filter={isSelected ? "url(#glow)" : "none"}/>
-                <circle cx={pos.x + r * 0.65} cy={pos.y - r * 0.65} r={5}
-                  fill={col} stroke={T.card} strokeWidth={1.5}/>
-                <text x={pos.x} y={pos.y - 3} textAnchor="middle" dominantBaseline="middle"
-                  fontSize={isCenter ? 16 : 14}>{FLAGS[id]}</text>
-                <text x={pos.x} y={pos.y + 11} textAnchor="middle"
-                  fontSize={9} fontWeight={700} fill={T.muted}>{NAMES[id]}</text>
-                {isSelected && m.score != null && (
-                  <text x={pos.x} y={pos.y + r + 14} textAnchor="middle"
-                    fontSize={10} fontWeight={700}
-                    fill={m.score >= 80 ? "#15803d" : m.score >= 50 ? "#b45309" : "#dc2626"}>
-                    {m.score}
+            {/* ── Transit provider nodes ── */}
+            {showTransit && transitNodes.map(tn => {
+              const isHL = selected && tn.markets.includes(selected);
+              const label = tn.orgName.length > 11 ? tn.orgName.slice(0, 10) + "…" : tn.orgName;
+              const boxW  = 64, boxH = 22;
+              return (
+                <g key={tn.asn}>
+                  <rect x={tn.x - boxW/2} y={tn.y - boxH/2} width={boxW} height={boxH} rx={5}
+                    fill={isHL ? "rgba(99,102,241,0.25)" : "rgba(30,41,59,0.85)"}
+                    stroke={isHL ? "#818cf8" : "rgba(99,102,241,0.55)"}
+                    strokeWidth={isHL ? 1.5 : 1}
+                    filter="url(#shadowLight)"/>
+                  <text x={tn.x} y={tn.y - 2} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={9} fontWeight={isHL ? 700 : 600}
+                    fill={isHL ? "#c7d2fe" : "#94a3b8"}>
+                    {label}
                   </text>
-                )}
-              </g>
-            );
-          })}
+                  <text x={tn.x} y={tn.y + 8} textAnchor="middle"
+                    fontSize={7.5} fill="rgba(99,102,241,0.7)" fontWeight={500}>
+                    AS{tn.asn} · {tn.markets.length} markets
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* ── Market nodes ── */}
+            {MARKET_IDS.map(id => {
+              const pos      = positions[id];
+              const m        = markets[id] || {};
+              const col      = STATUS_COLOR[m.status] || "#94a3b8";
+              const isCenter = id === "int";
+              const r        = isCenter ? 30 : 24;
+              const isSelected = id === selected;
+
+              return (
+                <g key={id} style={{ cursor:"pointer" }}
+                  onClick={e => { e.stopPropagation(); setSelected(isSelected ? null : id); }}>
+
+                  {/* Status pulse ring */}
+                  {m.status && m.status !== "ok" && m.status !== "loading" && (
+                    <circle cx={pos.x} cy={pos.y} r={r + 7}
+                      fill="none" stroke={col} strokeWidth={1.5} opacity={0.2}/>
+                  )}
+                  {/* Selection ring */}
+                  {isSelected && (
+                    <circle cx={pos.x} cy={pos.y} r={r + 5}
+                      fill="none" stroke="#2563eb" strokeWidth={2.5} opacity={0.7}/>
+                  )}
+                  {/* Node body */}
+                  <circle cx={pos.x} cy={pos.y} r={r}
+                    fill={T.card} stroke={isSelected ? "#2563eb" : col}
+                    strokeWidth={isSelected ? 3 : 2}
+                    filter={isSelected ? "url(#glow)" : "none"}/>
+                  {/* Status dot */}
+                  <circle cx={pos.x + r * 0.65} cy={pos.y - r * 0.65} r={5}
+                    fill={col} stroke={T.card} strokeWidth={1.5}/>
+                  {/* Flag */}
+                  <text x={pos.x} y={pos.y - 2} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={isCenter ? 16 : 13} style={{ pointerEvents:"none" }}>
+                    {FLAGS[id]}
+                  </text>
+                  {/* Name */}
+                  <text x={pos.x} y={pos.y + 12} textAnchor="middle"
+                    fontSize={9} fontWeight={700} fill={T.muted} style={{ pointerEvents:"none" }}>
+                    {NAMES[id]}
+                  </text>
+                  {/* Score badge */}
+                  {isSelected && m.score != null && (
+                    <text x={pos.x} y={pos.y + r + 14} textAnchor="middle"
+                      fontSize={10} fontWeight={700}
+                      fill={m.score >= 80 ? "#22c55e" : m.score >= 50 ? "#f59e0b" : "#ef4444"}>
+                      {m.score}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
         </svg>
       </div>
 
@@ -355,16 +427,19 @@ export default function TopologyReal() {
               </div>
             </div>
             <button onClick={() => setSelected(null)}
-              style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16 }}>✕</button>
+              style={{ background:"none", border:"none", cursor:"pointer",
+                color:T.muted, fontSize:16 }}>✕</button>
           </div>
 
           {/* Health score */}
           <div style={{ padding:"8px 10px", borderRadius:8, marginBottom:12,
-            background: selMarket.score >= 80 ? "#f0fdf4" : selMarket.score >= 50 ? "#fffbeb" : "#fef2f2",
-            border:`1px solid ${selMarket.score >= 80 ? "#86efac" : selMarket.score >= 50 ? "#fcd34d" : "#fca5a5"}` }}>
+            background: selMarket.score >= 80 ? "#f0fdf4"
+              : selMarket.score >= 50 ? "#fffbeb" : "#fef2f2",
+            border:`1px solid ${selMarket.score >= 80 ? "#86efac"
+              : selMarket.score >= 50 ? "#fcd34d" : "#fca5a5"}` }}>
             <div style={{ fontSize:20, fontWeight:800,
-              color: selMarket.score >= 80 ? "#15803d" : selMarket.score >= 50 ? "#b45309" : "#991b1b",
-              marginBottom:2 }}>
+              color: selMarket.score >= 80 ? "#15803d"
+                : selMarket.score >= 50 ? "#b45309" : "#991b1b", marginBottom:2 }}>
               {selMarket.score ?? "—"}
               <span style={{ fontSize:11, fontWeight:500, color:T.muted, marginLeft:6 }}>/ 100</span>
             </div>
@@ -375,17 +450,18 @@ export default function TopologyReal() {
 
           {/* Signal metrics */}
           {[
-            { label:"Avg RTT",       value:selMarket.metrics?.rtt,  unit:"ms" },
-            { label:"BGP Visibility",value:selMarket.metrics?.bgp,  unit:"%" },
-            { label:"RIS Wd/h",      value:selMarket.metrics?.ris },
-            { label:"IODA Events",   value:selMarket.metrics?.ioda },
+            { label:"Avg RTT",        value:selMarket.metrics?.rtt,  unit:"ms" },
+            { label:"BGP Visibility", value:selMarket.metrics?.bgp,  unit:"%" },
+            { label:"RIS Wd/h",       value:selMarket.metrics?.ris },
+            { label:"IODA Events",    value:selMarket.metrics?.ioda },
           ].map(({ label, value, unit }) => (
             <div key={label} style={{ display:"flex", justifyContent:"space-between",
               padding:"7px 0", borderBottom:`1px solid ${T.border}` }}>
               <span style={{ fontSize:12, color:T.muted }}>{label}</span>
               <span style={{ fontSize:12, fontWeight:600, color:T.text }}>
                 {value == null ? "—" : typeof value === "number" ? value.toFixed(1) : value}
-                {value != null && unit ? <span style={{ fontWeight:400, color:T.muted }}> {unit}</span> : ""}
+                {value != null && unit
+                  ? <span style={{ fontWeight:400, color:T.muted }}> {unit}</span> : ""}
               </span>
             </div>
           ))}
@@ -393,17 +469,20 @@ export default function TopologyReal() {
           {/* BGP Neighbours */}
           {selEnrich && selEnrich.neighbours.length > 0 && (
             <div style={{ marginTop:14 }}>
-              <div style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.3)",
-                letterSpacing:"0.8px", textTransform:"uppercase", marginBottom:8 }}>
+              <div style={{ fontSize:10, fontWeight:700,
+                color:"rgba(255,255,255,0.3)", letterSpacing:"0.8px",
+                textTransform:"uppercase", marginBottom:8 }}>
                 BGP Neighbours
               </div>
               {selEnrich.neighbours.map(n => (
                 <div key={n.asn} style={{ display:"flex", alignItems:"center", gap:8,
                   padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>
                   <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:4,
-                    background: n.type === "left" ? "rgba(37,99,235,0.15)" : "rgba(124,58,237,0.15)",
+                    background: n.type === "left"
+                      ? "rgba(37,99,235,0.15)" : "rgba(124,58,237,0.15)",
                     color: n.type === "left" ? "#60a5fa" : "#a78bfa",
-                    border:`1px solid ${n.type === "left" ? "rgba(37,99,235,0.3)" : "rgba(124,58,237,0.3)"}`,
+                    border:`1px solid ${n.type === "left"
+                      ? "rgba(37,99,235,0.3)" : "rgba(124,58,237,0.3)"}`,
                     flexShrink:0, textTransform:"uppercase" }}>
                     {NEIGHBOUR_TYPE_LABEL[n.type] || n.type}
                   </span>
@@ -412,22 +491,18 @@ export default function TopologyReal() {
                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                       {n.orgName}
                     </div>
-                    <div style={{ fontSize:10, color:T.muted }}>AS{n.asn}{n.country ? ` · ${n.country}` : ""}</div>
+                    <div style={{ fontSize:10, color:T.muted }}>
+                      AS{n.asn}{n.country ? ` · ${n.country}` : ""}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Loading state for enrichment */}
           {selEnrich && selEnrich.neighbours.length === 0 && selEnrich.lastUpdated == null && (
-            <div style={{ marginTop:14, fontSize:11, color:T.muted, lineHeight:1.6 }}>
+            <div style={{ marginTop:14, fontSize:11, color:T.muted }}>
               Loading BGP neighbours from RIPE Stat…
-            </div>
-          )}
-          {selEnrich && selEnrich.neighbours.length === 0 && selEnrich.lastUpdated != null && (
-            <div style={{ marginTop:14, fontSize:11, color:T.muted, lineHeight:1.6 }}>
-              No upstream/peer neighbours found for this market.
             </div>
           )}
         </div>
