@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
+import { useRegisterSW } from "virtual:pwa-register/react";
 
 import { T, TEAMS, DEPTS, DIRECTORS, MANAGERS, COUNTRIES, RISK_LEVELS, EXEC_RESULTS } from "./data/constants.js";
 import { fmt } from "./utils/helpers.js";
@@ -34,6 +35,7 @@ const TicketReportsView    = lazy(() => import("./components/TicketReportsView.j
 const ServiceStatusView    = lazy(() => import("./components/ServiceStatusView.jsx"));
 const NetworkHealthView    = lazy(() => import("./components/NetworkHealthView.jsx"));
 const SignalFusionView     = lazy(() => import("./components/SignalFusionView.jsx"));
+const CloudHealthView      = lazy(() => import("./components/CloudHealthView.jsx"));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const USERS=[
@@ -75,10 +77,18 @@ export default function App(){
   const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
 
   const [user,setUser]=useState(() => {
-    try { return JSON.parse(sessionStorage.getItem("bnocUser")) || null; } catch { return null; }
+    try {
+      // localStorage persists across browser restarts (sessionStorage cleared on close)
+      const stored = localStorage.getItem("bnocUser");
+      if (stored) return JSON.parse(stored);
+      // First visit: auto-login as Chema F. (Manager) → go straight to LandingPage
+      const defaultUser = { id:"u2", name:"Chema F.", role:"Manager", team:"Core Transport", dept:"Engineering" };
+      localStorage.setItem("bnocUser", JSON.stringify(defaultUser));
+      return defaultUser;
+    } catch { return null; }
   });
-  function handleLogin(u) { sessionStorage.setItem("bnocUser", JSON.stringify(u)); setUser(u); }
-  function handleLogout() { sessionStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
+  function handleLogin(u) { localStorage.setItem("bnocUser", JSON.stringify(u)); setUser(u); }
+  function handleLogout() { localStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
   const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
   const [view,setView]=useState("changes");
 
@@ -179,15 +189,22 @@ export default function App(){
     // legacy aliases (no-op guard)
     network:"Network Inventory",      topology:"Topology",
     livestatus:"Live Status",alarms:"Alarms",events:"Events",observability:"Observability",
-    service_monitor:"Service Monitor",network_health:"Network Health",signal_fusion:"Signal Fusion",
+    service_monitor:"Service Monitor",network_health:"Network Health",signal_fusion:"Signal Fusion",cloud_health:"Cloud Health",
     tickets_all:"All Tickets",tickets_incidents:"Incidents",tickets_problems:"Problems",
     tickets_projects:"Requests",tickets_my:"My Tickets",tickets_sla:"SLA Watch",tickets_reports:"Reports",
   };
 
 
-  // ── Standalone PWA mode (iOS navigator.standalone or Chrome display-mode) ──────
+  // ── PWA update toast ─────────────────────────────────────────────────────────
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
+    onRegistered(r) { console.log("[SW] registered:", r); },
+    onRegisterError(e) { console.error("[SW] registration error:", e); },
+  });
+
+  // ── Standalone PWA mode: iOS navigator.standalone | display-mode | ?pwa=1 ──
   const isPWA = window.navigator.standalone === true ||
     window.matchMedia("(display-mode: standalone)").matches ||
+    new URLSearchParams(window.location.search).get("pwa") === "1" ||
     window.location.hash.includes("standalone");
 
   if (isPWA) {
@@ -247,6 +264,27 @@ export default function App(){
           paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
         }}>
+          {/* SW update toast */}
+          {needRefresh && (
+            <div style={{
+              position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
+              background: "#1e293b", border: "1px solid #334155",
+              borderRadius: 12, padding: "12px 18px", zIndex: 9999,
+              display: "flex", alignItems: "center", gap: 12,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)", color: "#fff",
+              fontSize: 13, whiteSpace: "nowrap",
+            }}>
+              <span>🆕 Nueva versión disponible</span>
+              <button
+                onClick={() => updateServiceWorker(true)}
+                style={{
+                  background: "#e40000", border: "none", borderRadius: 8,
+                  color: "#fff", fontWeight: 700, fontSize: 12,
+                  padding: "6px 14px", cursor: "pointer",
+                }}
+              >Actualizar</button>
+            </div>
+          )}
           {/* Header */}
           <div style={{ padding: "20px 20px 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
@@ -296,6 +334,16 @@ export default function App(){
                 accent: "#8b5cf6",
                 bg: "linear-gradient(135deg,#1e1040,#0f172a)",
                 border: "#2e1a6e",
+              },
+              {
+                key: "cloud_health",
+                icon: "☁️",
+                title: "Cloud Health",
+                subtitle: "AWS · GCP · Azure · Cloudflare · 20+ providers",
+                detail: "36h uptime · incidents · CORS-live + backend",
+                accent: "#f97316",
+                bg: "linear-gradient(135deg,#2d1800,#0f172a)",
+                border: "#5c3200",
               },
             ].map(tile => (
               <button
@@ -363,6 +411,15 @@ export default function App(){
         <SignalFusionView onOpenNetworkHealth={() => setPwaView("network_health")} />
       );
     }
+
+    // ── Cloud Health ──────────────────────────────────────────────────────────
+    if (pwaView === "cloud_health") {
+      return pwaShell(
+        "Cloud Health · 20+ providers",
+        () => setPwaView(null),
+        <CloudHealthView mobile />
+      );
+    }
   }
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
@@ -392,7 +449,27 @@ export default function App(){
     {selected&&<ChangeDetail change={selected} currentUser={user} onClose={()=>closeChange()} onUpdate={u=>updateChange(selected.id,u)} onDelete={()=>deleteChange(selected.id)}/>}
   </></NodesProvider>;
 
-  return <NodesProvider><><PollerNodeSync nodeSnapshots={nodeSnapshots}/><div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
+  return <NodesProvider><><PollerNodeSync nodeSnapshots={nodeSnapshots}/>
+    {/* SW update toast */}
+    {needRefresh && (
+      <div style={{
+        position:"fixed", bottom:20, right:20, zIndex:9999,
+        background:"#1e293b", border:"1px solid #334155", borderRadius:12,
+        padding:"12px 18px", display:"flex", alignItems:"center", gap:12,
+        boxShadow:"0 8px 32px rgba(0,0,0,0.4)", color:"#fff", fontSize:13,
+      }}>
+        <span>🆕 Nueva versión disponible</span>
+        <button
+          onClick={() => updateServiceWorker(true)}
+          style={{
+            background:"#e40000", border:"none", borderRadius:8,
+            color:"#fff", fontWeight:700, fontSize:12,
+            padding:"6px 14px", cursor:"pointer",
+          }}
+        >Actualizar</button>
+      </div>
+    )}
+    <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:14,overflow:"hidden"}}>
 
     <Sidebar
       app={app} view={view} setView={setView} user={user}
@@ -585,6 +662,7 @@ export default function App(){
         {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
         {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView onOpenSignalFusion={()=>setView("signal_fusion")}/></div>}
         {view==="signal_fusion"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><SignalFusionView onOpenNetworkHealth={()=>setView("network_health")}/></div>}
+        {view==="cloud_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><CloudHealthView /></div>}
 
         {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(

@@ -21,14 +21,24 @@ const FETCH_TIMEOUT = 12_000; // 12s per provider
 
 // ── Atlassian Statuspage v2 providers ────────────────────────────────────────
 const STATUSPAGE_PROVIDERS = [
-  { id: "cloudflare", name: "Cloudflare",   icon: "🟠", cat: "cdn",    url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
-  { id: "fastly",     name: "Fastly",       icon: "⚡",  cat: "cdn",    url: "https://www.fastlystatus.com/api/v2/summary.json" },
-  { id: "github",     name: "GitHub",       icon: "🐙",  cat: "devops", url: "https://www.githubstatus.com/api/v2/summary.json" },
-  { id: "oracle",     name: "Oracle Cloud", icon: "🔺",  cat: "cloud",  url: "https://ocistatus.oraclecloud.com/api/v2/summary.json" },
-  { id: "zoom",       name: "Zoom",         icon: "📹",  cat: "comms",  url: "https://status.zoom.us/api/v2/summary.json" },
-  { id: "datadog",    name: "Datadog",      icon: "🐕",  cat: "obs",    url: "https://status.datadoghq.com/api/v2/summary.json" },
-  { id: "pagerduty",  name: "PagerDuty",    icon: "📟",  cat: "obs",    url: "https://status.pagerduty.com/api/v2/summary.json" },
-  { id: "twilio",     name: "Twilio",       icon: "📞",  cat: "comms",  url: "https://status.twilio.com/api/v2/summary.json" },
+  { id: "cloudflare", name: "Cloudflare",   icon: "🟠", cat: "cdn",     url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
+  { id: "fastly",     name: "Fastly",       icon: "⚡",  cat: "cdn",     url: "https://www.fastlystatus.com/api/v2/summary.json" },
+  { id: "github",     name: "GitHub",       icon: "🐙",  cat: "devtools", url: "https://www.githubstatus.com/api/v2/summary.json" },
+  { id: "atlassian",  name: "Atlassian",    icon: "⬡",   cat: "devtools", url: "https://status.atlassian.com/api/v2/summary.json" },
+  { id: "gitlab",     name: "GitLab",       icon: "🦊",  cat: "devtools", url: "https://status.gitlab.com/api/v2/summary.json" },
+  { id: "oracle",     name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    url: "https://ocistatus.oraclecloud.com/api/v2/summary.json" },
+  { id: "zoom",       name: "Zoom",         icon: "📹",  cat: "comms",    url: "https://status.zoom.us/api/v2/summary.json" },
+  { id: "discord",    name: "Discord",      icon: "🎮",  cat: "comms",    url: "https://discordstatus.com/api/v2/summary.json" },
+  { id: "datadog",    name: "Datadog",      icon: "🐕",  cat: "obs",      url: "https://status.datadoghq.com/api/v2/summary.json" },
+  { id: "pagerduty",  name: "PagerDuty",    icon: "📟",  cat: "obs",      url: "https://status.pagerduty.com/api/v2/summary.json" },
+  { id: "twilio",     name: "Twilio",       icon: "📞",  cat: "comms",    url: "https://status.twilio.com/api/v2/summary.json" },
+  { id: "epic",       name: "Epic Games",   icon: "🎯",  cat: "gaming",   url: "https://status.epicgames.com/api/v2/summary.json" },
+  { id: "wise",       name: "Wise",         icon: "💳",  cat: "fintech",  url: "https://status.wise.com/api/v2/summary.json" },
+  { id: "figma",      name: "Figma",        icon: "🎨",  cat: "design",   url: "https://status.figma.com/api/v2/summary.json" },
+  { id: "canva",      name: "Canva",        icon: "🖌",  cat: "design",   url: "https://status.canva.com/api/v2/summary.json" },
+  { id: "miro",       name: "Miro",         icon: "🪄",  cat: "design",   url: "https://status.miro.com/api/v2/summary.json" },
+  { id: "shopify",    name: "Shopify",      icon: "🛒",  cat: "ecomm",    url: "https://www.shopifystatus.com/api/v2/summary.json" },
+  { id: "opensea",    name: "OpenSea",      icon: "🌊",  cat: "web3",     url: "https://status.opensea.io/api/v2/summary.json" },
 ];
 
 // ── In-memory state ───────────────────────────────────────────────────────────
@@ -269,14 +279,69 @@ async function fetchAzure() {
   };
 }
 
+// ── Slack fetcher ─────────────────────────────────────────────────────────────
+async function fetchSlack() {
+  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms" };
+  const r = await fetchWithTimeout("https://status.slack.com/api/v2.0.0/current");
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+
+  const activeIncidents = (d.active_incidents || []).map(i => ({
+    id:        i.id || String(Math.random()),
+    name:      i.title || "Slack Incident",
+    impact:    i.type === "outage" ? "major" : "minor",
+    status:    "investigating",
+    createdAt: i.date_created,
+    updatedAt: i.date_updated,
+    url:       "https://status.slack.com",
+  }));
+
+  return {
+    ...meta,
+    status:      activeIncidents.length > 0 ? "warning" : "ok",
+    indicator:   activeIncidents.length > 0 ? "minor" : "none",
+    description: d.status === "ok" ? "All systems operational" : `${activeIncidents.length} active incident${activeIncidents.length !== 1 ? "s" : ""}`,
+    activeIncidents,
+    components:  [],
+    lastUpdated: d.date_updated || new Date().toISOString(),
+    ok: true, error: null,
+  };
+}
+
+// ── Binance fetcher ───────────────────────────────────────────────────────────
+async function fetchBinance() {
+  const meta = { id: "binance", name: "Binance", icon: "🟡", cat: "fintech" };
+  const r = await fetchWithTimeout("https://api.binance.com/sapi/v1/system/status");
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+  // { status: 0, msg: "normal" } or { status: 1, msg: "system maintenance" }
+  const isOk = d.status === 0;
+  return {
+    ...meta,
+    status:      isOk ? "ok"   : "outage",
+    indicator:   isOk ? "none" : "major",
+    description: isOk ? "All systems operational" : (d.msg || "System maintenance"),
+    activeIncidents: isOk ? [] : [{
+      id: "binance-main", name: d.msg || "System Maintenance",
+      impact: "major", status: "investigating",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), url: null,
+    }],
+    components:  [],
+    lastUpdated: new Date().toISOString(),
+    ok: true, error: null,
+  };
+}
+
 // ── Tick ──────────────────────────────────────────────────────────────────────
 export async function tickCloudHealth(log) {
   if (isPaused("cloud-health")) { log?.("[cloud-health] ⏸ paused"); return; }
 
   const customProviders = [
-    fetchAWS().catch(e => errProvider({ id:"aws",  name:"AWS",          icon:"🟡", cat:"cloud" }, e)),
-    fetchGCP().catch(e => errProvider({ id:"gcp",  name:"Google Cloud", icon:"🔵", cat:"cloud" }, e)),
-    fetchAzure().catch(e => errProvider({ id:"azure",name:"Azure",      icon:"🔷", cat:"cloud" }, e)),
+    fetchAWS().catch(e    => errProvider({ id:"aws",     name:"AWS",          icon:"🟡", cat:"cloud"   }, e)),
+    fetchGCP().catch(e    => errProvider({ id:"gcp",     name:"Google Cloud", icon:"🔵", cat:"cloud"   }, e)),
+    fetchAzure().catch(e  => errProvider({ id:"azure",   name:"Azure",        icon:"🔷", cat:"cloud"   }, e)),
+    fetchSlack().catch(e  => errProvider({ id:"slack",   name:"Slack",        icon:"💬", cat:"comms"   }, e)),
+    fetchBinance().catch(e=> errProvider({ id:"binance", name:"Binance",      icon:"🟡", cat:"fintech" }, e)),
   ];
 
   const statuspageProviders = STATUSPAGE_PROVIDERS.map(p =>
