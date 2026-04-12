@@ -639,7 +639,7 @@ const SIMULATE_MARKETS = {
 };
 
 app.post("/api/control/notifier/simulate", async (req, res) => {
-  const { type, signal, marketId, detail } = req.body || {};
+  const { type, signal, marketId, detail, ticketId } = req.body || {};
   if (!type || !signal || !marketId) {
     return res.status(400).json({ error: "Required: type, signal, marketId" });
   }
@@ -655,9 +655,9 @@ app.post("/api/control/notifier/simulate", async (req, res) => {
   }
 
   try {
-    await simulateAlert({ type, signal, market, detail: detail || "" });
-    log(chalk.magenta(`[notifier] 🎭 simulated ${type} · ${signal} · ${marketId}`));
-    res.json({ ok: true, type, signal, marketId, detail: detail || "" });
+    await simulateAlert({ type, signal, market, detail: detail || "", ticketId: ticketId || null });
+    log(chalk.magenta(`[notifier] 🎭 simulated ${type} · ${signal} · ${marketId}${ticketId ? ` · ticket=${ticketId}` : ""}`));
+    res.json({ ok: true, type, signal, marketId, detail: detail || "", ticketId: ticketId || null });
   } catch (e) {
     log(chalk.yellow(`[notifier] simulate error: ${e.message}`));
     res.status(500).json({ error: e.message });

@@ -342,7 +342,7 @@ export async function checkHijackCandidates(markets, createTicketFn) {
  * @param {{ type: "warning"|"outage"|"recovery", signal: "atlas"|"bgp"|"dns"|"svc",
  *            market: { id, name, flag }, detail?: string }} opts
  */
-export async function simulateAlert({ type, signal, market, detail = "" }) {
+export async function simulateAlert({ type, signal, market, detail = "", ticketId = null }) {
   const signalLabels = {
     atlas: "ICMP Latency (RIPE Atlas)",
     bgp:   "BGP Visibility",
@@ -379,24 +379,22 @@ export async function simulateAlert({ type, signal, market, detail = "" }) {
   const color    = isOutage ? "#dc2626" : "#f59e0b";
   const severity = isOutage ? "OUTAGE" : "WARNING";
 
-  await post({
-    attachments: [{
-      color,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `${emoji} *${severity} — ${market.flag} ${market.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
-          },
-        },
-        {
-          type: "context",
-          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Simulation · ${ts} UTC` }],
-        },
-      ],
-    }],
+  const blocks = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${emoji} *${severity} — ${market.flag} ${market.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
+      },
+    },
+  ];
+  const link = ticketLinkBlock(ticketId);
+  if (link) blocks.push(link);
+  blocks.push({
+    type: "context",
+    elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Simulation · ${ts} UTC` }],
   });
+  await post({ attachments: [{ color, blocks }] });
 }
 
 /**
