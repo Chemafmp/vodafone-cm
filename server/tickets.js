@@ -556,6 +556,99 @@ router.post("/:id/evidence/upload", async (req, res) => {
   }
 });
 
+// ─── Troubleshooting worklog builder ─────────────────────────────────────────
+function buildTroubleshootingNote(alarm, nodeMeta) {
+  const ts = new Date().toISOString();
+  const node = alarm.nodeId;
+  const loc = nodeMeta?.country ? `${nodeMeta.country}` : "unknown location";
+  const role = nodeMeta?.role || nodeMeta?.type || "network node";
+
+  const lines = [
+    `**Auto-generated troubleshooting guide** — ${ts}`,
+    `**Node:** ${node} | **Location:** ${loc} | **Role:** ${role}`,
+    `**Alarm:** ${alarm.message || alarm.type} | **Severity:** ${alarm.severity}`,
+    "",
+  ];
+
+  const type = alarm.type || "";
+
+  if (type === "PERFORMANCE" || type.includes("CPU")) {
+    const val = alarm.metric != null ? ` (current: ${alarm.metric}%)` : "";
+    lines.push(
+      `**CPU alert${val}** — Recommended steps:`,
+      `1. SSH to node and run \`top -bn1 | head -20\` to identify the top consumer process`,
+      `2. Check for runaway daemons: \`ps aux --sort=-%cpu | head -10\``,
+      `3. Review recent config pushes or scheduled jobs that may have triggered high load`,
+      `4. If CPU > 95% for > 5 min and node is unresponsive, consider failover`,
+      `5. Check correlated alarms — high CPU during a BGP reconvergence is expected and transient`,
+    );
+  } else if (type === "MEMORY") {
+    const val = alarm.metric != null ? ` (current: ${alarm.metric}%)` : "";
+    lines.push(
+      `**Memory alert${val}** — Recommended steps:`,
+      `1. Run \`free -h\` and \`vmstat -s\` to see memory breakdown`,
+      `2. Check for memory leaks: \`ps aux --sort=-%mem | head -10\``,
+      `3. Review routing table size — FIB bloat is a common cause on edge routers`,
+      `4. If swap is in use, node is at risk of OOM — consider emergency maintenance window`,
+    );
+  } else if (type === "TEMPERATURE" || type.includes("TEMP")) {
+    const val = alarm.metric != null ? ` (current: ${alarm.metric}°C)` : "";
+    lines.push(
+      `**Temperature alert${val}** — Recommended steps:`,
+      `1. Verify data centre HVAC is functioning — check cooling unit status`,
+      `2. Check fan speeds via SNMP OID or IPMI: \`ipmitool sensor list | grep Fan\``,
+      `3. If temperature > 75°C, initiate graceful failover and notify DC team`,
+      `4. Check neighbouring racks for hot-spot propagation`,
+    );
+  } else if (type === "REACHABILITY") {
+    lines.push(
+      `**Node unreachable** — Recommended steps:`,
+      `1. Ping from a different vantage point to confirm it is not a path issue`,
+      `2. Check management plane: try SSH via out-of-band (console server / IPMI)`,
+      `3. Verify upstream interface state: \`show interfaces brief\``,
+      `4. Check for recent planned maintenance or change in BNOC that may explain the outage`,
+      `5. If unreachable via both OOB and production, escalate to on-site field team`,
+    );
+  } else if (type === "INTERFACE") {
+    lines.push(
+      `**Interface down** — Recommended steps:`,
+      `1. Identify the affected interface from the alarm detail`,
+      `2. Check physical layer: \`show interface <if> | grep line\``,
+      `3. Verify SFP/cable — check error counters for input errors or CRC`,
+      `4. Confirm with peer device that the far-end port is up`,
+      `5. If this interface carries customer traffic, open a P1 with the transit provider`,
+    );
+  } else if (type === "BGP") {
+    lines.push(
+      `**BGP peer down** — Recommended steps:`,
+      `1. Identify which peer session dropped from the alarm detail`,
+      `2. Check BGP state: \`show bgp neighbor <peer> | grep state\``,
+      `3. Review BGP logs for NOTIFICATION messages — they carry the error code`,
+      `4. Verify TCP connectivity to the peer on port 179`,
+      `5. Check for AS-PATH or prefix-limit policy changes that may have triggered a reset`,
+      `6. Correlate with RIPE RIS Live withdrawals in Network Health → Signal Fusion`,
+    );
+  } else {
+    lines.push(
+      `**General alert** — Recommended first steps:`,
+      `1. Verify node is reachable via ICMP and management plane`,
+      `2. Review recent changes in BNOC Change Management for this node or its upstream`,
+      `3. Check correlated alarms on peer nodes in the same site`,
+    );
+  }
+
+  lines.push(
+    "",
+    `**Data sources to check:**`,
+    `- BNOC Network Health → Signal Fusion (cross-signal correlation)`,
+    `- RIPE Atlas: latency trend for this market`,
+    `- RIPE RIS Live: recent BGP withdrawals from this ASN`,
+    `- Downdetector: community complaints spike for this market`,
+  );
+
+  return lines.join("\n");
+}
+
 // ─── Auto-create ticket from alarm ───────────────────────────────────────────
 export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
   if (!supabase) return null; // tickets service not configured
@@ -608,16 +701,33 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       return t;
     }
 
-    // Create new incident ticket — use alarm.message for descriptive title
+    // Build a clear, structured title
+    const alarmTypeLabel = alarmType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const locationSuffix = nodeMeta?.country ? ` — ${nodeMeta.country}` : "";
     const title = alarm.message
-      ? `${alarm.message} — ${nodeId}`
-      : `${alarmType.replace(/_/g, " ")} — ${nodeId}`;
+      ? `${alarm.message}${locationSuffix}`
+      : `${alarm.severity} ${alarmTypeLabel} on ${nodeId}${locationSuffix}`;
+
+    // Build a structured description with context
+    const nodeRole = nodeMeta?.role || nodeMeta?.type || "network node";
+    const description = [
+      `**Alarm triggered at:** ${new Date().toISOString()}`,
+      `**Node:** ${nodeId} (${nodeRole}${locationSuffix})`,
+      `**Alarm type:** ${alarmTypeLabel} | **Severity:** ${alarm.severity}`,
+      alarm.message ? `**Detail:** ${alarm.message}` : null,
+      alarm.metric != null ? `**Metric value at trigger:** ${alarm.metric}` : null,
+      "",
+      `This ticket was auto-created by the BNOC alarm engine. `,
+      `Review the worklog tab for troubleshooting steps specific to this alarm type.`,
+    ].filter(Boolean).join("\n");
+
     const id = await generateTicketId("incident");
 
     const { data: ticket, error } = await db
       .from("tickets")
       .insert({
         id, type: "incident", title, severity, status: "new",
+        description,
         source: "alarm",
         team: "Core Transport",
         country: nodeMeta?.country || null,
@@ -634,9 +744,16 @@ export async function autoCreateTicketFromAlarm(alarm, nodeMeta) {
       return null;
     }
 
+    // Created event
     await insertEvent(id, "created", "System", null,
-      `Auto-created from alarm: ${alarm.message || title}`,
+      `Ticket auto-created from ${alarm.severity} ${alarmTypeLabel} alarm on ${nodeId}`,
       { alarm_id: alarm.id, alarm_severity: alarm.severity, node: nodeId }
+    );
+
+    // Troubleshooting worklog — structured guide for the responding engineer
+    const tsNote = buildTroubleshootingNote(alarm, nodeMeta);
+    await insertEvent(id, "worklog", "BNOC Automation", null, tsNote,
+      { source: "alarm-engine", alarm_type: alarmType, node: nodeId }
     );
 
     return ticket;

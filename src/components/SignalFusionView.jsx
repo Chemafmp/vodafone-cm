@@ -1031,6 +1031,11 @@ const ABOUT_ITEMS = [
     desc: "User-reported complaints from Downdetector. Simulated when USE_SCRAPER=0; real data when the scraper is enabled. Each market has its own baseline (hourly average). Ratio = current ÷ baseline. OK <2× · WARNING ≥2× · OUTAGE ≥4.5×.",
   },
   {
+    icon: "🚨",
+    title: "Hijack — Origin-ASN Anomaly",
+    desc: "RIS Live BGP hijack heuristic: when a prefix is announced and the origin ASN (last hop in the AS path) is NOT a known Vodafone ASN, it is flagged as a hijack candidate. A legitimate hijack means a third-party AS is originating your prefix — a serious routing security event. False positives are possible (e.g. CDN or transit partners announcing on your behalf). Candidates persist up to 50 per market; shown in the Hijack detail panel for manual review.",
+  },
+  {
     icon: "📊",
     title: "Health Score (0–100)",
     desc: "Composite score penalising each degraded signal layer. Atlas WARNING −10 / OUTAGE −25. BGP WARNING −8 / OUTAGE −20. RIS WARNING −5 / ALERT −15. Radar ALERT −10. IODA ALERT −10. Community WARNING −5 / OUTAGE −15. Cross-penalty: 2+ signals degrade together → additional −10.",

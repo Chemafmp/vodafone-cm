@@ -31,9 +31,9 @@ import { tickRipeAtlas, getNetworkHealth, initRipeAtlas } from "./lib/ripe-atlas
 import { tickBgpVisibility, getBgpVisibility, initBgpVisibility } from "./lib/bgp-visibility.js";
 import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./lib/dns-measurements.js";
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
-import { tickRisLive, getRisLive, initRisLive, stopRisLive } from "./lib/ris-live.js";
+import { tickRisLive, getRisLive, initRisLive, stopRisLive, injectHijackCandidate } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
-import { checkNetworkHealth, checkServiceStatus, simulateAlert, notifyTest } from "./lib/notifier.js";
+import { checkNetworkHealth, checkServiceStatus, checkHijackCandidates, simulateAlert, notifyTest } from "./lib/notifier.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
@@ -661,6 +661,63 @@ app.post("/api/control/notifier/simulate", async (req, res) => {
   }
 });
 
+// ─── Hijack ticket creator (used by checkHijackCandidates + simulate) ────────
+async function createHijackTicket(market, candidates) {
+  const newest = candidates[0] || {};
+  const alarm = {
+    id:       `hijack-${market.id}-${Date.now()}`,
+    type:     "HIJACK",
+    severity: "Critical",
+    nodeId:   `market-${market.id}`,
+    message:  `BGP Hijack Candidate — prefix ${newest.prefix || "unknown"} announced by unexpected AS${newest.originAsn || "?"}`,
+    metric:   candidates.length,
+    affectedServices: [],
+  };
+  const nodeMeta = { country: market.name, role: "BGP routing (RIS Live)" };
+  try {
+    const ticket = await autoCreateTicketFromAlarm(alarm, nodeMeta);
+    return ticket?.id || null;
+  } catch { return null; }
+}
+
+// ─── Simulate hijack endpoint ─────────────────────────────────────────────────
+// POST /api/simulate/hijack
+// Body: { marketId?, prefix?, originAsn? }
+// Injects a synthetic hijack candidate for the given market, auto-creates a ticket,
+// and fires a Slack alert with a ticket link.
+app.post("/api/simulate/hijack", async (req, res) => {
+  const { marketId = "es", prefix = "212.166.64.0/19", originAsn = 64512 } = req.body || {};
+  const market = SIMULATE_MARKETS[marketId];
+  if (!market) {
+    return res.status(400).json({ error: `Unknown marketId. Valid: ${Object.keys(SIMULATE_MARKETS).join(", ")}` });
+  }
+
+  // Inject into RIS Live state
+  const matchedAsn = { es: 12430, uk: 5378, de: 3209, it: 30722, pt: 12353, nl: 33915, ie: 15502, gr: 3329, tr: 15924 }[marketId] || 12430;
+  const ok = injectHijackCandidate(marketId, { prefix, originAsn, matchedAsn });
+  if (!ok) return res.status(500).json({ error: `Could not inject into market ${marketId}` });
+
+  // Build candidate list from current state (after injection)
+  const nh = getNetworkHealth();
+  const mData = nh.find(m => m.id === marketId) || {};
+  const candidates = mData.ris?.recentHijackCandidates || [{ prefix, originAsn, matchedAsn, ts: Date.now() }];
+
+  // Auto-create ticket
+  const ticketId = await createHijackTicket(
+    { ...market, flag: { es:"🇪🇸",uk:"🇬🇧",de:"🇩🇪",it:"🇮🇹",pt:"🇵🇹",nl:"🇳🇱",ie:"🇮🇪",gr:"🇬🇷",tr:"🇹🇷" }[marketId] || "🌍" },
+    candidates
+  );
+
+  // Fire Slack (bypass mute for simulation)
+  await checkHijackCandidates(
+    nh.map(m => m.id === marketId ? { ...m, ris: { ...m.ris, hijackCandidateCount: 999, recentHijackCandidates: candidates } } : m),
+    async () => ticketId
+  ).catch(() => null);
+
+  log(chalk.magenta(`[hijack] 🎭 simulated hijack injection — ${marketId} · prefix=${prefix} · originAS=${originAsn} · ticket=${ticketId || "none"}`));
+  res.json({ ok: true, marketId, prefix, originAsn, matchedAsn, ticketId });
+});
+
 // /api/ioda-push removed — IODA v2 is now polled natively from the droplet.
 // The old Mac-cron workaround was needed because api.ioda.caida.org blocked
 // cloud IPs; the new endpoint api.ioda.inetintel.cc.gatech.edu/v2/ does not.
@@ -762,6 +819,7 @@ server.listen(PORT, BIND_HOST, () => {
   setInterval(async () => {
     await tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
     tickRisLive();   // recompute RIS counters every cycle
+    await checkHijackCandidates(getNetworkHealth(), createHijackTicket).catch(e => log(chalk.yellow(`[hijack] notify error: ${e.message}`)));
     await tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] tick error: ${e.message}`)));
     await saveAllCorrelationPoints(log);
   }, RIPE_INTERVAL);

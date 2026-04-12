@@ -11,8 +11,9 @@
 // Activation: set SLACK_WEBHOOK_URL env var in docker-compose.yml.
 // Without it this module is a no-op (safe to deploy with no config).
 
-const WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
-const MUTE_MS     = 10 * 60 * 1000; // 10 min cooldown per alarm key
+const WEBHOOK_URL  = process.env.SLACK_WEBHOOK_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://chemafmp.github.io/vodafone-cm";
+const MUTE_MS      = 10 * 60 * 1000; // 10 min cooldown per alarm key
 
 // Track last notification time per alarm key to rate-limit
 const lastSent = new Map();
@@ -227,6 +228,82 @@ export function checkServiceStatus(markets) {
         }],
       });
     }
+  }
+}
+
+// ── Ticket link block helper ──────────────────────────────────────────────────
+function ticketLinkBlock(ticketId) {
+  if (!ticketId) return null;
+  const url = `${FRONTEND_URL}/#ticket=${encodeURIComponent(ticketId)}`;
+  return {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `🎫 *<${url}|View Ticket ${ticketId} →>*`,
+    },
+  };
+}
+
+// ── BGP Hijack Candidates ─────────────────────────────────────────────────────
+// Track last known hijack count per market to detect new candidates.
+const prevHijackCount = new Map();
+
+/**
+ * Check RIS Live hijack candidates and alert on new detections.
+ * Calls createTicketFn(marketId, candidate[]) → Promise<ticketId|null> to
+ * auto-create a ticket before posting to Slack.
+ *
+ * @param {Array} markets - from getNetworkHealth()
+ * @param {Function} createTicketFn - async (market, candidates) => ticketId
+ */
+export async function checkHijackCandidates(markets, createTicketFn) {
+  if (!WEBHOOK_URL) return;
+
+  const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  for (const m of markets) {
+    const count = m.ris?.hijackCandidateCount ?? 0;
+    const prev  = prevHijackCount.get(m.id) ?? 0;
+    prevHijackCount.set(m.id, count);
+
+    if (count <= prev || count === 0) continue; // no new candidates
+
+    const muteKey = `hijack::${m.id}`;
+    if (isMuted(muteKey)) continue;
+    lastSent.set(muteKey, Date.now());
+
+    const candidates = m.ris?.recentHijackCandidates || [];
+    const newest     = candidates[0];
+
+    // Auto-create ticket
+    let ticketId = null;
+    if (typeof createTicketFn === "function") {
+      ticketId = await createTicketFn(m, candidates).catch(() => null);
+    }
+
+    const prefixText = newest
+      ? `*Prefix:* \`${newest.prefix}\`  ·  *Origin ASN:* AS${newest.originAsn} (expected AS${newest.matchedAsn})`
+      : `${count} candidate${count !== 1 ? "s" : ""} detected`;
+
+    const blocks = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `🚨 *BGP HIJACK CANDIDATE — ${m.flag} ${m.name}*\n${prefixText}\n_Origin ASN is not a known Vodafone AS — review immediately_`,
+        },
+      },
+    ];
+
+    const link = ticketLinkBlock(ticketId);
+    if (link) blocks.push(link);
+
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `Bodaphone NOC · RIS Live · ${ts} UTC · ${count} total candidate${count !== 1 ? "s" : ""}` }],
+    });
+
+    await post({ attachments: [{ color: "#dc2626", blocks }] });
   }
 }
 
