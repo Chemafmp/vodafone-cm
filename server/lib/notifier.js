@@ -54,13 +54,15 @@ function sevMeta(severity) {
 const prevNetworkStatus = new Map();
 
 /**
- * Check a network health signal and notify if the status degraded.
- * Call after each RIPE/BGP/DNS tick with the full market list from getNetworkHealth().
+ * Check network health signals and notify on status changes.
+ * Covers Atlas, BGP, DNS, IODA, and Cloudflare Radar.
+ * Call after each tick with the full market list from getNetworkHealth().
  *
- * @param {{ id, name, flag, status, ratio, bgp:{status}, dns:{status} }[]} markets
+ * @param {{ id, name, flag, status, ratio, bgp:{status}, dns:{status}, ioda, radar }[]} markets
+ * @param {Function} [createTicketFn] - async (market, signal, status, detail) => ticketId
  */
-export function checkNetworkHealth(markets) {
-  if (!WEBHOOK_URL) return;
+export async function checkNetworkHealth(markets, createTicketFn) {
+  if (!WEBHOOK_URL && typeof createTicketFn !== "function") return;
 
   const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -69,6 +71,14 @@ export function checkNetworkHealth(markets) {
       { signal: "atlas", label: "ICMP Latency (RIPE Atlas)", status: m.status,      detail: m.ratio ? `×${m.ratio.toFixed(1)} ratio` : "" },
       { signal: "bgp",   label: "BGP Visibility",            status: m.bgp?.status, detail: m.bgp?.current ? `${m.bgp.current.visibility_pct?.toFixed(1)}% peers` : "" },
       { signal: "dns",   label: "DNS RTT",                   status: m.dns?.status, detail: m.dns?.ratio   ? `×${m.dns.ratio.toFixed(1)} ratio`   : "" },
+      // IODA: hasActiveEvent → "outage", otherwise "ok"
+      { signal: "ioda",  label: "CAIDA IODA Outage",
+        status: m.ioda ? (m.ioda.hasActiveEvent ? "outage" : "ok") : null,
+        detail: m.ioda?.activeCount > 0 ? `${m.ioda.activeCount} active event${m.ioda.activeCount !== 1 ? "s" : ""}` : "" },
+      // Radar: hasAlert → "warning", otherwise "ok"
+      { signal: "radar", label: "Cloudflare Radar BGP",
+        status: m.radar ? (m.radar.hasAlert ? "warning" : "ok") : null,
+        detail: m.radar?.alertCount > 0 ? `${m.radar.alertCount} alert${m.radar.alertCount !== 1 ? "s" : ""}` : "" },
     ];
 
     for (const { signal, label, status, detail } of checks) {
@@ -96,45 +106,53 @@ export function checkNetworkHealth(markets) {
         const color     = isOutage ? "#dc2626" : "#f59e0b";
         const severity  = isOutage ? "OUTAGE" : "WARNING";
 
-        post({
-          attachments: [{
-            color,
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: `${emoji} *${severity} — ${m.flag} ${m.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
-                },
+        // Auto-create ticket
+        let ticketId = null;
+        if (typeof createTicketFn === "function") {
+          ticketId = await createTicketFn(m, signal, isOutage ? "outage" : "warning", detail).catch(() => null);
+        }
+
+        if (WEBHOOK_URL) {
+          const blocks = [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `${emoji} *${severity} — ${m.flag} ${m.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}`,
               },
-              {
-                type: "context",
-                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
-              },
-            ],
-          }],
-        });
+            },
+          ];
+          const link = ticketLinkBlock(ticketId);
+          if (link) blocks.push(link);
+          blocks.push({
+            type: "context",
+            elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
+          });
+          await post({ attachments: [{ color, blocks }] });
+        }
       }
 
       if (recovered) {
-        post({
-          attachments: [{
-            color: "#16a34a",
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* ${label} back to normal`,
+        if (WEBHOOK_URL) {
+          await post({
+            attachments: [{
+              color: "#16a34a",
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* ${label} back to normal`,
+                  },
                 },
-              },
-              {
-                type: "context",
-                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
-              },
-            ],
-          }],
-        });
+                {
+                  type: "context",
+                  elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Network Health · ${ts} UTC` }],
+                },
+              ],
+            }],
+          });
+        }
       }
     }
   }
@@ -150,9 +168,10 @@ const prevServiceStatus = new Map();
  * Call after each tickServiceStatus().
  *
  * @param {{ id, name, flag, status, ratio, complaints, dataSource }[]} markets
+ * @param {Function} [createTicketFn] - async (market, status) => ticketId
  */
-export function checkServiceStatus(markets) {
-  if (!WEBHOOK_URL) return;
+export async function checkServiceStatus(markets, createTicketFn) {
+  if (!WEBHOOK_URL && typeof createTicketFn !== "function") return;
 
   const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -180,53 +199,61 @@ export function checkServiceStatus(markets) {
       if (isMuted(muteKey)) continue;
       lastSent.set(muteKey, Date.now());
 
-      const isAlert = status === "alert";
-      const emoji   = isAlert ? "🔴" : "🟠";
-      const color   = isAlert ? "#dc2626" : "#f59e0b";
-      const label   = isAlert ? "ALERT" : "WARNING";
+      const isAlert  = status === "alert";
+      const emoji    = isAlert ? "🔴" : "🟠";
+      const color    = isAlert ? "#dc2626" : "#f59e0b";
+      const label    = isAlert ? "ALERT" : "WARNING";
       const ratioTxt = m.ratio ? `×${m.ratio.toFixed(1)} complaints` : "";
       const countTxt = m.complaints ? `${m.complaints}/h` : "";
       const detail   = [ratioTxt, countTxt].filter(Boolean).join("  ·  ");
 
-      post({
-        attachments: [{
-          color,
-          blocks: [
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: `${emoji} *${label} — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints${detail ? `  ·  ${detail}` : ""}`,
-              },
+      // Auto-create ticket
+      let ticketId = null;
+      if (typeof createTicketFn === "function") {
+        ticketId = await createTicketFn(m, status).catch(() => null);
+      }
+
+      if (WEBHOOK_URL) {
+        const blocks = [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `${emoji} *${label} — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints${detail ? `  ·  ${detail}` : ""}`,
             },
-            {
-              type: "context",
-              elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
-            },
-          ],
-        }],
-      });
+          },
+        ];
+        const link = ticketLinkBlock(ticketId);
+        if (link) blocks.push(link);
+        blocks.push({
+          type: "context",
+          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
+        });
+        await post({ attachments: [{ color, blocks }] });
+      }
     }
 
     if (recovered) {
-      post({
-        attachments: [{
-          color: "#16a34a",
-          blocks: [
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints back to normal`,
+      if (WEBHOOK_URL) {
+        await post({
+          attachments: [{
+            color: "#16a34a",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: `✅ *RECOVERED — ${m.flag} ${m.name}*\n*Signal:* Downdetector Complaints back to normal`,
+                },
               },
-            },
-            {
-              type: "context",
-              elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
-            },
-          ],
-        }],
-      });
+              {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Service Monitor · ${ts} UTC` }],
+              },
+            ],
+          }],
+        });
+      }
     }
   }
 }

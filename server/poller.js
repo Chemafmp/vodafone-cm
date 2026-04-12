@@ -664,6 +664,77 @@ app.post("/api/control/notifier/simulate", async (req, res) => {
   }
 });
 
+// ─── Network signal ticket creators ──────────────────────────────────────────
+
+const SIGNAL_META = {
+  atlas: { label: "RIPE Atlas Latency",   alarmType: "NETWORK_ATLAS" },
+  bgp:   { label: "BGP Visibility",       alarmType: "NETWORK_BGP"   },
+  dns:   { label: "DNS RTT",              alarmType: "NETWORK_DNS"   },
+  ioda:  { label: "CAIDA IODA Outage",    alarmType: "IODA_OUTAGE"   },
+  radar: { label: "Cloudflare Radar BGP", alarmType: "RADAR_ALERT"   },
+};
+
+/**
+ * Create a ticket for a network health signal degradation.
+ * Called by checkNetworkHealth when a status transition fires.
+ *
+ * @param {{ id, name, flag }} market
+ * @param {string} signal - "atlas" | "bgp" | "dns" | "ioda" | "radar"
+ * @param {string} status - "warning" | "outage"
+ * @param {string} detail - extra context string
+ * @returns {Promise<string|null>} ticketId or null
+ */
+async function createNetworkTicket(market, signal, status, detail) {
+  const meta = SIGNAL_META[signal] || { label: signal, alarmType: `NETWORK_${signal.toUpperCase()}` };
+  const alarm = {
+    id:       `net-${signal}-${market.id}-${Date.now()}`,
+    type:     meta.alarmType,
+    severity: status === "outage" ? "Critical" : "Major",
+    nodeId:   `market-${market.id}`,
+    message:  `${meta.label} ${status.toUpperCase()} — ${market.flag} ${market.name}${detail ? ` · ${detail}` : ""}`,
+    metric:   null,
+    affectedServices: [],
+  };
+  const nodeMeta = { country: market.name, role: `Network signal (${meta.label})` };
+  try {
+    const ticket = await autoCreateTicketFromAlarm(alarm, nodeMeta);
+    if (ticket?.id) log(chalk.cyan(`[tickets] 🎫 ${meta.alarmType} → ${ticket.id} (${market.name})`));
+    return ticket?.id || null;
+  } catch (e) {
+    log(chalk.yellow(`[tickets] network ticket create failed: ${e.message}`));
+    return null;
+  }
+}
+
+/**
+ * Create a ticket for a Downdetector service status degradation.
+ * Called by checkServiceStatus when a real Downdetector market degrades.
+ *
+ * @param {{ id, name, flag, complaints, ratio }} market
+ * @param {string} status - "warn" | "alert"
+ * @returns {Promise<string|null>} ticketId or null
+ */
+async function createServiceTicket(market, status) {
+  const alarm = {
+    id:       `svc-${market.id}-${Date.now()}`,
+    type:     "DOWNDETECTOR",
+    severity: status === "alert" ? "Critical" : "Major",
+    nodeId:   `market-${market.id}`,
+    message:  `Downdetector Complaints ${status.toUpperCase()} — ${market.flag} ${market.name}`,
+    metric:   market.complaints || null,
+    affectedServices: [],
+  };
+  const nodeMeta = { country: market.name, role: "Service monitoring (Downdetector)" };
+  try {
+    const ticket = await autoCreateTicketFromAlarm(alarm, nodeMeta);
+    if (ticket?.id) log(chalk.cyan(`[tickets] 🎫 DOWNDETECTOR → ${ticket.id} (${market.name})`));
+    return ticket?.id || null;
+  } catch (e) {
+    log(chalk.yellow(`[tickets] service ticket create failed: ${e.message}`));
+    return null;
+  }
+}
+
 // ─── Hijack ticket creator (used by checkHijackCandidates + simulate) ────────
 async function createHijackTicket(market, candidates) {
   const newest = candidates[0] || {};
@@ -767,11 +838,11 @@ server.listen(PORT, BIND_HOST, () => {
   initServiceStatus(log).then(() => {
     setInterval(() => {
       tickServiceStatus(PORT, log)
-        .then(() => checkServiceStatus(getServiceStatus()))
+        .then(() => checkServiceStatus(getServiceStatus(), createServiceTicket))
         .catch(e => log(chalk.yellow(`[service-status] tick error: ${e.message}`)));
     }, SERVICE_STATUS_INTERVAL);
     setTimeout(() => tickServiceStatus(PORT, log)
-      .then(() => checkServiceStatus(getServiceStatus()))
+      .then(() => checkServiceStatus(getServiceStatus(), createServiceTicket))
       .catch(e => log(chalk.yellow(`[service-status] first tick error: ${e.message}`))), 2000);
   }).catch(e => log(chalk.yellow(`[service-status] init error: ${e.message}`)));
 
@@ -781,12 +852,12 @@ server.listen(PORT, BIND_HOST, () => {
     log(chalk.cyan(`[ripe] network health polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
       tickRipeAtlas(log)
-        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
         .catch(e => log(chalk.yellow(`[ripe] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
     // First tick after 10s to let other init settle
     setTimeout(() => tickRipeAtlas(log)
-      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
       .catch(e => log(chalk.yellow(`[ripe] first tick error: ${e.message}`))), 10_000);
   }).catch(e => log(chalk.yellow(`[ripe] init error: ${e.message}`)));
 
@@ -795,11 +866,11 @@ server.listen(PORT, BIND_HOST, () => {
     log(chalk.cyan(`[bgp] BGP visibility polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
       tickBgpVisibility(log)
-        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
         .catch(e => log(chalk.yellow(`[bgp] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
     setTimeout(() => tickBgpVisibility(log)
-      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
       .catch(e => log(chalk.yellow(`[bgp] first tick error: ${e.message}`))), 15_000);
   }).catch(e => log(chalk.yellow(`[bgp] init error: ${e.message}`)));
 
@@ -808,11 +879,11 @@ server.listen(PORT, BIND_HOST, () => {
     log(chalk.cyan(`[dns] DNS measurement polling started (every ${RIPE_INTERVAL / 60000} min)`));
     setInterval(() => {
       tickDnsMeasurements(log)
-        .then(() => checkNetworkHealth(getNetworkHealth()))
+        .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
         .catch(e => log(chalk.yellow(`[dns] tick error: ${e.message}`)));
     }, RIPE_INTERVAL);
     setTimeout(() => tickDnsMeasurements(log)
-      .then(() => checkNetworkHealth(getNetworkHealth()))
+      .then(() => checkNetworkHealth(getNetworkHealth(), createNetworkTicket))
       .catch(e => log(chalk.yellow(`[dns] first tick error: ${e.message}`))), 20_000);
   }).catch(e => log(chalk.yellow(`[dns] init error: ${e.message}`)));
 
@@ -822,8 +893,10 @@ server.listen(PORT, BIND_HOST, () => {
   setInterval(async () => {
     await tickIoda(log).catch(e => log(chalk.yellow(`[ioda] tick error: ${e.message}`)));
     tickRisLive();   // recompute RIS counters every cycle
-    await checkHijackCandidates(getNetworkHealth(), createHijackTicket).catch(e => log(chalk.yellow(`[hijack] notify error: ${e.message}`)));
     await tickCfRadar(log).catch(e => log(chalk.yellow(`[radar] tick error: ${e.message}`)));
+    // Check IODA + Radar signal transitions (Atlas/BGP/DNS already checked in their own intervals)
+    await checkNetworkHealth(getNetworkHealth(), createNetworkTicket).catch(e => log(chalk.yellow(`[notifier] ioda/radar check error: ${e.message}`)));
+    await checkHijackCandidates(getNetworkHealth(), createHijackTicket).catch(e => log(chalk.yellow(`[hijack] notify error: ${e.message}`)));
     await saveAllCorrelationPoints(log);
   }, RIPE_INTERVAL);
   setTimeout(() => tickIoda(log).catch(e => log(chalk.yellow(`[ioda] first tick error: ${e.message}`))), 25_000);

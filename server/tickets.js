@@ -657,6 +657,70 @@ function buildTroubleshootingNote(alarm, nodeMeta) {
       `5. Check for AS-PATH or prefix-limit policy changes that may have triggered a reset`,
       `6. Correlate with RIPE RIS Live withdrawals in Network Health → Signal Fusion`,
     );
+  } else if (type === "NETWORK_ATLAS") {
+    lines.push(
+      `**RIPE Atlas ICMP latency degradation** — Recommended steps:`,
+      `1. Review the Atlas RTT ratio trend in BNOC Network Health → this market's Atlas chart`,
+      `2. Check if degradation is probe-wide or isolated to specific ASNs / probe locations`,
+      `3. Compare with BGP visibility and DNS RTT for the same market — co-degradation indicates broader issue`,
+      `4. If widespread, look for routing anomalies in Signal Fusion → RIS Live column`,
+      `5. Check for planned or emergency maintenance in BNOC Change Management for this market`,
+    );
+  } else if (type === "NETWORK_BGP") {
+    lines.push(
+      `**BGP visibility degradation (RIPE Stat)** — Recommended steps:`,
+      `1. Check RIPE Stat routing status for this ASN: https://stat.ripe.net/app/launchpad`,
+      `2. Review BGP visibility % trend in Network Health → BGP chart`,
+      `3. Look for prefix withdrawal spikes in Signal Fusion → RIS Live column`,
+      `4. Verify RPKI ROAs are valid for the affected prefixes`,
+      `5. If peers are dropping: check for route filter changes or session resets with upstream providers`,
+    );
+  } else if (type === "NETWORK_DNS") {
+    lines.push(
+      `**DNS RTT degradation (RIPE Atlas)** — Recommended steps:`,
+      `1. Review DNS RTT ratio trend in Network Health → DNS chart`,
+      `2. Check if RIPE Atlas DNS probes are concentrated in a specific geography or ASN`,
+      `3. Verify authoritative DNS server availability — test SOA query response times`,
+      `4. Cross-reference with Atlas ICMP latency: if both degrade, suspect a broader infrastructure issue`,
+      `5. Check for DNS amplification or volumetric attack patterns if RTT is extremely high`,
+    );
+  } else if (type === "DOWNDETECTOR") {
+    lines.push(
+      `**Downdetector complaint surge** — Recommended steps:`,
+      `1. Review the Service Monitor chart in BNOC for this market's complaint trend and ratio`,
+      `2. Check Downdetector directly for the affected services (mobile, internet, TV)`,
+      `3. Correlate with Network Health signals — is there a matching Atlas / BGP degradation?`,
+      `4. Check social media (Twitter/X) and operator status pages for public announcements`,
+      `5. Initiate customer impact assessment — triage to the appropriate service team`,
+    );
+  } else if (type === "IODA_OUTAGE") {
+    lines.push(
+      `**CAIDA IODA outage event** — Recommended steps:`,
+      `1. Review IODA dashboard for this market/ASN: https://ioda.live`,
+      `2. Check both BGP score and ping-slash24 signals — are both degraded?`,
+      `3. BGP-only drop → routing issue; ping-slash24 drop → confirmed reachability loss`,
+      `4. Check event duration — transient (< 5 min) events are often false positives`,
+      `5. Correlate with RIPE Atlas ICMP and Downdetector to assess customer impact`,
+    );
+  } else if (type === "RADAR_ALERT") {
+    lines.push(
+      `**Cloudflare Radar BGP event** — Recommended steps:`,
+      `1. Check Cloudflare Radar for BGP hijack/leak events: https://radar.cloudflare.com/routing`,
+      `2. Review the specific prefixes and originating ASNs involved in the event`,
+      `3. Determine if Vodafone is the victim (hijack) or source (route leak) of the anomaly`,
+      `4. For a confirmed hijack: coordinate with Cloudflare and upstream transit providers immediately`,
+      `5. For a route leak: identify the originating router and apply emergency route filters`,
+    );
+  } else if (type === "HIJACK") {
+    lines.push(
+      `**BGP hijack candidate (RIS Live)** — Recommended steps:`,
+      `1. Review hijack candidates in BNOC Network Health → this market → Hijack Candidates`,
+      `2. Verify the origin ASN against known Vodafone ASNs and CDN/transit partners`,
+      `3. Check RIPE Stat for the affected prefix: https://stat.ripe.net/`,
+      `4. Check BGP.HE.NET for the originating AS: https://bgp.he.net/`,
+      `5. If confirmed hijack: notify NOC leadership and upstream transit providers immediately`,
+      `6. Document the affected prefix, origin ASN, and timeline in this ticket's worklog`,
+    );
   } else {
     lines.push(
       `**General alert** — Recommended first steps:`,
