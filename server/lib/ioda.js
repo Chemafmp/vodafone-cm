@@ -84,8 +84,9 @@ function initState() {
       lastChecked:    null,
       // Raw signal histories (last ~2h, 5-min buckets)
       signals: {
-        bgp:  { current: null, history: [], unit: "bgp_visibility_pct" },
-        ping: { current: null, history: [], unit: "slash24_up_count" },
+        bgp:         { current: null, history: [], unit: "bgp_visibility_pct" },
+        ping:        { current: null, history: [], unit: "slash24_up_count" },
+        pingLatency: { current: null, history: [], unit: "ms" },
       },
     });
   }
@@ -244,6 +245,18 @@ async function pollMarket(m, log) {
 
   await sleep(INTER_CALL_MS);
 
+  // ── 4. Ping-/24 latency (RTT of responsive probes) ──────────────────────────
+  let pingLatencyHistory = [];
+  try {
+    const pingLatJson = await iodaFetch(
+      `/signals/raw/asn/${asn}` +
+      `?from=${sigFrom}&until=${nowSec}&datasource=ping-slash24-latency&maxPoints=${SIGNAL_POINTS}`
+    );
+    pingLatencyHistory = parseRawSignal(pingLatJson);
+  } catch { /* non-fatal — datasource may not exist for all ASNs */ }
+
+  await sleep(INTER_CALL_MS);
+
   // ── Merge events ─────────────────────────────────────────────────────────────
   const cutoffMs     = (nowSec - RETENTION_H * 3600) * 1000;
   const rawEvents    = Array.isArray(eventsJson?.data) ? eventsJson.data : [];
@@ -286,6 +299,13 @@ async function pollMarket(m, log) {
     unit: "slash24_up_count",
     // Number of /24 blocks answering active probes from Georgia Tech.
     // A drop → address space becoming unreachable (not the same as RIPE Atlas).
+  };
+  s.signals.pingLatency = {
+    current: pingLatencyHistory.at(-1)?.value ?? null,
+    history: pingLatencyHistory,
+    unit: "ms",
+    // Average RTT of successful /24 probes. Distinguishes "slow" (high RTT) from
+    // "down" (ping count drop). Complements the up_count signal.
   };
 
   // Persist to Supabase (non-blocking)

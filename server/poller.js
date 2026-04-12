@@ -37,6 +37,7 @@ import { checkNetworkHealth, checkServiceStatus, simulateAlert, notifyTest } fro
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
+import { initRipeStatEnrichment, tickRipeStatEnrichment, getEnrichment } from "./lib/ripe-stat-enrichment.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -248,6 +249,11 @@ app.get("/api/network-health", (req, res) => {
       correlationHistory,   // 36h history for the score trend chart
     };
   }));
+});
+
+// GET /api/asn-neighbours — BGP peer topology (upstream + peer ASNs + org names)
+app.get("/api/asn-neighbours", (_req, res) => {
+  res.json(getEnrichment());
 });
 
 const server = http.createServer(app);
@@ -765,6 +771,15 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Cloudflare Radar — token from CF_RADAR_TOKEN env var
   initCfRadar(log);
+
+  // RIPE Stat ASN enrichment — BGP peer topology, org names (1h cache, no Supabase)
+  initRipeStatEnrichment(log)
+    .then(() => log(chalk.cyan("[enrich] RIPE Stat ASN enrichment ready")))
+    .catch(e => log(chalk.yellow(`[enrich] init error: ${e.message}`)));
+  // Refresh every 1h
+  setInterval(() => {
+    tickRipeStatEnrichment(log).catch(e => log(chalk.yellow(`[enrich] tick error: ${e.message}`)));
+  }, 3_600_000);
 
   // Correlation history — load from Supabase on boot, persist each tick
   initCorrelationHistory(log).catch(e => log(chalk.yellow(`[corr-hist] init error: ${e.message}`)));

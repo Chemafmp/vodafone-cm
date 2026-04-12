@@ -119,12 +119,20 @@ async function fetchResults(probeIds) {
 // ─── Compute aggregated DNS metrics ──────────────────────────────────────────
 function computeMetrics(results) {
   const rtts = [];
+  const rcodes = { noerror: 0, servfail: 0, nxdomain: 0, timeout: 0, other: 0 };
 
   for (const r of results) {
     // DNS result shape: { prb_id, result: { rt, rcode, answers }, timestamp }
     if (r.result && typeof r.result.rt === "number" && r.result.rt > 0) {
       rtts.push(r.result.rt);
     }
+    // Count rcodes for error-rate analysis
+    const rcode = r.result?.rcode;
+    if (!rcode)                     rcodes.timeout++;
+    else if (rcode === "NOERROR")   rcodes.noerror++;
+    else if (rcode === "SERVFAIL")  rcodes.servfail++;
+    else if (rcode === "NXDOMAIN")  rcodes.nxdomain++;
+    else                            rcodes.other++;
   }
 
   if (!rtts.length) return null;
@@ -132,12 +140,18 @@ function computeMetrics(results) {
   const dns_rtt    = rtts.reduce((a, b) => a + b, 0) / rtts.length;
   const p95_dns_rtt = percentile(rtts, 95);
   const probe_count = new Set(results.map(r => r.prb_id).filter(Boolean)).size || results.length;
+  const total = Object.values(rcodes).reduce((a, b) => a + b, 0);
+  const error_pct = total > 0
+    ? Math.round(((rcodes.servfail + rcodes.timeout + rcodes.other) / total) * 1000) / 10
+    : 0;
 
   return {
     dns_rtt:      Math.round(dns_rtt * 10) / 10,
     p95_dns_rtt:  p95_dns_rtt != null ? Math.round(p95_dns_rtt * 10) / 10 : null,
     probe_count,
     measured_at:  new Date().toISOString(),
+    rcodes,        // { noerror, servfail, nxdomain, timeout, other }
+    error_pct,     // % of non-NOERROR responses (0–100)
   };
 }
 
