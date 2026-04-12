@@ -29,6 +29,13 @@ import { isPaused } from "./poller-control.js";
 const USE_OFFICIAL_API = ddApiConfigured();           // DOWNDETECTOR_CLIENT_ID + SECRET set
 const USE_SCRAPER      = !USE_OFFICIAL_API && process.env.USE_SCRAPER === "1"; // scraper only if no official API
 
+// ─── Scraper circuit breaker ──────────────────────────────────────────────────
+// When Cloudflare blocks all markets (HTTP 403), stop retrying for 30 min.
+// Resets automatically after the backoff period so we try again periodically.
+const SCRAPER_BACKOFF_MS    = 30 * 60 * 1000; // 30 min
+let   scraperCircuitOpen    = false;           // true = blocked, use simulator
+let   scraperCircuitOpenAt  = 0;
+
 // ─── Supabase client ──────────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -235,17 +242,41 @@ async function tickFromOfficial(port, log) {
 }
 
 async function tickFromScraper(port, log) {
+  // ── Circuit breaker: if all markets were blocked last time, wait 30 min ──
+  if (scraperCircuitOpen) {
+    if (Date.now() - scraperCircuitOpenAt < SCRAPER_BACKOFF_MS) {
+      // Still in backoff — silently simulate, no outbound requests
+      await tickSimulated(port, log);
+      return;
+    }
+    // Backoff expired — try again
+    scraperCircuitOpen = false;
+    log?.("[service-status] scraper backoff expired — retrying Downdetector");
+  }
+
   log?.("[service-status] scraping Downdetector...");
   const results = await scrapeAll(log);
   const tod = todMultiplier(); // used for simulator fallback on failed scrapes
+
+  // Count how many markets actually succeeded
+  const successCount = results.filter(r => r.ok).length;
+  const failCount    = results.filter(r => !r.ok).length;
+
+  // If every single market failed → open circuit, fall back to simulator quietly
+  if (failCount > 0 && successCount === 0) {
+    scraperCircuitOpen   = true;
+    scraperCircuitOpenAt = Date.now();
+    log?.(`[service-status] ⚠ Downdetector blocked (${failCount}/${results.length} markets failed) — switching to simulator for 30 min`);
+    await tickSimulated(port, log);
+    return;
+  }
 
   for (const r of results) {
     const m = state.get(r.market.id);
     if (!m) continue;
 
     if (!r.ok) {
-      // Scrape failed — fall back to simulator so the chart stays alive
-      // (avoids flat-line when Cloudflare blocks the scraper)
+      // Scrape failed for this market (partial block) — fall back to simulator
       const noise      = rand(0.80, 1.20);
       let totalMult    = tod * noise;
       if (m.spikeRemaining > 0) totalMult *= m.spikeMult;
