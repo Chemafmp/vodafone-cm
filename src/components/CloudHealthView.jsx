@@ -25,7 +25,7 @@ const STATUSPAGE_PROVIDERS = [
   // ── CDN ───────────────────────────────────────────────────────────────────
   { id: "cloudflare",  name: "Cloudflare",   icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
   // ── Cloud ─────────────────────────────────────────────────────────────────
-  { id: "oracle",      name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    cloud: "own",   url: "https://ocloudinfra.statuspage.io/api/v2/summary.json" },
+  { id: "oracle",      name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    cloud: "oracle", url: "https://ocloudinfra.statuspage.io/api/v2/summary.json" },
   { id: "vercel",      name: "Vercel",       icon: "▲",   cat: "cloud",    cloud: "aws",   url: "https://www.vercel-status.com/api/v2/summary.json" },
   { id: "netlify",     name: "Netlify",      icon: "🟩",  cat: "cloud",    cloud: "aws",   url: "https://www.netlifystatus.com/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
@@ -68,19 +68,20 @@ const STATUSPAGE_PROVIDERS = [
 
 // CORS-blocked or custom API — data comes from backend /api/cloud-health:
 const BACKEND_ONLY_META = [
-  { id: "aws",     name: "AWS",     icon: "🟡", cat: "cloud",  cloud: "own", statusUrl: "https://health.aws.amazon.com" },
-  { id: "azure",   name: "Azure",   icon: "🔷", cat: "cloud",  cloud: "own", statusUrl: "https://azure.status.microsoft" },
-  { id: "slack",   name: "Slack",   icon: "💬", cat: "comms",  cloud: "aws", statusUrl: "https://status.slack.com" },
-  { id: "binance", name: "Binance", icon: "🟡", cat: "crypto", cloud: "aws", statusUrl: "https://www.binance.com" },
+  { id: "aws",     name: "AWS",     icon: "🟡", cat: "cloud",  cloud: "aws",   statusUrl: "https://health.aws.amazon.com" },
+  { id: "azure",   name: "Azure",   icon: "🔷", cat: "cloud",  cloud: "azure", statusUrl: "https://azure.status.microsoft" },
+  { id: "slack",   name: "Slack",   icon: "💬", cat: "comms",  cloud: "aws",   statusUrl: "https://status.slack.com" },
+  { id: "binance", name: "Binance", icon: "🟡", cat: "crypto", cloud: "aws",   statusUrl: "https://www.binance.com" },
 ];
 
 // ── Cloud hosting metadata ────────────────────────────────────────────────────
 const CLOUD_META = {
-  aws:   { label: "AWS",   icon: "🟡", color: "#f59e0b", bg: "#fffbeb", border: "#fde68a" },
-  gcp:   { label: "GCP",   icon: "🔵", color: "#3b82f6", bg: "#eff6ff", border: "#bfdbfe" },
-  azure: { label: "Azure", icon: "🔷", color: "#6366f1", bg: "#eef2ff", border: "#c7d2fe" },
-  own:   { label: "Own",   icon: "🏢", color: "#64748b", bg: "#f8fafc", border: "#e2e8f0" },
-  multi: { label: "Multi", icon: "🌐", color: "#8b5cf6", bg: "#f5f3ff", border: "#ddd6fe" },
+  aws:    { label: "AWS",    icon: "🟡", color: "#f59e0b", bg: "#fffbeb", border: "#fde68a" },
+  gcp:    { label: "GCP",    icon: "🔵", color: "#3b82f6", bg: "#eff6ff", border: "#bfdbfe" },
+  azure:  { label: "Azure",  icon: "🔷", color: "#6366f1", bg: "#eef2ff", border: "#c7d2fe" },
+  oracle: { label: "Oracle", icon: "🔺", color: "#c2410c", bg: "#fff7ed", border: "#fed7aa" },
+  own:    { label: "Own",    icon: "🏢", color: "#64748b", bg: "#f8fafc", border: "#e2e8f0" },
+  multi:  { label: "Multi",  icon: "🌐", color: "#8b5cf6", bg: "#f5f3ff", border: "#ddd6fe" },
 };
 
 const STATUS_PAGE_URLS = {
@@ -119,6 +120,18 @@ const STATUS_PAGE_URLS = {
 };
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
+
+/** Fetch with an AbortController timeout (default 12 s). Prevents hangs. */
+async function fetchWithTimeout(url, options = {}, ms = 12000) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function indicatorToStatus(ind) {
   if (!ind || ind === "none") return "ok";
   if (ind === "minor")        return "warning";
@@ -131,9 +144,10 @@ function compRank(s) {
 
 async function fetchStatuspage(p) {
   const baseUrl = p.url.replace("/api/v2/summary.json", "");
+  const opts = { headers: { Accept: "application/json" } };
   const [summaryRes, historyRes] = await Promise.allSettled([
-    fetch(p.url, { headers: { Accept: "application/json" } }),
-    fetch(`${baseUrl}/api/v2/incidents.json?limit=100`, { headers: { Accept: "application/json" } }),
+    fetchWithTimeout(p.url, opts, 12000),
+    fetchWithTimeout(`${baseUrl}/api/v2/incidents.json?limit=100`, opts, 12000),
   ]);
   if (summaryRes.status !== "fulfilled" || !summaryRes.value.ok) {
     throw new Error(summaryRes.status === "fulfilled" ? `HTTP ${summaryRes.value.status}` : "fetch failed");
@@ -205,8 +219,8 @@ async function fetchStatuspage(p) {
 }
 
 async function fetchGCP() {
-  const meta = { id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud" };
-  const r = await fetch("https://status.cloud.google.com/incidents.json");
+  const meta = { id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "gcp" };
+  const r = await fetchWithTimeout("https://status.cloud.google.com/incidents.json", {}, 12000);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const incidents = await r.json();
 
@@ -373,10 +387,10 @@ function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
 }
 
 async function fetchSlack() {
-  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms" };
+  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms", cloud: "aws" };
   const [curRes, histRes] = await Promise.allSettled([
-    fetch("https://status.slack.com/api/v2.0.0/current"),
-    fetch("https://status.slack.com/api/v2.0.0/history"),
+    fetchWithTimeout("https://status.slack.com/api/v2.0.0/current", {}, 12000),
+    fetchWithTimeout("https://status.slack.com/api/v2.0.0/history", {}, 12000),
   ]);
   if (curRes.status !== "fulfilled" || !curRes.value.ok) throw new Error("Fetch failed");
   const d = await curRes.value.json();
@@ -424,7 +438,7 @@ async function fetchSlack() {
 // Only fetch providers accessible from browser (GCP + Slack have custom fetchers):
 async function fetchBrowserProviders() {
   const results = await Promise.allSettled([
-    fetchGCP().catch(e   => errProvider({ id: "gcp",   name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "own"  }, e)),
+    fetchGCP().catch(e   => errProvider({ id: "gcp",   name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "gcp"  }, e)),
     fetchSlack().catch(e => errProvider({ id: "slack",  name: "Slack",        icon: "💬", cat: "comms", cloud: "aws"  }, e)),
     ...STATUSPAGE_PROVIDERS.map(p => fetchStatuspage(p).catch(e => errProvider(p, e))),
   ]);
@@ -748,7 +762,7 @@ function UptimeBar({ days }) {
 // ── Cloud Infrastructure Correlation Panel ────────────────────────────────────
 function CloudInfraPanel({ providers, isMobile }) {
   const [expandedCloud, setExpandedCloud] = useState({});
-  const cloudProviderIds = ["aws", "gcp", "azure"];
+  const cloudProviderIds = ["aws", "gcp", "azure", "oracle"];
   const cloudStatus = {};
   for (const id of cloudProviderIds) {
     const p = providers.find(x => x.id === id);
@@ -1209,10 +1223,12 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
         allProviders = allProviders.map(p => ({ ...p, ticketId: ticketMap[p.id] || null }));
 
         // Add backend-only providers (AWS, Azure, Fastly, Oracle, Zoom, PagerDuty)
+        // Override cloud field for main cloud vendors so they go into their own section
+        const CLOUD_ID_OVERRIDE = { aws: "aws", gcp: "gcp", azure: "azure", oracle: "oracle" };
         const browserIds = new Set(allProviders.map(p => p.id));
         const backendOnly = backendData
           .filter(p => !browserIds.has(p.id))
-          .map(p => ({ ...p, backendOnly: false })); // real data from backend
+          .map(p => ({ ...p, backendOnly: false, cloud: CLOUD_ID_OVERRIDE[p.id] || p.cloud }));
         allProviders = [...allProviders, ...backendOnly];
       } else {
         // Backend not available — show static placeholders for backend-only providers
@@ -1430,18 +1446,22 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
         {/* ── Cloud-grouped provider view ── */}
         {!loading && filtered.length > 0 && (() => {
-          // Cloud sections: AWS, GCP, Azure, Oracle first, then Own infra
+          // Main cloud vendors: placed in their own section by id, not by cloud field.
+          // All other providers: bucketed by their p.cloud (which cloud they run on).
+          const MAIN_CLOUDS = new Set(["aws", "gcp", "azure", "oracle"]);
+          const getSection = (p) => MAIN_CLOUDS.has(p.id) ? p.id : (p.cloud || "own");
+
           const cloudSections = [
-            { id: "aws",   label: "AWS",          icon: "🟡", meta: CLOUD_META.aws   },
-            { id: "gcp",   label: "Google Cloud",  icon: "🔵", meta: CLOUD_META.gcp   },
-            { id: "azure", label: "Azure",         icon: "🔷", meta: CLOUD_META.azure },
-            { id: "oracle",label: "Oracle Cloud",  icon: "🔺", meta: CLOUD_META.own   },
-            { id: "own",   label: "Own Infrastructure", icon: "🏢", meta: CLOUD_META.own },
-            { id: "multi", label: "Multi-cloud",   icon: "🌐", meta: CLOUD_META.multi },
+            { id: "aws",    label: "AWS",               icon: "🟡", meta: CLOUD_META.aws    },
+            { id: "gcp",    label: "Google Cloud",       icon: "🔵", meta: CLOUD_META.gcp    },
+            { id: "azure",  label: "Azure",              icon: "🔷", meta: CLOUD_META.azure  },
+            { id: "oracle", label: "Oracle Cloud",       icon: "🔺", meta: CLOUD_META.oracle },
+            { id: "own",    label: "Own Infrastructure", icon: "🏢", meta: CLOUD_META.own    },
+            { id: "multi",  label: "Multi-cloud",        icon: "🌐", meta: CLOUD_META.multi  },
           ];
 
           return cloudSections.map(section => {
-            const sectionProviders = filtered.filter(p => (p.cloud || "own") === section.id);
+            const sectionProviders = filtered.filter(p => getSection(p) === section.id);
             if (sectionProviders.length === 0) return null;
 
             const hasIssues = sectionProviders.some(p => p.status === "warning" || p.status === "outage");
@@ -1451,6 +1471,8 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
             // Find the base cloud provider entry (if exists in providers, e.g. AWS itself)
             const cloudProvider = providers.find(p => p.id === section.id);
+            // Services hosted on this cloud (excludes the platform itself)
+            const hostedServices = sectionProviders.filter(p => p.id !== section.id);
 
             const sectionBg     = hasIssues
               ? (outageCount > 0 ? "#fff8f8" : "#fffdf0")
@@ -1472,8 +1494,10 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
                   <span style={{ fontSize: 20 }}>{section.icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{section.label}</div>
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 1, display: "flex", gap: 8 }}>
-                      <span>{sectionProviders.length} service{sectionProviders.length !== 1 ? "s" : ""}</span>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 1, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {hostedServices.length > 0 && (
+                        <span>{hostedServices.length} hosted service{hostedServices.length !== 1 ? "s" : ""}</span>
+                      )}
                       {okCount > 0 && <span style={{ color: "#16a34a" }}>✓ {okCount} OK</span>}
                       {warnCount > 0 && <span style={{ color: "#b45309" }}>⚠ {warnCount} degraded</span>}
                       {outageCount > 0 && <span style={{ color: "#dc2626" }}>✕ {outageCount} outage</span>}
@@ -1493,20 +1517,134 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
                   )}
                 </div>
 
-                {/* Service cards */}
+                {/* ── Platform Status Block — always shown when cloudProvider exists ── */}
+                {cloudProvider && (() => {
+                  const sm  = STATUS_META[cloudProvider.status] || STATUS_META.unknown;
+                  const hasInc = cloudProvider.activeIncidents?.length > 0;
+                  const compOk  = cloudProvider.componentSummary?.operational ?? null;
+                  const compTot = cloudProvider.componentSummary?.total ?? null;
+                  const statusUrl = STATUS_PAGE_URLS[cloudProvider.id] || cloudProvider.statusUrl || null;
+
+                  return (
+                    <div style={{
+                      marginBottom: 14,
+                      border: `1px solid ${hasInc ? sm.border : T.border}`,
+                      borderLeft: `4px solid ${hasInc ? sm.dot : "#22c55e"}`,
+                      borderRadius: 8, overflow: "hidden",
+                      background: hasInc ? sm.bg : T.surface,
+                    }}>
+                      {/* ── Summary row ── */}
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                        padding: "10px 14px",
+                        borderBottom: hasInc ? `1px solid ${sm.border}` : "none",
+                      }}>
+                        <span style={{ fontSize: 20, flexShrink: 0 }}>{cloudProvider.icon}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: T.text }}>
+                            {cloudProvider.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 600, color: hasInc ? sm.color : "#16a34a" }}>
+                              {hasInc ? `⚠ ${cloudProvider.description}` : `✓ ${cloudProvider.description || "All systems operational"}`}
+                            </span>
+                            {compTot !== null && (
+                              <span>{compOk}/{compTot} components OK</span>
+                            )}
+                            {cloudProvider.lastUpdated && (
+                              <span>· updated {timeAgo(cloudProvider.lastUpdated)}</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Status badge */}
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                          color: hasInc ? sm.color : "#16a34a",
+                          background: hasInc ? sm.bg : "#f0fdf4",
+                          border: `1px solid ${hasInc ? sm.border : "#bbf7d0"}`,
+                          borderRadius: 5, padding: "3px 9px", flexShrink: 0,
+                        }}>
+                          {hasInc ? sm.label : "Operational"}
+                        </span>
+                        {statusUrl && (
+                          <a href={statusUrl} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 11, color: "#3b82f6", textDecoration: "none",
+                              border: "1px solid #bfdbfe", borderRadius: 5, padding: "3px 9px",
+                              background: "#eff6ff", fontWeight: 600, flexShrink: 0 }}>
+                            ↗ Status page
+                          </a>
+                        )}
+                      </div>
+
+                      {/* ── Incident rows (only when incidents exist) ── */}
+                      {hasInc && cloudProvider.activeIncidents.map((inc, idx) => {
+                        const ic = impactColor(inc.impact);
+                        const firstSentence = inc.latestUpdate?.text?.split(/\.\s+/)[0]?.trim();
+                        return (
+                          <div key={inc.id || idx} style={{
+                            padding: "10px 14px",
+                            borderBottom: idx < cloudProvider.activeIncidents.length - 1 ? `1px solid ${sm.border}` : "none",
+                            background: T.bg,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 800, textTransform: "uppercase",
+                                color: "#fff", background: ic, borderRadius: 4, padding: "2px 7px",
+                                flexShrink: 0, alignSelf: "center",
+                              }}>{inc.impact}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, minWidth: 0 }}>
+                                {inc.name}
+                              </span>
+                            </div>
+                            {(inc.region || inc.service || inc.affectedComponents?.length > 0) && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                                {inc.region && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: "#0369a1",
+                                    background: "#e0f2fe", border: "1px solid #bae6fd",
+                                    borderRadius: 4, padding: "2px 7px" }}>📍 {inc.region}</span>
+                                )}
+                                {inc.service && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: "#6d28d9",
+                                    background: "#ede9fe", border: "1px solid #ddd6fe",
+                                    borderRadius: 4, padding: "2px 7px" }}>⚙️ {inc.service}</span>
+                                )}
+                                {(inc.affectedComponents || []).map((c, i) => (
+                                  <span key={i} style={{ fontSize: 10, fontWeight: 500, color: "#475569",
+                                    background: "#f1f5f9", border: "1px solid #e2e8f0",
+                                    borderRadius: 4, padding: "2px 7px" }}>{c}</span>
+                                ))}
+                              </div>
+                            )}
+                            {firstSentence && firstSentence.length > 20 && (
+                              <div style={{ marginTop: 6, fontSize: 11, color: "#475569", lineHeight: 1.5,
+                                padding: "5px 9px", background: "#f8fafc", borderRadius: 4,
+                                border: `1px solid ${T.border}`, fontStyle: "italic" }}>
+                                {firstSentence}{firstSentence.endsWith(".") ? "" : "."}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Service cards — exclude the cloud provider itself (shown above) */}
                 <div style={{
                   display: "grid",
                   gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))",
                   gap: isMobile ? 8 : 10,
                 }}>
-                  {sectionProviders.map(p => (
-                    <ProviderCard
-                      key={p.id}
-                      p={p}
-                      expanded={!!expanded[p.id]}
-                      onToggle={() => toggleExpand(p.id)}
-                    />
-                  ))}
+                  {sectionProviders
+                    .filter(p => p.id !== section.id)   // cloud vendor pinned above, not repeated in grid
+                    .map(p => (
+                      <ProviderCard
+                        key={p.id}
+                        p={p}
+                        expanded={!!expanded[p.id]}
+                        onToggle={() => toggleExpand(p.id)}
+                      />
+                    ))}
                 </div>
               </div>
             );
