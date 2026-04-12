@@ -157,7 +157,12 @@ function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{market.name}</div>
           <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>
-            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()} · {market.ratio}× baseline
+            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()}
+            {market.baseline != null && <span> vs {market.baseline}/h</span>}
+            {" · "}
+            <span style={{ color: market.ratio >= 4.5 ? "#dc2626" : market.ratio >= 2 ? "#b45309" : T.muted }}>
+              {market.ratio}×
+            </span>
           </div>
           {effectiveDataSource(market) === "downdetector" ? (
             <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
