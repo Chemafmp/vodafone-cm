@@ -968,26 +968,32 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                 </div>
 
                 {/* Notes feed */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "20px 22px" }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "16px 22px" }}>
                   {notes.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", textAlign: "center", padding: "28px 0" }}>
                       No notes yet — add context, paste command output, share findings.
                     </div>
                   )}
-                  {notes.map((ev, i) => (
-                    <div key={ev.id}>
-                      {i > 0 && <div style={{ borderTop: `1px solid ${T.border}`, margin: "18px 0" }} />}
-                      {/* Author line */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg,#1d4ed8,#0e7490)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 9, color: "#fff", flexShrink: 0 }}>
+                  {notes.map((ev) => (
+                    <div key={ev.id} style={{
+                      borderRadius: 8,
+                      border: `1px solid ${T.border}`,
+                      borderLeft: "4px solid #7c3aed",
+                      background: T.surface,
+                      overflow: "hidden",
+                      marginBottom: 10,
+                    }}>
+                      {/* Header bar */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: `1px solid ${T.border}`, background: T.bg }}>
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg,#7c3aed,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 9, color: "#fff", flexShrink: 0 }}>
                           {initials(ev.actor_name)}
                         </div>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{ev.actor_name || "System"}</span>
-                        <span style={{ fontSize: 11, color: T.muted }}>{fmtTs(ev.created_at)}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{ev.actor_name || "System"}</span>
+                        <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
                       </div>
-                      {/* Content — no bubble, plain text */}
+                      {/* Content */}
                       <div
-                        style={{ fontSize: 13, lineHeight: 1.75, color: T.text, paddingLeft: 28 }}
+                        style={{ padding: "10px 14px", fontSize: 13, lineHeight: 1.75, color: T.text }}
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(ev.content) }}
                       />
                     </div>
