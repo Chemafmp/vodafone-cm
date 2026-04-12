@@ -161,7 +161,7 @@ function buildFeed(markets, svcMap, cloudData = []) {
   // ── Cloud-induced cascade events ───────────────────────────────���──────────
   // If a major cloud (AWS/GCP/Azure) is degraded AND 2+ services on that cloud
   // are also degraded → emit a global "cloud cascade" cluster event.
-  const cloudProviderIds = ["aws", "gcp", "azure"];
+  const cloudProviderIds = ["aws", "gcp", "azure", "oracle"];
   for (const cid of cloudProviderIds) {
     const cp = cloudData.find(p => p.id === cid);
     if (!cp || cp.status === "ok" || cp.status === "unknown") continue;
@@ -1027,7 +1027,7 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth, cloudDat
 
         {/* Cloud Dependencies */}
         {cloudData?.length > 0 && (() => {
-          const cloudProviderIds = ["aws", "gcp", "azure"];
+          const cloudProviderIds = ["aws", "gcp", "azure", "oracle"];
           const cloudRows = cloudProviderIds
             .map(cid => {
               const cp = cloudData.find(p => p.id === cid);
@@ -1143,7 +1143,7 @@ function CloudStatusStrip({ cloudData, isMobile }) {
 
   if (!cloudData?.length) return null;
 
-  const cloudIds = ["aws", "gcp", "azure"];
+  const cloudIds = ["aws", "gcp", "azure", "oracle"];
   const clouds = cloudIds
     .map(id => cloudData.find(p => p.id === id))
     .filter(Boolean);

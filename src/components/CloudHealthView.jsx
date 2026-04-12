@@ -24,8 +24,10 @@ const FRONTEND_BASE = "https://chemafmp.github.io/vodafone-cm";
 const STATUSPAGE_PROVIDERS = [
   // ── CDN ───────────────────────────────────────────────────────────────────
   { id: "cloudflare",  name: "Cloudflare",   icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
-  { id: "fastly",      name: "Fastly",       icon: "⚡",  cat: "cdn",      cloud: "own",   url: "https://status.fastly.com/api/v2/summary.json" },
+  // ── Cloud ─────────────────────────────────────────────────────────────────
   { id: "oracle",      name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    cloud: "own",   url: "https://ocloudinfra.statuspage.io/api/v2/summary.json" },
+  { id: "vercel",      name: "Vercel",       icon: "▲",   cat: "cloud",    cloud: "aws",   url: "https://www.vercel-status.com/api/v2/summary.json" },
+  { id: "netlify",     name: "Netlify",      icon: "🟩",  cat: "cloud",    cloud: "aws",   url: "https://www.netlifystatus.com/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
   { id: "github",      name: "GitHub",       icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
   { id: "atlassian",   name: "Atlassian",    icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
@@ -38,9 +40,9 @@ const STATUSPAGE_PROVIDERS = [
   // ── Security / SASE ───────────────────────────────────────────────────────
   { id: "forcepoint",  name: "Forcepoint",   icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
   // ── Identity ──────────────────────────────────────────────────────────────
-  { id: "okta",        name: "Okta",         icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
-  { id: "auth0",       name: "Auth0",        icon: "🔑",  cat: "identity", cloud: "aws",   url: "https://status.auth0.com/api/v2/summary.json" },
+  // Okta (401), Auth0 (404) blocked server-side — fetched from frontend only
   { id: "duo",         name: "Duo Security", icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
+  { id: "onelogin",    name: "OneLogin",     icon: "🔓",  cat: "identity", cloud: "aws",   url: "https://status.onelogin.com/api/v2/summary.json" },
   // ── Comms / Collaboration ─────────────────────────────────────────────────
   { id: "zoom",        name: "Zoom",         icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
   { id: "discord",     name: "Discord",      icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
@@ -58,7 +60,6 @@ const STATUSPAGE_PROVIDERS = [
   // ── Design ────────────────────────────────────────────────────────────────
   { id: "figma",       name: "Figma",        icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
   { id: "miro",        name: "Miro",         icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
-  { id: "notion",      name: "Notion",       icon: "📝",  cat: "design",   cloud: "aws",   url: "https://status.notion.so/api/v2/summary.json" },
   // ── E-commerce ────────────────────────────────────────────────────────────
   { id: "shopify",     name: "Shopify",      icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
   // ── Web3 ──────────────────────────────────────────────────────────────────
@@ -603,7 +604,22 @@ function IncidentRow({ inc }) {
               }}>↗ Details</a>
           )}
         </div>
-        {/* Latest update text */}
+        {/* Auto-inline first sentence of update when incident name is generic */}
+        {inc.latestUpdate?.text && !showUpdate && (() => {
+          const firstSentence = inc.latestUpdate.text.split(/\.\s+/)[0]?.trim();
+          // Show inline only if it adds info beyond the incident name (>20 chars different)
+          if (!firstSentence || firstSentence.length < 20) return null;
+          return (
+            <div style={{
+              marginTop: 7, fontSize: 11, color: "#475569", lineHeight: 1.5,
+              padding: "6px 10px", background: "#f8fafc", borderRadius: 5,
+              border: `1px solid ${T.border}`, fontStyle: "italic",
+            }}>
+              {firstSentence}{firstSentence.endsWith(".") ? "" : "."}
+            </div>
+          );
+        })()}
+        {/* Full update text (expanded) */}
         {showUpdate && inc.latestUpdate && (
           <div style={{
             marginTop: 10, padding: "10px 12px",

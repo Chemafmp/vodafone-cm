@@ -39,9 +39,11 @@ const FETCH_TIMEOUT = 12_000; // 12s per provider
 const STATUSPAGE_PROVIDERS = [
   // ── CDN / Infrastructure ──────────────────────────────────────────────────
   { id: "cloudflare",   name: "Cloudflare",    icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
-  { id: "fastly",       name: "Fastly",        icon: "⚡",  cat: "cdn",      cloud: "own",   url: "https://status.fastly.com/api/v2/summary.json" },
+  // Fastly: HTTP 403 from DO IPs — removed
   // ── Cloud ─────────────────────────────────────────────────────────────────
   { id: "oracle",       name: "Oracle Cloud",  icon: "🔺",  cat: "cloud",   cloud: "own",   url: "https://ocloudinfra.statuspage.io/api/v2/summary.json" },
+  { id: "vercel",       name: "Vercel",        icon: "▲",   cat: "cloud",   cloud: "aws",   url: "https://www.vercel-status.com/api/v2/summary.json" },
+  { id: "netlify",      name: "Netlify",       icon: "🟩",  cat: "cloud",   cloud: "aws",   url: "https://www.netlifystatus.com/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
   { id: "github",       name: "GitHub",        icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
   { id: "atlassian",    name: "Atlassian",     icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
@@ -53,12 +55,10 @@ const STATUSPAGE_PROVIDERS = [
   { id: "newrelic",     name: "New Relic",     icon: "📊",  cat: "obs",      cloud: "aws",   url: "https://status.newrelic.com/api/v2/summary.json" },
   // ── Security / SASE ──────────────────────────────────────────────────────
   { id: "forcepoint",   name: "Forcepoint",    icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
-  // CrowdStrike: blocked from DO IPs — removed
   // ── Identity ─────────────────────────────────────────────────────────────
-  // Okta requires audience token (HTTP 401) — use their .io subdomain
-  { id: "okta",         name: "Okta",          icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
-  { id: "auth0",        name: "Auth0",         icon: "🔑",  cat: "identity", cloud: "aws",   url: "https://status.auth0.com/api/v2/summary.json" },
+  // Okta HTTP 401 (audience token required), Auth0 HTTP 404 — both removed from server poll
   { id: "duo",          name: "Duo Security",  icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
+  { id: "onelogin",     name: "OneLogin",      icon: "🔓",  cat: "identity", cloud: "aws",   url: "https://status.onelogin.com/api/v2/summary.json" },
   // ── Comms / Collaboration ─────────────────────────────────────────────────
   { id: "zoom",         name: "Zoom",          icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
   { id: "discord",      name: "Discord",       icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
@@ -70,16 +70,13 @@ const STATUSPAGE_PROVIDERS = [
   // ── Fintech / Payments ────────────────────────────────────────────────────
   { id: "stripe",       name: "Stripe",        icon: "💜",  cat: "fintech",  cloud: "aws",   url: "https://status.stripe.com/api/v2/summary.json" },
   { id: "wise",         name: "Wise",          icon: "💳",  cat: "fintech",  cloud: "aws",   url: "https://status.wise.com/api/v2/summary.json" },
-  // Adyen: not Atlassian Statuspage (returns HTML) — removed
-  // PayPal: returns HTML from their URL — removed
   // ── Crypto ────────────────────────────────────────────────────────────────
   { id: "kraken",       name: "Kraken",        icon: "🐙",  cat: "crypto",   cloud: "own",   url: "https://status.kraken.com/api/v2/summary.json" },
   { id: "moonpay",      name: "MoonPay",       icon: "🌙",  cat: "crypto",   cloud: "aws",   url: "https://status.moonpay.com/api/v2/summary.json" },
   // ── Design / Collaboration ────────────────────────────────────────────────
   { id: "figma",        name: "Figma",         icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
-  // Canva: not Atlassian Statuspage (returns HTML) — removed
   { id: "miro",         name: "Miro",          icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
-  { id: "notion",       name: "Notion",        icon: "📝",  cat: "design",   cloud: "aws",   url: "https://status.notion.so/api/v2/summary.json" },
+  // Notion: status.notion.so redirects to notion-status.com (not Statuspage) — removed
   // ── E-commerce ────────────────────────────────────────────────────────────
   { id: "shopify",      name: "Shopify",       icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
   // ── Web3 ──────────────────────────────────────────────────────────────────
@@ -117,11 +114,12 @@ async function fetchWithTimeout(url, opts = {}) {
       ...opts,
       signal: ctrl.signal,
       headers: {
-        "User-Agent":      "BodaphoneNOC/1.0",
-        "Accept":          "application/json, text/plain, */*",
-        // "identity" tells the server: don't compress — avoids gzip decode issues
-        // when Node.js fetch doesn't auto-decompress (custom headers drop Accept-Encoding)
-        "Accept-Encoding": "identity",
+        // Use a browser-like UA — some Statuspage CDNs block bot UAs or non-standard headers
+        "User-Agent": "Mozilla/5.0 (compatible; StatusMonitor/1.0)",
+        "Accept":     "application/json, text/plain, */*",
+        // Do NOT force Accept-Encoding: identity globally — some Atlassian Statuspage
+        // CDNs return 404 when they see it. Node.js undici handles gzip automatically.
+        // AWS fetcher overrides this with its own explicit gzip handling.
         ...(opts.headers || {}),
       },
     });
