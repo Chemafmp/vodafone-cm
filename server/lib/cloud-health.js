@@ -503,20 +503,19 @@ async function fetchBinance() {
 }
 
 // ── Supabase persistence ──────────────────────────────────────────────────────
-async function saveToSupabase(providers) {
+async function saveToSupabase(providers, logFn) {
   if (!supabase || !providers?.length) return;
-  try {
-    const rows = providers.map(p => ({
-      provider_id:    p.id,
-      provider_name:  p.name,
-      status:         p.status || "unknown",
-      indicator:      p.indicator || "unknown",
-      incident_count: (p.activeIncidents || []).length,
-      description:    p.description || null,
-      measured_at:    new Date().toISOString(),
-    }));
-    await supabase.from("cloud_provider_status").insert(rows);
-  } catch { /* non-fatal */ }
+  const rows = providers.map(p => ({
+    provider_id:    p.id,
+    provider_name:  p.name,
+    status:         p.status || "unknown",
+    indicator:      p.indicator || "unknown",
+    incident_count: (p.activeIncidents || []).length,
+    description:    p.description || null,
+    measured_at:    new Date().toISOString(),
+  }));
+  const { error } = await supabase.from("cloud_provider_status").insert(rows);
+  if (error) logFn?.(`[cloud-health] ⚠ Supabase save error: ${error.message}`);
 }
 
 async function cleanupOldData(logFn) {
@@ -569,8 +568,8 @@ export async function tickCloudHealth(log) {
     if (!r.ok) log?.(`[cloud-health] ✗ ${r.id}: ${r.error}`);
   }
 
-  await saveToSupabase(state).catch(() => {});
-  await cleanupOldData(log).catch(() => {});
+  await saveToSupabase(state, log).catch(e => log?.(`[cloud-health] ⚠ save failed: ${e.message}`));
+  await cleanupOldData(log).catch(e => log?.(`[cloud-health] ⚠ cleanup failed: ${e.message}`));
 
   const ok      = state.filter(s => s.status === "ok").length;
   const issues  = state.filter(s => s.status === "warning" || s.status === "outage").length;
