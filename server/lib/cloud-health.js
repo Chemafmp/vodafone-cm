@@ -39,39 +39,48 @@ const FETCH_TIMEOUT = 12_000; // 12s per provider
 const STATUSPAGE_PROVIDERS = [
   // ── CDN / Infrastructure ──────────────────────────────────────────────────
   { id: "cloudflare",   name: "Cloudflare",    icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
+  { id: "fastly",       name: "Fastly",        icon: "⚡",  cat: "cdn",      cloud: "own",   url: "https://status.fastly.com/api/v2/summary.json" },
   // ── Cloud ─────────────────────────────────────────────────────────────────
-  { id: "oracle",       name: "Oracle Cloud",  icon: "🔺",  cat: "cloud",   cloud: "own",   url: "https://ocistatus.oraclecloud.com/api/v2/summary.json" },
+  // Oracle: moved to oci.statuspage.io (custom domain 404 from DO IPs)
+  { id: "oracle",       name: "Oracle Cloud",  icon: "🔺",  cat: "cloud",   cloud: "own",   url: "https://oci.statuspage.io/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
   { id: "github",       name: "GitHub",        icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
   { id: "atlassian",    name: "Atlassian",     icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
   { id: "gitlab",       name: "GitLab",        icon: "🦊",  cat: "devtools", cloud: "gcp",   url: "https://status.gitlab.com/api/v2/summary.json" },
+  { id: "hashicorp",    name: "HashiCorp",     icon: "🏔",  cat: "devtools", cloud: "aws",   url: "https://status.hashicorp.com/api/v2/summary.json" },
   // ── Observability ─────────────────────────────────────────────────────────
   { id: "datadog",      name: "Datadog",       icon: "🐕",  cat: "obs",      cloud: "aws",   url: "https://status.datadoghq.com/api/v2/summary.json" },
   { id: "pagerduty",    name: "PagerDuty",     icon: "📟",  cat: "obs",      cloud: "aws",   url: "https://status.pagerduty.com/api/v2/summary.json" },
-  // ── Security / SASE / Identity ───────────────────────────────────────────
+  { id: "newrelic",     name: "New Relic",     icon: "📊",  cat: "obs",      cloud: "aws",   url: "https://status.newrelic.com/api/v2/summary.json" },
+  // ── Security / SASE ──────────────────────────────────────────────────────
   { id: "forcepoint",   name: "Forcepoint",    icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
-  { id: "crowdstrike",  name: "CrowdStrike",   icon: "🦅",  cat: "security", cloud: "aws",   url: "https://status.crowdstrike.com/api/v2/summary.json" },
+  // CrowdStrike: blocked from DO IPs — removed
+  // ── Identity ─────────────────────────────────────────────────────────────
+  // Okta requires audience token (HTTP 401) — use their .io subdomain
   { id: "okta",         name: "Okta",          icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
+  { id: "auth0",        name: "Auth0",         icon: "🔑",  cat: "identity", cloud: "aws",   url: "https://status.auth0.com/api/v2/summary.json" },
   { id: "duo",          name: "Duo Security",  icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
   // ── Comms / Collaboration ─────────────────────────────────────────────────
   { id: "zoom",         name: "Zoom",          icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
   { id: "discord",      name: "Discord",       icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
   { id: "twilio",       name: "Twilio",        icon: "📞",  cat: "comms",    cloud: "aws",   url: "https://status.twilio.com/api/v2/summary.json" },
+  { id: "sendgrid",     name: "SendGrid",      icon: "📧",  cat: "comms",    cloud: "aws",   url: "https://status.sendgrid.com/api/v2/summary.json" },
   // ── Gaming ────────────────────────────────────────────────────────────────
   { id: "epic",         name: "Epic Games",    icon: "🎯",  cat: "gaming",   cloud: "aws",   url: "https://status.epicgames.com/api/v2/summary.json" },
   { id: "roblox",       name: "Roblox",        icon: "🧱",  cat: "gaming",   cloud: "aws",   url: "https://status.roblox.com/api/v2/summary.json" },
   // ── Fintech / Payments ────────────────────────────────────────────────────
   { id: "stripe",       name: "Stripe",        icon: "💜",  cat: "fintech",  cloud: "aws",   url: "https://status.stripe.com/api/v2/summary.json" },
   { id: "wise",         name: "Wise",          icon: "💳",  cat: "fintech",  cloud: "aws",   url: "https://status.wise.com/api/v2/summary.json" },
-  { id: "adyen",        name: "Adyen",         icon: "💰",  cat: "fintech",  cloud: "own",   url: "https://www.adyenstatus.com/api/v2/summary.json" },
-  { id: "paypal",       name: "PayPal",        icon: "🅿️",  cat: "fintech",  cloud: "own",   url: "https://www.paypal-status.com/api/v2/summary.json" },
+  // Adyen: not Atlassian Statuspage (returns HTML) — removed
+  // PayPal: returns HTML from their URL — removed
   // ── Crypto ────────────────────────────────────────────────────────────────
   { id: "kraken",       name: "Kraken",        icon: "🐙",  cat: "crypto",   cloud: "own",   url: "https://status.kraken.com/api/v2/summary.json" },
   { id: "moonpay",      name: "MoonPay",       icon: "🌙",  cat: "crypto",   cloud: "aws",   url: "https://status.moonpay.com/api/v2/summary.json" },
   // ── Design / Collaboration ────────────────────────────────────────────────
   { id: "figma",        name: "Figma",         icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
-  { id: "canva",        name: "Canva",         icon: "🖌",  cat: "design",   cloud: "aws",   url: "https://status.canva.com/api/v2/summary.json" },
+  // Canva: not Atlassian Statuspage (returns HTML) — removed
   { id: "miro",         name: "Miro",          icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
+  { id: "notion",       name: "Notion",        icon: "📝",  cat: "design",   cloud: "aws",   url: "https://status.notion.so/api/v2/summary.json" },
   // ── E-commerce ────────────────────────────────────────────────────────────
   { id: "shopify",      name: "Shopify",       icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
   // ── Web3 ──────────────────────────────────────────────────────────────────
@@ -192,6 +201,20 @@ async function fetchStatuspage(provider) {
   };
 }
 
+// ── AWS date parser — handles seconds, ms, or ISO string ─────────────────────
+function parseAwsDate(d) {
+  if (!d) return new Date().toISOString();
+  const n = Number(d);
+  if (!isNaN(n) && n > 0) {
+    // >13 digits = milliseconds; <=10 digits = seconds
+    const ms = n > 9_999_999_999 ? n : n * 1000;
+    const dt = new Date(ms);
+    if (!isNaN(dt.getTime())) return dt.toISOString();
+  }
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? new Date().toISOString() : dt.toISOString();
+}
+
 // ── AWS region code → human-readable label ────────────────────────────────────
 const AWS_REGION_NAMES = {
   "us-east-1": "US East (N. Virginia)",
@@ -271,7 +294,8 @@ async function fetchAWS() {
 
   // Shape: [{ date, arn, region_name, status, service, service_name, summary, event_log[] }]
   // status: "1"=ok, "2"=informational, "3"=degraded, "4"=outage
-  const all    = Array.isArray(events) ? events : [];
+  // Debug: log first event keys so we can see the actual structure if unexpected
+  const all    = Array.isArray(events) ? events : Object.values(events).find(Array.isArray) || [];
   const active = all.filter(e => parseInt(e.status) > 1);
 
   const EU_RE = /eu-west|eu-central|eu-north|ireland|frankfurt|paris|milan|spain|london|amsterdam/i;
@@ -305,14 +329,14 @@ async function fetchAWS() {
         status:    "investigating",
         region:    regionLabel,
         service:   svcLabel,
-        createdAt: new Date(parseInt(e.date) * 1000).toISOString(),
-        updatedAt: latestLog?.date
-          ? new Date(parseInt(latestLog.date) * 1000).toISOString()
+        createdAt: parseAwsDate(e.date || e.start_time || e.timestamp),
+        updatedAt: latestLog
+          ? parseAwsDate(latestLog.date || latestLog.timestamp)
           : new Date().toISOString(),
         url:       "https://health.aws.amazon.com",
         latestUpdate: latestLog ? {
           text:      latestLog.message || latestLog.description || null,
-          updatedAt: new Date(parseInt(latestLog.date) * 1000).toISOString(),
+          updatedAt: parseAwsDate(latestLog.date || latestLog.timestamp),
         } : null,
       };
     }),

@@ -24,38 +24,40 @@ const FRONTEND_BASE = "https://chemafmp.github.io/vodafone-cm";
 const STATUSPAGE_PROVIDERS = [
   // ── CDN ───────────────────────────────────────────────────────────────────
   { id: "cloudflare",  name: "Cloudflare",   icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
+  { id: "fastly",      name: "Fastly",       icon: "⚡",  cat: "cdn",      cloud: "own",   url: "https://status.fastly.com/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
   { id: "github",      name: "GitHub",       icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
   { id: "atlassian",   name: "Atlassian",    icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
   { id: "gitlab",      name: "GitLab",       icon: "🦊",  cat: "devtools", cloud: "gcp",   url: "https://status.gitlab.com/api/v2/summary.json" },
+  { id: "hashicorp",   name: "HashiCorp",    icon: "🏔",  cat: "devtools", cloud: "aws",   url: "https://status.hashicorp.com/api/v2/summary.json" },
   // ── Observability ─────────────────────────────────────────────────────────
   { id: "datadog",     name: "Datadog",      icon: "🐕",  cat: "obs",      cloud: "aws",   url: "https://status.datadoghq.com/api/v2/summary.json" },
   { id: "pagerduty",   name: "PagerDuty",    icon: "📟",  cat: "obs",      cloud: "aws",   url: "https://status.pagerduty.com/api/v2/summary.json" },
+  { id: "newrelic",    name: "New Relic",    icon: "📊",  cat: "obs",      cloud: "aws",   url: "https://status.newrelic.com/api/v2/summary.json" },
   // ── Security / SASE ───────────────────────────────────────────────────────
   { id: "forcepoint",  name: "Forcepoint",   icon: "🔒",  cat: "security", cloud: "aws",   url: "https://78lm3dxlst13.statuspage.io/api/v2/summary.json" },
-  { id: "crowdstrike", name: "CrowdStrike",  icon: "🦅",  cat: "security", cloud: "aws",   url: "https://status.crowdstrike.com/api/v2/summary.json" },
   // ── Identity ──────────────────────────────────────────────────────────────
   { id: "okta",        name: "Okta",         icon: "🔐",  cat: "identity", cloud: "aws",   url: "https://status.okta.com/api/v2/summary.json" },
+  { id: "auth0",       name: "Auth0",        icon: "🔑",  cat: "identity", cloud: "aws",   url: "https://status.auth0.com/api/v2/summary.json" },
   { id: "duo",         name: "Duo Security", icon: "🛡",  cat: "identity", cloud: "aws",   url: "https://status.duosecurity.com/api/v2/summary.json" },
   // ── Comms / Collaboration ─────────────────────────────────────────────────
   { id: "zoom",        name: "Zoom",         icon: "📹",  cat: "comms",    cloud: "aws",   url: "https://status.zoom.us/api/v2/summary.json" },
   { id: "discord",     name: "Discord",      icon: "🎮",  cat: "comms",    cloud: "gcp",   url: "https://discordstatus.com/api/v2/summary.json" },
   { id: "twilio",      name: "Twilio",       icon: "📞",  cat: "comms",    cloud: "aws",   url: "https://status.twilio.com/api/v2/summary.json" },
+  { id: "sendgrid",    name: "SendGrid",     icon: "📧",  cat: "comms",    cloud: "aws",   url: "https://status.sendgrid.com/api/v2/summary.json" },
   // ── Gaming ────────────────────────────────────────────────────────────────
   { id: "epic",        name: "Epic Games",   icon: "🎯",  cat: "gaming",   cloud: "aws",   url: "https://status.epicgames.com/api/v2/summary.json" },
   { id: "roblox",      name: "Roblox",       icon: "🧱",  cat: "gaming",   cloud: "aws",   url: "https://status.roblox.com/api/v2/summary.json" },
   // ── Fintech / Payments ────────────────────────────────────────────────────
   { id: "stripe",      name: "Stripe",       icon: "💜",  cat: "fintech",  cloud: "aws",   url: "https://status.stripe.com/api/v2/summary.json" },
   { id: "wise",        name: "Wise",         icon: "💳",  cat: "fintech",  cloud: "aws",   url: "https://status.wise.com/api/v2/summary.json" },
-  { id: "adyen",       name: "Adyen",        icon: "💰",  cat: "fintech",  cloud: "own",   url: "https://www.adyenstatus.com/api/v2/summary.json" },
-  { id: "paypal",      name: "PayPal",       icon: "🅿️",  cat: "fintech",  cloud: "own",   url: "https://www.paypal-status.com/api/v2/summary.json" },
   // ── Crypto ────────────────────────────────────────────────────────────────
   { id: "kraken",      name: "Kraken",       icon: "🐙",  cat: "crypto",   cloud: "own",   url: "https://status.kraken.com/api/v2/summary.json" },
   { id: "moonpay",     name: "MoonPay",      icon: "🌙",  cat: "crypto",   cloud: "aws",   url: "https://status.moonpay.com/api/v2/summary.json" },
   // ── Design ────────────────────────────────────────────────────────────────
   { id: "figma",       name: "Figma",        icon: "🎨",  cat: "design",   cloud: "aws",   url: "https://status.figma.com/api/v2/summary.json" },
-  { id: "canva",       name: "Canva",        icon: "🖌",  cat: "design",   cloud: "aws",   url: "https://status.canva.com/api/v2/summary.json" },
   { id: "miro",        name: "Miro",         icon: "🪄",  cat: "design",   cloud: "aws",   url: "https://status.miro.com/api/v2/summary.json" },
+  { id: "notion",      name: "Notion",       icon: "📝",  cat: "design",   cloud: "aws",   url: "https://status.notion.so/api/v2/summary.json" },
   // ── E-commerce ────────────────────────────────────────────────────────────
   { id: "shopify",     name: "Shopify",      icon: "🛒",  cat: "ecomm",    cloud: "gcp",   url: "https://www.shopifystatus.com/api/v2/summary.json" },
   // ── Web3 ──────────────────────────────────────────────────────────────────
@@ -64,11 +66,10 @@ const STATUSPAGE_PROVIDERS = [
 
 // CORS-blocked or custom API — data comes from backend /api/cloud-health:
 const BACKEND_ONLY_META = [
-  { id: "aws",     name: "AWS",          icon: "🟡", cat: "cloud",  cloud: "own", statusUrl: "https://health.aws.amazon.com" },
-  { id: "azure",   name: "Azure",        icon: "🔷", cat: "cloud",  cloud: "own", statusUrl: "https://azure.status.microsoft" },
-  { id: "oracle",  name: "Oracle Cloud", icon: "🔺",  cat: "cloud",  cloud: "own", statusUrl: "https://ocistatus.oraclecloud.com" },
-  { id: "slack",   name: "Slack",        icon: "💬",  cat: "comms",  cloud: "aws", statusUrl: "https://status.slack.com" },
-  { id: "binance", name: "Binance",      icon: "🟡", cat: "crypto",  cloud: "aws", statusUrl: "https://www.binance.com" },
+  { id: "aws",     name: "AWS",     icon: "🟡", cat: "cloud",  cloud: "own", statusUrl: "https://health.aws.amazon.com" },
+  { id: "azure",   name: "Azure",   icon: "🔷", cat: "cloud",  cloud: "own", statusUrl: "https://azure.status.microsoft" },
+  { id: "slack",   name: "Slack",   icon: "💬", cat: "comms",  cloud: "aws", statusUrl: "https://status.slack.com" },
+  { id: "binance", name: "Binance", icon: "🟡", cat: "crypto", cloud: "aws", statusUrl: "https://www.binance.com" },
 ];
 
 // ── Cloud hosting metadata ────────────────────────────────────────────────────
