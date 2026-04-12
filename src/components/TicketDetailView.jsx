@@ -8,6 +8,37 @@ import {
 import { uploadEvidenceFile, deleteEvidenceFile } from "../utils/db.js";
 import CreateTicketModal from "./CreateTicketModal.jsx";
 
+// ─── Lightweight Markdown renderer (bold, inline code, lists) ─────────────────
+function renderMd(text) {
+  if (!text) return null;
+  const fmt = (str) =>
+    str.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((t, i) => {
+      if (t.startsWith("**") && t.endsWith("**")) return <strong key={i}>{t.slice(2, -2)}</strong>;
+      if (t.startsWith("`") && t.endsWith("`")) return <code key={i} style={{ background: "#f1f5f9", borderRadius: 3, padding: "0 3px", fontFamily: "monospace", fontSize: "0.92em" }}>{t.slice(1, -1)}</code>;
+      return t;
+    });
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) items.push(<li key={i}>{fmt(lines[i++].slice(2))}</li>);
+      out.push(<ul key={`u${i}`} style={{ margin: "2px 0 6px", paddingLeft: 18 }}>{items}</ul>);
+    } else if (/^\d+\. /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) items.push(<li key={i}>{fmt(lines[i++].replace(/^\d+\. /, ""))}</li>);
+      out.push(<ol key={`o${i}`} style={{ margin: "2px 0 6px", paddingLeft: 18 }}>{items}</ol>);
+    } else if (line.trim() === "") {
+      out.push(<div key={i++} style={{ height: 5 }} />);
+    } else {
+      out.push(<div key={i++} style={{ marginBottom: 1 }}>{fmt(line)}</div>);
+    }
+  }
+  return out;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const CLOSURE_CODES = [
   { value: "no_fault_found",   label: "No Fault Found" },
@@ -908,9 +939,9 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                           )}
                           <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtTs(ev.created_at)}</span>
                         </div>
-                        <pre style={{ margin: 0, padding: "10px 14px", fontSize: 11, fontFamily: "monospace", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", color: isAuto ? "#0c4a6e" : T.text, background: "transparent" }}>
-                          {ev.content}
-                        </pre>
+                        <div style={{ margin: 0, padding: "10px 14px", fontSize: 11, lineHeight: 1.6, color: isAuto ? "#0c4a6e" : T.text }}>
+                          {renderMd(ev.content)}
+                        </div>
                       </div>
                     );
                   })}
