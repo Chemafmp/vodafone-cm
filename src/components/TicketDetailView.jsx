@@ -317,7 +317,8 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   const [uploadError, setUploadError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
-  const [copying, setCopying] = useState(false);
+  const [copying, setCopying]         = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(initialTicket?.description || "");
@@ -490,6 +491,53 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
   function copyLink() {
     const url = `${window.location.origin}${window.location.pathname}#ticket=${ticket.id}`;
     navigator.clipboard.writeText(url).then(() => { setCopying(true); setTimeout(() => setCopying(false), 2000); }).catch(() => {});
+  }
+
+  function buildAiPrompt() {
+    const ageMin = ticket.created_at
+      ? Math.round((Date.now() - new Date(ticket.created_at)) / 60000)
+      : null;
+    const ageStr = ageMin != null
+      ? ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`
+      : "unknown";
+
+    const nodes = (ticket.impacted_nodes || []).join(", ") || "—";
+    const recentWorklog = worklogEvents.slice(-4).map(e =>
+      `  - [${fmtTs(e.created_at)}] ${e.actor_name || "System"}: ${e.content?.slice(0, 200) || ""}`)
+      .join("\n");
+    const evidenceList = evidence.map(e =>
+      `  - [${e.type}] ${e.label || e.url || ""}`)
+      .join("\n");
+
+    return `You are a NOC troubleshooting assistant. Help me diagnose and resolve this incident.
+
+TICKET: ${ticket.id}
+TYPE: ${ticket.type?.toUpperCase() || "INCIDENT"} | SEVERITY: ${ticket.severity?.toUpperCase() || "—"} | STATUS: ${ticket.status}
+ALARM TYPE: ${ticket.alarm_type || "—"}
+IMPACTED: ${nodes}
+OPENED: ${ageStr}
+TEAM: ${ticket.team || "—"}
+
+DESCRIPTION:
+${ticket.description || ticket.title || "No description."}
+
+${recentWorklog ? `RECENT WORKLOG (last ${worklogEvents.slice(-4).length} entries):\n${recentWorklog}` : "WORKLOG: empty"}
+
+${evidenceList ? `EVIDENCE:\n${evidenceList}` : "EVIDENCE: none attached"}
+
+---
+RESPOND IN THIS FORMAT ONLY. Be concise. No explanations. Max 12 lines total.
+
+1. TOP CAUSES (max 3, ranked by likelihood, one line each)
+2. ACTIONS NOW (max 4 specific steps — what command, what dashboard, what to check)
+3. ESCALATE IF: (one line — threshold to escalate)`;
+  }
+
+  function copyAiPrompt() {
+    const prompt = buildAiPrompt();
+    navigator.clipboard.writeText(prompt)
+      .then(() => { setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 2500); })
+      .catch(() => {});
   }
 
   // Loading state (full-screen mode, fetching ticket by ID)
@@ -957,7 +1005,20 @@ export default function TicketDetailView({ ticket: initialTicket, ticketId, curr
                     rows={4}
                     style={{ width: "100%", padding: "8px 10px", fontSize: 11, fontFamily: "monospace", lineHeight: 1.6, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, outline: "none", resize: "vertical", boxSizing: "border-box" }}
                   />
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                    <button
+                      onClick={copyAiPrompt}
+                      title="Copy a structured AI prompt with all ticket context — paste into Claude, ChatGPT, etc."
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 7,
+                        cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s",
+                        background: copiedPrompt ? "#f0fdf4" : "#f8fafc",
+                        border: `1px solid ${copiedPrompt ? "#86efac" : "#e2e8f0"}`,
+                        color: copiedPrompt ? "#15803d" : "#64748b",
+                      }}>
+                      {copiedPrompt ? "✓ Prompt copied!" : "🤖 Copy AI Prompt"}
+                    </button>
                     <button onClick={postWorklog} disabled={postingWorklog || !worklogText.trim()}
                       style={{ padding: "7px 20px", fontSize: 12, fontWeight: 700, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", background: "#374151", border: "none", color: "#fff", opacity: postingWorklog || !worklogText.trim() ? 0.5 : 1 }}>
                       {postingWorklog ? "…" : "Add entry"}
