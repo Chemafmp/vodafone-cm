@@ -66,12 +66,13 @@ function fmtHHMM(ts) {
 // ─── Signal column definitions ────────────────────────────────────────────────
 
 const SIGNAL_COLS = [
-  { key: "atlas",  icon: "📡", label: "Atlas",     shortLabel: "Atlas",  desc: "ICMP latency to k-root (RIPE Atlas)" },
-  { key: "bgp",    icon: "🔗", label: "BGP",       shortLabel: "BGP",    desc: "Prefix visibility (RIPE Stat)" },
-  { key: "ris",    icon: "🔄", label: "RIS Live",  shortLabel: "RIS",    desc: "Real-time BGP stream (RIPE RIS)" },
-  { key: "radar",  icon: "☁️", label: "Radar",     shortLabel: "Radar",  desc: "BGP hijack/leak (Cloudflare)" },
-  { key: "ioda",   icon: "🌐", label: "IODA",      shortLabel: "IODA",   desc: "Outage detection (CAIDA)" },
-  { key: "smon",   icon: "👥", label: "Downdetector", shortLabel: "DD",  desc: "User reports (Downdetector)" },
+  { key: "atlas",  icon: "📡", label: "Atlas",       shortLabel: "Atlas",   desc: "ICMP latency to k-root (RIPE Atlas)" },
+  { key: "bgp",    icon: "🔗", label: "BGP",         shortLabel: "BGP",    desc: "Prefix visibility (RIPE Stat)" },
+  { key: "ris",    icon: "🔄", label: "RIS Live",    shortLabel: "RIS",    desc: "Real-time BGP stream (RIPE RIS)" },
+  { key: "radar",  icon: "☁️", label: "Radar",       shortLabel: "Radar",  desc: "BGP hijack/leak (Cloudflare)" },
+  { key: "ioda",   icon: "🌐", label: "IODA",        shortLabel: "IODA",   desc: "Outage detection (CAIDA)" },
+  { key: "smon",   icon: "👥", label: "Downdetector",shortLabel: "DD",     desc: "User reports (Downdetector)" },
+  { key: "hijack", icon: "🚨", label: "Hijack",      shortLabel: "Hijack", desc: "BGP hijack candidates (RIS Live origin-ASN heuristic)" },
 ];
 
 // ─── Extract per-signal cell data from merged market ─────────────────────────
@@ -133,6 +134,17 @@ function getSignalCell(market, svc, colKey) {
         status: s,
         metric: svc.complaints != null ? `${svc.complaints} rep` : "—",
         sub: svc.ratio != null && svc.ratio > 1 ? `×${svc.ratio.toFixed(1)}` : null,
+      };
+    }
+    case "hijack": {
+      const count = market?.ris?.hijackCandidateCount ?? 0;
+      // Only flag as warn/alert if RIS is actually connected (otherwise we have no data)
+      const connected = market?.ris?.connected !== false;
+      if (!connected) return { status: "unknown", metric: "—", sub: "no stream" };
+      return {
+        status: count > 0 ? "warn" : "ok",
+        metric: count > 0 ? `${count} cand` : "clear",
+        sub: count > 0 ? "review →" : null,
       };
     }
     default:
@@ -808,6 +820,7 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
     { col: SIGNAL_COLS[3], cell: getSignalCell(market, svc, "radar") },
     { col: SIGNAL_COLS[4], cell: getSignalCell(market, svc, "ioda") },
     { col: SIGNAL_COLS[5], cell: getSignalCell(market, svc, "smon") },
+    { col: SIGNAL_COLS[6], cell: getSignalCell(market, svc, "hijack") },
   ];
 
   return (
@@ -941,6 +954,43 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
             )}
           </div>
         )}
+
+        {/* Hijack candidates */}
+        {(() => {
+          const hijacks = market?.ris?.recentHijackCandidates || [];
+          if (!hijacks.length) return null;
+          return (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#dc2626",
+                letterSpacing: "0.5px", marginBottom: 8, textTransform: "uppercase",
+                display: "flex", alignItems: "center", gap: 6 }}>
+                🚨 Hijack Candidates
+                <span style={{ fontSize: 9, fontWeight: 500, color: T.muted }}>
+                  — origin ASN ≠ Vodafone
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {hijacks.slice(0, 5).map((h, i) => (
+                  <div key={i} style={{
+                    padding: "5px 8px", borderRadius: 6,
+                    background: "rgba(220,38,38,0.06)",
+                    border: "1px solid rgba(220,38,38,0.2)",
+                    fontSize: 10,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 1 }}>
+                      <span style={{ fontWeight: 700, color: T.text, fontFamily: "monospace" }}>{h.prefix}</span>
+                      <span style={{ color: T.muted }}>{new Date(h.ts).toLocaleTimeString()}</span>
+                    </div>
+                    <div style={{ color: "#dc2626" }}>
+                      Origin: AS{h.originAsn}
+                      <span style={{ color: T.muted }}> (expected AS{h.matchedAsn})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
       </div>
     </div>
@@ -1284,6 +1334,7 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
                       { col: SIGNAL_COLS[3], cell: getSignalCell(selected, svc, "radar") },
                       { col: SIGNAL_COLS[4], cell: getSignalCell(selected, svc, "ioda") },
                       { col: SIGNAL_COLS[5], cell: getSignalCell(selected, svc, "smon") },
+                      { col: SIGNAL_COLS[6], cell: getSignalCell(selected, svc, "hijack") },
                     ];
                     return (
                       <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
