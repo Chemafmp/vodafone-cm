@@ -133,7 +133,6 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 // ─── Market card ──────────────────────────────────────────────────────────────
 function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
-  const [showInfo, setShowInfo] = useState(false);
 
   const isAlert = market.status === "warning" || market.status === "outage";
   const tintBg = market.status === "outage"
@@ -163,46 +162,12 @@ function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false
         <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{market.flag}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{market.name}</div>
-          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 3 }}>
-            <span>
-              {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()}
-              {market.baseline != null && <span> vs {market.baseline}/h</span>}
-              {" · "}
-              <span style={{ color: market.ratio >= 4.5 ? "#dc2626" : market.ratio >= 2 ? "#b45309" : T.muted }}>
-                {market.ratio}×
-              </span>
-            </span>
-            <span style={{ position: "relative", flexShrink: 0 }}>
-              <span
-                onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); }}
-                style={{ fontSize: 9, color: T.muted, opacity: 0.6, cursor: "help", userSelect: "none", padding: "2px 3px" }}
-              >ⓘ</span>
-              {showInfo && (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
-                    transform: "translateX(-50%)",
-                    background: "#1e293b", color: "#f1f5f9",
-                    fontSize: 10, lineHeight: 1.5, borderRadius: 7,
-                    padding: "8px 10px", whiteSpace: "nowrap",
-                    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-                    zIndex: 100,
-                  }}
-                >
-                  <div style={{ fontWeight: 700, marginBottom: 4, color: "#94a3b8", fontSize: 9, letterSpacing: "0.5px" }}>HOW TO READ</div>
-                  <div><strong style={{ color: "#fff" }}>NOW</strong> — complaints per hour right now</div>
-                  <div><strong style={{ color: "#fff" }}>vs BASE</strong> — normal level (rolling avg)</div>
-                  <div><strong style={{ color: "#fff" }}>RATIO</strong> — how many times above normal</div>
-                  <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid #334155", color: "#94a3b8", fontSize: 9 }}>
-                    1× normal · 2× warning · 4.5× outage
-                  </div>
-                  <div
-                    onClick={(e) => { e.stopPropagation(); setShowInfo(false); }}
-                    style={{ marginTop: 6, textAlign: "center", color: "#64748b", cursor: "pointer", fontSize: 9 }}
-                  >tap to close</div>
-                </div>
-              )}
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace", whiteSpace: "nowrap" }}>
+            {(() => { const f = fmt(market.complaints); return `${f.v}${f.u}`; })()}
+            {market.baseline != null && <span> vs {market.baseline}/h</span>}
+            {" · "}
+            <span style={{ color: market.ratio >= 4.5 ? "#dc2626" : market.ratio >= 2 ? "#b45309" : T.muted }}>
+              {market.ratio}×
             </span>
           </div>
           {effectiveDataSource(market) === "downdetector" ? (
@@ -403,6 +368,7 @@ function trendDirection(trend) {
 function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, perMin, mobile = false, onOpenTicket, hideTickets = false }) {
   const [zoom, setZoom]           = useState(1);   // 1=full, 2=50%, 4=25%, 8=12.5%
   const [copied, setCopied]       = useState(false);
+  const [showMetricInfo, setShowMetricInfo] = useState(false);
 
   const sm  = STATUS_META[market.status] || STATUS_META.ok;
   const dir = trendDirection(trend);
@@ -505,6 +471,30 @@ function DetailPanel({ market, trend, rangeLabel, rangePoints, onClose, fmt, per
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
         {/* ── Key metrics ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase", flex: 1 }}>
+            Key Metrics
+          </span>
+          <span
+            onClick={() => setShowMetricInfo(v => !v)}
+            style={{ fontSize: 11, color: showMetricInfo ? T.text : T.muted, opacity: showMetricInfo ? 1 : 0.5,
+              cursor: "pointer", userSelect: "none", padding: "2px 4px" }}
+          >ⓘ</span>
+        </div>
+        {showMetricInfo && (
+          <div style={{ background: "#1e293b", color: "#f1f5f9", fontSize: 11, lineHeight: 1.7,
+            borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, marginBottom: 5, color: "#94a3b8", fontSize: 9, letterSpacing: "0.5px" }}>HOW TO READ</div>
+            <div><strong style={{ color: "#fff" }}>NOW</strong> — complaints per hour at this moment</div>
+            <div><strong style={{ color: "#fff" }}>BASELINE</strong> — normal level (rolling avg of recent history)</div>
+            <div style={{ marginBottom: 6 }}><strong style={{ color: "#fff" }}>PEAK</strong> — highest value in the selected time window</div>
+            <div style={{ paddingTop: 6, borderTop: "1px solid #334155", color: "#94a3b8", fontSize: 10 }}>
+              Ratio = NOW ÷ BASELINE &nbsp;·&nbsp;
+              <span style={{ color: "#fbbf24" }}>2×</span> warning &nbsp;·&nbsp;
+              <span style={{ color: "#f87171" }}>4.5×</span> outage
+            </div>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
           {[
             { label: "Now",      value: `${fmt(market.complaints).v}`, unit: fmt(market.complaints).u, color: sm.color },
