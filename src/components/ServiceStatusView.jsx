@@ -133,6 +133,7 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 // ─── Market card ──────────────────────────────────────────────────────────────
 function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
+  const [showInfo, setShowInfo] = useState(false);
 
   const isAlert = market.status === "warning" || market.status === "outage";
   const tintBg = market.status === "outage"
@@ -171,10 +172,38 @@ function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false
                 {market.ratio}×
               </span>
             </span>
-            <span
-              title={"NOW vs BASELINE · RATIO\n\nNOW: current complaints per hour\nBASELINE: normal level (rolling average)\nRATIO: how many times above normal\n\n1× = normal  ·  2× = warning  ·  4.5× = outage"}
-              style={{ fontSize: 9, color: T.muted, opacity: 0.6, cursor: "help", flexShrink: 0, userSelect: "none" }}
-            >ⓘ</span>
+            <span style={{ position: "relative", flexShrink: 0 }}>
+              <span
+                onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); }}
+                style={{ fontSize: 9, color: T.muted, opacity: 0.6, cursor: "help", userSelect: "none", padding: "2px 3px" }}
+              >ⓘ</span>
+              {showInfo && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "#1e293b", color: "#f1f5f9",
+                    fontSize: 10, lineHeight: 1.5, borderRadius: 7,
+                    padding: "8px 10px", whiteSpace: "nowrap",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+                    zIndex: 100,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4, color: "#94a3b8", fontSize: 9, letterSpacing: "0.5px" }}>HOW TO READ</div>
+                  <div><strong style={{ color: "#fff" }}>NOW</strong> — complaints per hour right now</div>
+                  <div><strong style={{ color: "#fff" }}>vs BASE</strong> — normal level (rolling avg)</div>
+                  <div><strong style={{ color: "#fff" }}>RATIO</strong> — how many times above normal</div>
+                  <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid #334155", color: "#94a3b8", fontSize: 9 }}>
+                    1× normal · 2× warning · 4.5× outage
+                  </div>
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setShowInfo(false); }}
+                    style={{ marginTop: 6, textAlign: "center", color: "#64748b", cursor: "pointer", fontSize: 9 }}
+                  >tap to close</div>
+                </div>
+              )}
+            </span>
           </div>
           {effectiveDataSource(market) === "downdetector" ? (
             <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 3,
