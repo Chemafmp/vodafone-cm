@@ -134,22 +134,28 @@ function Sparkline({ trend = [], status, width = 80, height = 28 }) {
 function MarketCard({ market, trend, selected, onClick, fmt, hideTickets = false }) {
   const sm = STATUS_META[market.status] || STATUS_META.ok;
 
+  const isAlert = market.status === "warning" || market.status === "outage";
+  const tintBg = market.status === "outage"
+    ? "rgba(239,68,68,0.07)"
+    : market.status === "warning"
+      ? "rgba(245,158,11,0.07)"
+      : "transparent";
+
   return (
     <div onClick={onClick}
       style={{
-        background: selected ? sm.bg : T.surface,
-        border: `1.5px solid ${selected ? sm.border : T.border}`,
+        background: selected ? sm.bg : isAlert ? tintBg : T.surface,
+        border: `1.5px solid ${selected ? sm.border : isAlert ? sm.border : T.border}`,
+        borderLeft: `4px solid ${sm.dot}`,
         borderRadius: 12,
         padding: "14px 16px",
         cursor: "pointer",
         transition: "all 0.15s",
-        boxShadow: selected ? `0 0 0 2px ${sm.border}` : "none",
+        boxShadow: selected ? `0 0 0 2px ${sm.border}` : isAlert ? `0 1px 4px ${sm.dot}22` : "none",
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Status accent bar */}
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: sm.dot, borderRadius: "12px 12px 0 0" }} />
 
       {/* Header row */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
