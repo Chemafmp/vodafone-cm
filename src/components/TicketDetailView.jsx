@@ -968,7 +968,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                 </div>
 
                 {/* Notes feed */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "20px 22px" }}>
                   {notes.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", textAlign: "center", padding: "28px 0" }}>
                       No notes yet — add context, paste command output, share findings.
@@ -1020,7 +1020,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
             {activeTab === "worklog" && (
               <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
                 {/* Entries */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
                   {worklogEvents.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
                   )}
@@ -1094,7 +1094,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── LOG TAB ─────────────────────────────────────────────────────── */}
             {activeTab === "log" && (
-              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
+              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "20px 22px" }}>
                 {logEvents.length === 0 && (
                   <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No events yet.</div>
                 )}
@@ -1156,7 +1156,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── ATTACHMENTS TAB ──────────────────────────────────────────────── */}
             {activeTab === "attachments" && (
-              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "20px 22px" }}>
+              <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "20px 22px" }}>
                 {evidence.length === 0 && (
                   <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", marginBottom: 20 }}>No attachments yet.</div>
                 )}
@@ -1244,7 +1244,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                   </button>
                 </div>
                 {/* List */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "10px 12px" : "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
                   {loadingChildren && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Loading…</div>
                   )}
