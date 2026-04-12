@@ -25,6 +25,7 @@ const STATUSPAGE_PROVIDERS = [
   // ── CDN ───────────────────────────────────────────────────────────────────
   { id: "cloudflare",  name: "Cloudflare",   icon: "🟠", cat: "cdn",      cloud: "own",   url: "https://www.cloudflarestatus.com/api/v2/summary.json" },
   { id: "fastly",      name: "Fastly",       icon: "⚡",  cat: "cdn",      cloud: "own",   url: "https://status.fastly.com/api/v2/summary.json" },
+  { id: "oracle",      name: "Oracle Cloud", icon: "🔺",  cat: "cloud",    cloud: "own",   url: "https://ocloudinfra.statuspage.io/api/v2/summary.json" },
   // ── DevOps / Dev Tools ────────────────────────────────────────────────────
   { id: "github",      name: "GitHub",       icon: "🐙",  cat: "devtools", cloud: "azure", url: "https://www.githubstatus.com/api/v2/summary.json" },
   { id: "atlassian",   name: "Atlassian",    icon: "⬡",   cat: "devtools", cloud: "aws",   url: "https://status.atlassian.com/api/v2/summary.json" },
