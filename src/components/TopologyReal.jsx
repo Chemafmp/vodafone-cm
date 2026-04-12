@@ -40,12 +40,16 @@ function layoutMarkets(cx, cy, r1, r2) {
   return positions;
 }
 
+// ASNs belonging to Vodafone markets — exclude from transit nodes
+const VODAFONE_ASNS = new Set([5378, 3209, 12430, 30722, 12353, 33915, 15502, 3329, 15924, 1273]);
+
 // Compute transit nodes: ASNs appearing as upstream (left) in 2+ markets
 function computeTransitNodes(enrichment, cx, cy, r3) {
   const asnMarkets = new Map();
   for (const m of enrichment) {
     for (const n of m.neighbours) {
-      if (n.type === "left") {
+      // Skip our own Vodafone ASNs — they're already market nodes on the canvas
+      if (n.type === "left" && !VODAFONE_ASNS.has(n.asn)) {
         if (!asnMarkets.has(n.asn)) asnMarkets.set(n.asn, []);
         asnMarkets.get(n.asn).push({ marketId: m.id, ...n });
       }
