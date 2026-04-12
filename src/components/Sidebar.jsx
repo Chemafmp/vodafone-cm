@@ -19,13 +19,15 @@ const ALL_NAV_GROUPS=[
     {id:"topology_sim",  icon:"🔧", label:"Topology",   lab:true},
   ]},
   { label:"MONITORING", app:"monitoring", items:[
-    {id:"livestatus",      icon:"◉",  label:"Live Status"},
-    {id:"alarms",          icon:"🔔", label:"Alarms"},
-    {id:"events",          icon:"📋", label:"Events"},
-    {id:"observability",   icon:"📈", label:"Observability"},
-    {id:"service_monitor", icon:"🌍", label:"Service Monitor"},
+    // ── REAL DATA ──────────────────────────────────────────────
+    {id:"service_monitor", icon:"🌍", label:"Service Monitor", sectionLabel:"REAL DATA"},
     {id:"network_health",  icon:"📡", label:"Network Health"},
     {id:"signal_fusion",   icon:"🔀", label:"Signal Fusion"},
+    {id:"livestatus",      icon:"◉",  label:"Live Status"},
+    {id:"alarms",          icon:"🔔", label:"Alarms"},
+    // ── LAB (simulated fleet) ──────────────────────────────────
+    {id:"events",          icon:"📋", label:"Events",          lab:true, sectionLabel:"LAB"},
+    {id:"observability",   icon:"📈", label:"Observability",   lab:true},
   ]},
   { label:"TICKETING", app:"tickets", summaryKeys:{ open:"ticketsAll", critical:"ticketsCritical" }, items:[
     {id:"tickets_all",       icon:"🎫", label:"All Tickets", badgeKey:"ticketsAll",       badgeColor:"#475569"},
