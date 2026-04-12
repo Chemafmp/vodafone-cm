@@ -1018,9 +1018,9 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── WORKLOG TAB ─────────────────────────────────────────────────── */}
             {activeTab === "worklog" && (
-              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
+              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden", minHeight: 0 }}>
                 {/* Entries */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
                   {worklogEvents.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
                   )}
@@ -1229,7 +1229,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
 
             {/* ── CHILDREN TAB ──────────────────────────────────────────────── */}
             {activeTab === "children" && (
-              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" }}>
+              <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden", minHeight: 0 }}>
                 {/* Header */}
                 <div style={{ padding: "14px 22px 10px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ flex: 1 }}>
@@ -1244,7 +1244,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                   </button>
                 </div>
                 {/* List */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
                   {loadingChildren && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Loading…</div>
                   )}
