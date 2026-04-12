@@ -664,6 +664,73 @@ app.post("/api/control/notifier/simulate", async (req, res) => {
   }
 });
 
+// ─── Full-stack network signal simulate endpoint ──────────────────────────────
+// POST /api/simulate/network
+// Body: { signal, marketId, status, detail? }
+// Creates a ticket AND sends Slack — same as a real checkNetworkHealth transition.
+// Example:
+//   curl -X POST https://api.chemafmp.dev/api/simulate/network \
+//     -H "Content-Type: application/json" \
+//     -d '{"signal":"atlas","marketId":"uk","status":"outage","detail":"×3.2 ratio"}'
+app.post("/api/simulate/network", async (req, res) => {
+  const { signal, marketId, status = "outage", detail = "" } = req.body || {};
+  if (!signal || !marketId) {
+    return res.status(400).json({ error: "Required: signal, marketId" });
+  }
+  if (!["atlas","bgp","dns","ioda","radar","svc"].includes(signal)) {
+    return res.status(400).json({ error: "signal must be atlas | bgp | dns | ioda | radar | svc" });
+  }
+  if (!["warning","outage","alert"].includes(status)) {
+    return res.status(400).json({ error: "status must be warning | outage | alert" });
+  }
+  const market = SIMULATE_MARKETS[marketId];
+  if (!market) {
+    return res.status(400).json({ error: `Unknown marketId. Valid: ${Object.keys(SIMULATE_MARKETS).join(", ")}` });
+  }
+
+  try {
+    let ticketId = null;
+    if (signal === "svc") {
+      ticketId = await createServiceTicket({ ...market, complaints: null, ratio: null }, status === "alert" ? "alert" : "warn");
+    } else {
+      ticketId = await createNetworkTicket(market, signal, status === "alert" ? "outage" : status, detail);
+    }
+
+    // Post Slack with ticket link (bypass mute — it's a simulation)
+    const signalLabels = { atlas: "ICMP Latency (RIPE Atlas)", bgp: "BGP Visibility", dns: "DNS RTT",
+                           ioda: "CAIDA IODA Outage", radar: "Cloudflare Radar BGP", svc: "Downdetector Complaints" };
+    const label    = signalLabels[signal] || signal;
+    const isOutage = status === "outage" || status === "alert";
+    const emoji    = isOutage ? "🔴" : "🟠";
+    const color    = isOutage ? "#dc2626" : "#f59e0b";
+    const severity = isOutage ? "OUTAGE" : "WARNING";
+    const ts       = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+    const { ticketLinkBlock: _ } = await import("./lib/notifier.js").catch(() => ({}));
+    const FRONTEND_URL = process.env.FRONTEND_URL || "https://chemafmp.github.io/vodafone-cm";
+    const WEBHOOK_URL  = process.env.SLACK_WEBHOOK_URL;
+    if (WEBHOOK_URL) {
+      const blocks = [
+        { type: "section", text: { type: "mrkdwn",
+          text: `${emoji} *${severity} — ${market.flag} ${market.name}*\n*Signal:* ${label}${detail ? `  ·  ${detail}` : ""}` } },
+      ];
+      if (ticketId) {
+        blocks.push({ type: "section", text: { type: "mrkdwn",
+          text: `🎫 *<${FRONTEND_URL}/#ticket=${encodeURIComponent(ticketId)}|View Ticket ${ticketId} →>*` } });
+      }
+      blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Simulation · ${ts} UTC` }] });
+      await fetch(WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachments: [{ color, blocks }] }) }).catch(() => null);
+    }
+
+    log(chalk.magenta(`[simulate] 🎭 network ${signal} ${status} · ${marketId} → ticket=${ticketId || "none"}`));
+    res.json({ ok: true, signal, marketId, status, detail, ticketId });
+  } catch (e) {
+    log(chalk.yellow(`[simulate] network error: ${e.message}`));
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Network signal ticket creators ──────────────────────────────────────────
 
 const SIGNAL_META = {
