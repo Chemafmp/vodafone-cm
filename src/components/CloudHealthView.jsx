@@ -162,9 +162,9 @@ async function fetchStatuspage(p) {
       };
     });
 
-  // All non-operational components (not just top 8 — show all for rich detail)
+  // All non-operational components (degraded + maintenance)
   const degradedComponents = (d.components || [])
-    .filter(c => compRank(c.status) > 0 && !c.group)
+    .filter(c => compRank(c.status) >= 0 && !c.group)
     .sort((a, b) => compRank(b.status) - compRank(a.status))
     .map(c => ({ name: c.name, status: c.status }));
 
@@ -859,8 +859,11 @@ function ProviderCard({ p, expanded, onToggle }) {
               </div>
             )}
             {p.componentSummary && p.componentSummary.total > 0 && !hasIssues && (
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                {p.componentSummary.operational}/{p.componentSummary.total} components OK
+              <div style={{ fontSize: 10, marginTop: 2,
+                color: p.componentSummary.degraded > 0 ? "#6366f1" : T.muted }}>
+                {p.componentSummary.degraded > 0
+                  ? `🔧 ${p.componentSummary.degraded} maintenance`
+                  : `${p.componentSummary.operational}/${p.componentSummary.total} components OK`}
               </div>
             )}
           </div>
@@ -968,26 +971,43 @@ function ProviderCard({ p, expanded, onToggle }) {
             </div>
           )}
 
-          {/* Affected components */}
-          {p.components?.length > 0 && (
-            <div style={{ borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", padding: "12px 16px 8px" }}>
-                ⚠ Affected Components ({p.components.length})
+          {/* Affected / maintenance components */}
+          {p.components?.length > 0 && (() => {
+            const hasOnlyMaint = p.components.every(c => c.status === "under_maintenance");
+            return (
+              <div style={{ borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", padding: "12px 16px 8px" }}>
+                  {hasOnlyMaint ? "🔧 Under Maintenance" : "⚠ Affected Components"} ({p.components.length})
+                </div>
+                <div>
+                  {p.components.map((c, i) => <ComponentRow key={i} c={c} />)}
+                </div>
               </div>
-              <div>
-                {p.components.map((c, i) => <ComponentRow key={i} c={c} />)}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* All clear */}
+          {/* All clear / maintenance notice */}
           {!hasIssues && !p.error && (
             <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 18 }}>✅</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#16a34a" }}>All systems operational</div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>No active incidents or degraded components</div>
-              </div>
+              {p.componentSummary?.degraded > 0 ? (
+                <>
+                  <span style={{ fontSize: 18 }}>🔧</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#6366f1" }}>Maintenance in progress</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                      {p.componentSummary.degraded} component{p.componentSummary.degraded !== 1 ? "s" : ""} under maintenance — no active incidents
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 18 }}>✅</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#16a34a" }}>All systems operational</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>No active incidents or degraded components</div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1051,6 +1071,8 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
   const [error, setError]                 = useState(null);
   const [filterCat, setFilterCat]         = useState("all");
   const [filterStatus, setFilterStatus]   = useState("all");
+  const [filterCloud, setFilterCloud]     = useState("all");
+  const [filterSearch, setFilterSearch]   = useState("");
   const [expanded, setExpanded]           = useState({});
   const [windowW, setWindowW]             = useState(window.innerWidth);
   const timerRef = useRef(null);
@@ -1134,12 +1156,25 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const cats     = ["all", ...new Set((providers || []).map(p => p.cat).filter(Boolean))];
+  const searchQ = filterSearch.trim().toLowerCase();
   const filtered = (providers || []).filter(p => {
     if (filterCat !== "all" && p.cat !== filterCat) return false;
-    if (filterStatus === "issues" && p.status === "ok")      return false;
-    if (filterStatus === "ok"     && p.status !== "ok")      return false;
+    if (filterCloud !== "all" && (p.cloud || "own") !== filterCloud) return false;
+    if (filterStatus === "issues" && p.status === "ok") return false;
+    if (filterStatus === "ok"     && p.status !== "ok") return false;
+    if (filterStatus === "maintenance" &&
+        !(p.componentSummary?.degraded > 0 && !p.activeIncidents?.length)) return false;
+    if (searchQ && !p.name.toLowerCase().includes(searchQ) &&
+        !(p.cat || "").toLowerCase().includes(searchQ) &&
+        !(CAT_LABELS[p.cat] || "").toLowerCase().includes(searchQ) &&
+        !(p.activeIncidents || []).some(i => i.name?.toLowerCase().includes(searchQ))) return false;
     return true;
   });
+
+  // ── Maintenance count (for pill) ──────────────────────────────────────────
+  const maintenanceCount = (providers || []).filter(p =>
+    p.componentSummary?.degraded > 0 && !p.activeIncidents?.length
+  ).length;
 
   // ── Summary counts ────────────────────────────────────────────────────────
   const realProviders = (providers || []).filter(p => p.status !== "unknown");
@@ -1179,14 +1214,41 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
               {lastFetch && <span style={{ marginLeft: 6 }}>· {timeAgo(lastFetch.toISOString())}</span>}
             </div>
           </div>
-          <button
-            onClick={refresh}
-            style={{
-              background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
-              padding: isMobile ? "6px 12px" : "7px 16px", fontSize: 12,
-              cursor: "pointer", color: T.text, fontWeight: 600, flexShrink: 0,
-            }}
-          >↺</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            <div style={{ position: "relative" }}>
+              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: T.muted, pointerEvents: "none" }}>🔍</span>
+              <input
+                type="text"
+                placeholder="Search providers…"
+                value={filterSearch}
+                onChange={e => setFilterSearch(e.target.value)}
+                style={{
+                  paddingLeft: 28, paddingRight: filterSearch ? 24 : 10,
+                  paddingTop: 6, paddingBottom: 6,
+                  width: isMobile ? 130 : 180,
+                  fontSize: 12, background: T.surface,
+                  border: `1px solid ${T.border}`, borderRadius: 8,
+                  color: T.text, outline: "none",
+                  fontFamily: "inherit",
+                }}
+              />
+              {filterSearch && (
+                <button onClick={() => setFilterSearch("")} style={{
+                  position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 12, color: T.muted, padding: 0, lineHeight: 1,
+                }}>✕</button>
+              )}
+            </div>
+            <button
+              onClick={refresh}
+              style={{
+                background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+                padding: isMobile ? "6px 10px" : "7px 14px", fontSize: 12,
+                cursor: "pointer", color: T.text, fontWeight: 600, flexShrink: 0,
+              }}
+            >↺</button>
+          </div>
         </div>
 
         {/* ── Summary pills ── */}
@@ -1209,6 +1271,14 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
                 <StatusDot status="outage" size={7} />
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#dc2626" }}>{outages}</span>
                 <span style={{ fontSize: 11, color: "#991b1b" }}>Outage</span>
+              </div>
+            )}
+            {maintenanceCount > 0 && (
+              <div style={{ background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 8, padding: "6px 12px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                onClick={() => setFilterStatus(s => s === "maintenance" ? "all" : "maintenance")}>
+                <span style={{ fontSize: 11 }}>🔧</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>{maintenanceCount}</span>
+                <span style={{ fontSize: 11, color: "#3730a3" }}>Maintenance</span>
               </div>
             )}
             {unknown > 0 && (
@@ -1277,34 +1347,68 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
           </div>
         )}
 
-        {/* ── Filter bar — horizontal scroll on mobile ── */}
-        <div style={{
-          display: "flex", gap: 7, marginBottom: 16, alignItems: "center",
-          overflowX: isMobile ? "auto" : "visible",
-          flexWrap: isMobile ? "nowrap" : "wrap",
-          paddingBottom: isMobile ? 4 : 0,
-          WebkitOverflowScrolling: "touch",
-        }}>
-          <span style={{ fontSize: 11, color: T.muted, fontWeight: 700, flexShrink: 0 }}>Filter:</span>
-          {[{ key: "all", label: "All" }, { key: "issues", label: "🔴 Issues" }].map(f => (
-            <button key={f.key} onClick={() => setFilterStatus(f.key)} style={{
-              background: filterStatus === f.key ? "#0f172a" : T.surface,
-              color: filterStatus === f.key ? "#fff" : T.text,
-              border: `1px solid ${filterStatus === f.key ? "#0f172a" : T.border}`,
-              borderRadius: 20, padding: "4px 12px", fontSize: 11, cursor: "pointer",
-              fontWeight: 600, flexShrink: 0,
-            }}>{f.label}</button>
-          ))}
-          <span style={{ width: 1, height: 16, background: T.border, margin: "0 2px", flexShrink: 0 }} />
-          {cats.map(cat => (
-            <button key={cat} onClick={() => setFilterCat(cat)} style={{
-              background: filterCat === cat ? "#3b82f6" : T.surface,
-              color: filterCat === cat ? "#fff" : T.text,
-              border: `1px solid ${filterCat === cat ? "#3b82f6" : T.border}`,
-              borderRadius: 20, padding: "4px 12px", fontSize: 11, cursor: "pointer",
-              fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
-            }}>{cat === "all" ? "All" : (CAT_LABELS[cat]?.replace(/^.+\s/, "") || cat)}</button>
-          ))}
+        {/* ── Filter bar — two rows ── */}
+        <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 7 }}>
+          {/* Row 1: status + cloud hosting */}
+          <div style={{
+            display: "flex", gap: 6, alignItems: "center",
+            overflowX: "auto", flexWrap: "nowrap",
+            paddingBottom: 2, WebkitOverflowScrolling: "touch",
+          }}>
+            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</span>
+            {[
+              { key: "all",         label: "All" },
+              { key: "issues",      label: "🔴 Issues" },
+              { key: "maintenance", label: "🔧 Maintenance" },
+              { key: "ok",          label: "✓ OK only" },
+            ].map(f => (
+              <button key={f.key} onClick={() => setFilterStatus(f.key)} style={{
+                background: filterStatus === f.key ? "#0f172a" : T.surface,
+                color: filterStatus === f.key ? "#fff" : T.text,
+                border: `1px solid ${filterStatus === f.key ? "#0f172a" : T.border}`,
+                borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer",
+                fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
+              }}>{f.label}</button>
+            ))}
+            <span style={{ width: 1, height: 16, background: T.border, margin: "0 4px", flexShrink: 0 }} />
+            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cloud</span>
+            {[
+              { key: "all",   label: "All" },
+              { key: "aws",   label: "🟡 AWS" },
+              { key: "gcp",   label: "🔵 GCP" },
+              { key: "azure", label: "🔷 Azure" },
+              { key: "own",   label: "🏢 Own infra" },
+            ].map(f => {
+              const cm = CLOUD_META[f.key];
+              const active = filterCloud === f.key;
+              return (
+                <button key={f.key} onClick={() => setFilterCloud(f.key)} style={{
+                  background: active ? (cm?.color || "#0f172a") : T.surface,
+                  color: active ? "#fff" : (cm?.color || T.text),
+                  border: `1px solid ${active ? (cm?.color || "#0f172a") : T.border}`,
+                  borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer",
+                  fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
+                }}>{f.label}</button>
+              );
+            })}
+          </div>
+          {/* Row 2: categories */}
+          <div style={{
+            display: "flex", gap: 6, alignItems: "center",
+            overflowX: "auto", flexWrap: "nowrap",
+            paddingBottom: 2, WebkitOverflowScrolling: "touch",
+          }}>
+            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Category</span>
+            {cats.map(cat => (
+              <button key={cat} onClick={() => setFilterCat(cat)} style={{
+                background: filterCat === cat ? "#3b82f6" : T.surface,
+                color: filterCat === cat ? "#fff" : T.text,
+                border: `1px solid ${filterCat === cat ? "#3b82f6" : T.border}`,
+                borderRadius: 20, padding: "4px 11px", fontSize: 11, cursor: "pointer",
+                fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap",
+              }}>{cat === "all" ? "All" : (CAT_LABELS[cat] || cat)}</button>
+            ))}
+          </div>
         </div>
 
         {/* ── Loading / error ── */}

@@ -154,9 +154,42 @@ function getSignalCell(market, svc, colKey) {
 
 // ─── Build chronological event feed ──────────────────────────────────────────
 
-function buildFeed(markets, svcMap) {
+function buildFeed(markets, svcMap, cloudData = []) {
   const events = [];
   const now = Date.now();
+
+  // ── Cloud-induced cascade events ───────────────────────────────���──────────
+  // If a major cloud (AWS/GCP/Azure) is degraded AND 2+ services on that cloud
+  // are also degraded → emit a global "cloud cascade" cluster event.
+  const cloudProviderIds = ["aws", "gcp", "azure"];
+  for (const cid of cloudProviderIds) {
+    const cp = cloudData.find(p => p.id === cid);
+    if (!cp || cp.status === "ok" || cp.status === "unknown") continue;
+    const affected = cloudData.filter(p =>
+      !cloudProviderIds.includes(p.id) &&
+      (p.cloud === cid) &&
+      (p.status === "warning" || p.status === "outage")
+    );
+    if (affected.length >= 2) {
+      events.push({
+        id:          `cloud-cascade-${cid}-${now}`,
+        ts:          now,
+        marketId:    null,
+        flag:        cp.status === "outage" ? "🔴" : "🟠",
+        marketName:  "Global",
+        signal:      "cloud",
+        icon:        "☁️",
+        severity:    cp.status === "outage" ? "alert" : "warning",
+        isCloudCascade: true,
+        cloudId:     cid,
+        cloudName:   cp.name,
+        cloudStatus: cp.status,
+        affectedServices: affected,
+        text:        `☁️ ${cp.name} ${cp.status.toUpperCase()} — ${affected.length} dependent services affected`,
+        sub:         affected.slice(0, 5).map(s => s.name).join(", ") + (affected.length > 5 ? ` +${affected.length - 5}` : ""),
+      });
+    }
+  }
 
   for (const m of markets) {
     const svc = svcMap[m.id];
@@ -428,8 +461,8 @@ function SignalMatrix({ markets, svcMap, showDegradedOnly, selected, onSelect })
 
 // ─── Event Feed ───────────────────────────────────────────────────────────────
 
-function EventFeed({ markets, svcMap }) {
-  const feed = buildFeed(markets, svcMap);
+function EventFeed({ markets, svcMap, cloudData }) {
+  const feed = buildFeed(markets, svcMap, cloudData);
 
   if (feed.length === 0) {
     return (
@@ -482,6 +515,43 @@ function EventFeed({ markets, svcMap }) {
               </div>
               <div style={{ fontSize: 9, color: sc.color, marginTop: 6, fontWeight: 600 }}>
                 {item.events.length} signals correlated within 30 min — open ticket if not yet tracked
+              </div>
+            </div>
+          );
+        }
+
+        // Cloud cascade event — special full-width card
+        if (item.isCloudCascade) {
+          const isOut = item.cloudStatus === "outage";
+          return (
+            <div key={item.id || i} style={{
+              background: isOut ? "#fef2f2" : "#fffbeb",
+              border: `1px solid ${isOut ? "#fca5a5" : "#fcd34d"}`,
+              borderLeft: `4px solid ${isOut ? "#dc2626" : "#f59e0b"}`,
+              borderRadius: 8, padding: "10px 14px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 14 }}>☁️</span>
+                <span style={{ fontWeight: 800, fontSize: 12, color: isOut ? "#dc2626" : "#b45309" }}>
+                  CLOUD-INDUCED CASCADE
+                </span>
+                <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{fmtAgo(item.ts)}</span>
+              </div>
+              <div style={{ fontSize: 12, color: isOut ? "#7f1d1d" : "#92400e", marginBottom: 5, fontWeight: 600 }}>
+                {item.cloudName} is {item.cloudStatus} — {item.affectedServices.length} dependent service{item.affectedServices.length !== 1 ? "s" : ""} degraded
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {item.affectedServices.slice(0, 8).map(s => (
+                  <span key={s.id} style={{
+                    fontSize: 10, padding: "2px 7px", borderRadius: 5, fontWeight: 700,
+                    background: s.status === "outage" ? "#fef2f2" : "#fffbeb",
+                    border: `1px solid ${s.status === "outage" ? "#fca5a5" : "#fcd34d"}`,
+                    color: s.status === "outage" ? "#dc2626" : "#b45309",
+                  }}>{s.icon} {s.name}</span>
+                ))}
+                {item.affectedServices.length > 8 && (
+                  <span style={{ fontSize: 10, color: T.muted, padding: "2px 7px" }}>+{item.affectedServices.length - 8} more</span>
+                )}
               </div>
             </div>
           );
@@ -808,7 +878,7 @@ function CorrelationChart({ market, svc }) {
 
 // ─── Market Detail Panel ──────────────────────────────────────────────────────
 
-function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
+function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth, cloudData }) {
   if (!market) return null;
 
   const score = market.correlation?.score;
@@ -954,6 +1024,73 @@ function MarketDetailPanel({ market, svc, onClose, onOpenNetworkHealth }) {
             )}
           </div>
         )}
+
+        {/* Cloud Dependencies */}
+        {cloudData?.length > 0 && (() => {
+          const cloudProviderIds = ["aws", "gcp", "azure"];
+          const cloudRows = cloudProviderIds
+            .map(cid => {
+              const cp = cloudData.find(p => p.id === cid);
+              if (!cp) return null;
+              const deps = cloudData.filter(p =>
+                !cloudProviderIds.includes(p.id) && p.cloud === cid
+              );
+              const degraded = deps.filter(p => p.status === "warning" || p.status === "outage");
+              return { cp, deps, degraded };
+            })
+            .filter(Boolean);
+
+          const anyIssue = cloudRows.some(r => r.cp.status !== "ok" && r.cp.status !== "unknown");
+
+          return (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", marginBottom: 8, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+                ☁️ Cloud Infrastructure
+                {anyIssue && <span style={{ fontSize: 9, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 4, padding: "1px 5px" }}>Impact Risk</span>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {cloudRows.map(({ cp, deps, degraded }) => {
+                  const isOk = cp.status === "ok" || cp.status === "unknown";
+                  const stColor = cp.status === "outage" ? "#dc2626" : cp.status === "warning" ? "#b45309" : "#16a34a";
+                  return (
+                    <div key={cp.id} style={{
+                      padding: "7px 10px", borderRadius: 7,
+                      background: !isOk ? (cp.status === "outage" ? "#fef2f2" : "#fffbeb") : T.bg,
+                      border: `1px solid ${!isOk ? (cp.status === "outage" ? "#fca5a5" : "#fcd34d") : T.border}`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13 }}>{cp.icon}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.text, flex: 1 }}>{cp.name}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: stColor,
+                          background: `${stColor}18`, border: `1px solid ${stColor}33`,
+                          borderRadius: 4, padding: "1px 6px" }}>
+                          {cp.status === "ok" ? "OK" : cp.status === "unknown" ? "—" : cp.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 3 }}>
+                        {deps.slice(0, 6).map(s => {
+                          const sc = s.status === "outage" ? "#dc2626" : s.status === "warning" ? "#b45309" : "#64748b";
+                          return (
+                            <span key={s.id} style={{
+                              fontSize: 9, padding: "1px 5px", borderRadius: 4, fontWeight: 600,
+                              color: sc, background: `${sc}12`, border: `1px solid ${sc}25`,
+                            }}>{s.icon} {s.name}</span>
+                          );
+                        })}
+                        {deps.length > 6 && <span style={{ fontSize: 9, color: T.muted }}>+{deps.length - 6}</span>}
+                      </div>
+                      {degraded.length > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 9, color: stColor, fontWeight: 700 }}>
+                          ⚠ {degraded.length} service{degraded.length !== 1 ? "s" : ""} affected on this cloud
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Hijack candidates */}
         {(() => {
@@ -1108,6 +1245,7 @@ function AboutMetrics() {
 export default function SignalFusionView({ onOpenNetworkHealth }) {
   const [markets,   setMarkets]   = useState([]);
   const [svcMap,    setSvcMap]    = useState({});
+  const [cloudData, setCloudData] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showDegradedOnly, setShowDegradedOnly] = useState(false);
@@ -1128,13 +1266,15 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
 
     async function load() {
       try {
-        const [nhRes, svcRes] = await Promise.all([
+        const [nhRes, svcRes, cloudRes] = await Promise.all([
           fetch(`${apiBase()}/api/network-health`),
           fetch(`${apiBase()}/api/service-status`),
+          fetch(`${apiBase()}/api/cloud-health`).catch(() => null),
         ]);
-        const [nhData, svcData] = await Promise.all([
+        const [nhData, svcData, rawCloud] = await Promise.all([
           nhRes.ok ? nhRes.json() : [],
           svcRes.ok ? svcRes.json() : [],
+          cloudRes?.ok ? cloudRes.json() : [],
         ]);
         if (!cancelled) {
           setMarkets(nhData);
@@ -1142,6 +1282,7 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
           const m = {};
           for (const s of (Array.isArray(svcData) ? svcData : [])) m[s.id] = s;
           setSvcMap(m);
+          setCloudData(Array.isArray(rawCloud) ? rawCloud : []);
           setLastRefresh(new Date());
           // Keep selection fresh
           setSelected(prev => prev ? (nhData.find(x => x.id === prev.id) || prev) : null);
@@ -1378,7 +1519,7 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
               <div style={{ marginBottom: 12, fontSize: 11, color: T.muted }}>
                 Chronological stream of signal events across all markets. ⚡ incident clusters = 2+ signals correlated within 30 min.
               </div>
-              <EventFeed markets={markets} svcMap={svcMap} />
+              <EventFeed markets={markets} svcMap={svcMap} cloudData={cloudData} />
             </div>
           )}
         </div>
@@ -1389,6 +1530,7 @@ export default function SignalFusionView({ onOpenNetworkHealth }) {
             <MarketDetailPanel
               market={selected}
               svc={svcMap[selected.id]}
+              cloudData={cloudData}
               onClose={() => setSelected(null)}
               onOpenNetworkHealth={() => onOpenNetworkHealth && onOpenNetworkHealth()}
             />
