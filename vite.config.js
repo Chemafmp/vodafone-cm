@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',           // Show "update available" toast
+      registerType: 'autoUpdate',        // Auto-install new version in background
       injectRegister: 'auto',
       includeAssets: ['icons/*.png', 'vite.svg'],
       manifest: {
@@ -41,6 +41,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: true,           // New SW activates immediately, no waiting
+        clientsClaim: true,          // New SW takes control of all tabs right away
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         navigateFallback: '/vodafone-cm/index.html',
         navigateFallbackDenylist: [/^\/api\//],

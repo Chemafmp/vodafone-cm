@@ -696,7 +696,7 @@ function UptimeBar({ days }) {
 }
 
 // ── Cloud Infrastructure Correlation Panel ────────────────────────────────────
-function CloudInfraPanel({ providers }) {
+function CloudInfraPanel({ providers, isMobile }) {
   const cloudProviderIds = ["aws", "gcp", "azure"];
   const cloudStatus = {};
   for (const id of cloudProviderIds) {
@@ -729,7 +729,7 @@ function CloudInfraPanel({ providers }) {
           Which providers run on which cloud
         </span>
       </div>
-      <div style={{ padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, flexWrap: "nowrap" }}>
         {cloudProviderIds.map(cid => {
           const cm = CLOUD_META[cid] || CLOUD_META.own;
           const st = cloudStatus[cid];
@@ -737,9 +737,11 @@ function CloudInfraPanel({ providers }) {
           const deps = hosted[cid] || [];
           const affected = deps.filter(p => p.status === "warning" || p.status === "outage");
           const cloudProv = providers.find(x => x.id === cid);
+          // On mobile: collapse service pills and show count instead
+          const maxPills = isMobile ? 5 : 99;
           return (
             <div key={cid} style={{
-              flex: "1 1 200px", minWidth: 160,
+              flex: isMobile ? "none" : "1 1 0",
               background: st !== "ok" && st !== "unknown" ? sm.bg : T.bg,
               border: `1px solid ${st !== "ok" && st !== "unknown" ? sm.border : T.border}`,
               borderLeft: `4px solid ${sm.dot}`,
@@ -759,7 +761,7 @@ function CloudInfraPanel({ providers }) {
               </div>
               {deps.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {deps.map(p => {
+                  {deps.slice(0, maxPills).map(p => {
                     const pm = STATUS_META[p.status] || STATUS_META.unknown;
                     return (
                       <span key={p.id} style={{
@@ -773,6 +775,9 @@ function CloudInfraPanel({ providers }) {
                       </span>
                     );
                   })}
+                  {deps.length > maxPills && (
+                    <span style={{ fontSize: 10, color: T.muted, padding: "2px 6px" }}>+{deps.length - maxPills} more</span>
+                  )}
                 </div>
               )}
               {affected.length > 0 && (
@@ -1296,7 +1301,7 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
 
         {/* ── Cloud infrastructure correlation ── */}
         {!loading && providers.length > 0 && (
-          <CloudInfraPanel providers={providers} />
+          <CloudInfraPanel providers={providers} isMobile={isMobile} />
         )}
 
         {/* ── Active incidents summary block ── */}
