@@ -53,12 +53,13 @@ const state = new Map();
 function initState() {
   for (const m of RIPE_MARKETS) {
     state.set(m.id, {
-      events:           [],            // { type, prefix, peer, ts, rrc, path }
+      events:           [],            // { type, prefix, peer, ts, rrc, asn, originAsn, isHijack }
       seenBuckets:      new Set(),     // dedup keys for events currently in buffer
       withdrawals1h:    0,
       withdrawals6h:    0,
       announcements1h:  0,
       announcements6h:  0,
+      suspectedHijacks: [],            // { prefix, originAsn, matchedAsn, ts }
       lastEvent:        null,
       status:           "ok",     // 0 withdrawals = ok; updated by recompute() each tick
       connected:        false,
@@ -120,12 +121,15 @@ function handleMessage(raw, log) {
   const rrc = d.host || "unknown";
   const peer = d.peer || "unknown";
 
+  // Origin ASN = last AS in the path (the AS that originated the prefix)
+  const originAsn = flatPath.length > 0 ? flatPath[flatPath.length - 1] : null;
+
   if (isWithdraw) {
     for (const prefix of d.withdrawals) {
       const k = bucketKey("WITHDRAW", prefix, ts);
       if (s.seenBuckets.has(k)) continue;   // same prefix within 60s window = duplicate
       s.seenBuckets.add(k);
-      s.events.push({ type: "WITHDRAW", prefix, peer, ts, rrc, asn: matchedAsn });
+      s.events.push({ type: "WITHDRAW", prefix, peer, ts, rrc, asn: matchedAsn, originAsn });
     }
   }
   if (isAnnounce) {
@@ -134,7 +138,19 @@ function handleMessage(raw, log) {
       const k = bucketKey("ANNOUNCE", prefix, ts);
       if (s.seenBuckets.has(k)) continue;   // same prefix within 60s window = duplicate
       s.seenBuckets.add(k);
-      s.events.push({ type: "ANNOUNCE", prefix, peer, ts, rrc, asn: matchedAsn });
+
+      // Hijack heuristic: if the origin ASN is NOT a known Vodafone AS, flag it.
+      // This catches cases where a third-party AS announces our prefix (BGP hijack).
+      // False positives are possible (legitimate third-party origin), so we flag
+      // only, not alarm — the operator should review.
+      const isHijack = originAsn != null && !VODAFONE_ASNS.has(originAsn);
+      s.events.push({ type: "ANNOUNCE", prefix, peer, ts, rrc, asn: matchedAsn, originAsn, isHijack });
+
+      if (isHijack) {
+        // Keep only last 50 suspected hijacks per market to bound memory
+        s.suspectedHijacks.push({ prefix, originAsn, matchedAsn, ts });
+        if (s.suspectedHijacks.length > 50) s.suspectedHijacks.shift();
+      }
     }
   }
 
@@ -204,8 +220,13 @@ export function getRisLive() {
     const fmt = e => ({ type: e.type, prefix: e.prefix, peer: e.peer, rrc: e.rrc, ts: e.ts });
 
     // Separate arrays so high-volume announces don't crowd out withdrawals
-    const recentWithdrawals  = sorted.filter(e => e.type === "WITHDRAW").slice(0, 20).map(fmt);
+    const recentWithdrawals   = sorted.filter(e => e.type === "WITHDRAW").slice(0, 20).map(fmt);
     const recentAnnouncements = sorted.filter(e => e.type === "ANNOUNCE").slice(0, 10).map(fmt);
+
+    // Hijack candidates: recent announces where origin ASN ≠ Vodafone AS
+    const recentHijackCandidates = [...s.suspectedHijacks]
+      .sort((a, b) => b.ts - a.ts).slice(0, 10)
+      .map(h => ({ prefix: h.prefix, originAsn: h.originAsn, matchedAsn: h.matchedAsn, ts: h.ts }));
 
     return {
       id:               m.id,
@@ -215,9 +236,11 @@ export function getRisLive() {
       announcements1h:  s.announcements1h,
       announcements6h:  s.announcements6h,
       lastEvent:        s.lastEvent,
-      status:           s.status,
-      recentWithdrawals,    // up to 20 most recent withdrawals
-      recentAnnouncements,  // up to 10 most recent announcements
+      status:                 s.status,
+      recentWithdrawals,          // up to 20 most recent withdrawals
+      recentAnnouncements,        // up to 10 most recent announcements
+      recentHijackCandidates,     // up to 10 announces with unexpected origin ASN
+      hijackCandidateCount:       s.suspectedHijacks.length,
       // legacy alias so existing code doesn't break
       recentEvents: sorted.slice(0, 20).map(fmt),
     };
