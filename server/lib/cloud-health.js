@@ -165,6 +165,8 @@ async function fetchStatuspage(provider) {
       createdAt: i.created_at,
       updatedAt: i.updated_at,
       url:       i.shortlink || null,
+      // Affected components give region/service context
+      affectedComponents: (i.components || []).slice(0, 6).map(c => c.name),
     }));
 
   const components = (d.components || [])
@@ -188,6 +190,42 @@ async function fetchStatuspage(provider) {
     ok:    true,
     error: null,
   };
+}
+
+// ── AWS region code → human-readable label ────────────────────────────────────
+const AWS_REGION_NAMES = {
+  "us-east-1": "US East (N. Virginia)",
+  "us-east-2": "US East (Ohio)",
+  "us-west-1": "US West (N. California)",
+  "us-west-2": "US West (Oregon)",
+  "eu-west-1": "EU (Ireland)",
+  "eu-west-2": "EU (London)",
+  "eu-west-3": "EU (Paris)",
+  "eu-central-1": "EU (Frankfurt)",
+  "eu-central-2": "EU (Zurich)",
+  "eu-north-1": "EU (Stockholm)",
+  "eu-south-1": "EU (Milan)",
+  "eu-south-2": "EU (Spain)",
+  "ap-southeast-1": "Asia Pacific (Singapore)",
+  "ap-southeast-2": "Asia Pacific (Sydney)",
+  "ap-northeast-1": "Asia Pacific (Tokyo)",
+  "ap-northeast-2": "Asia Pacific (Seoul)",
+  "ap-northeast-3": "Asia Pacific (Osaka)",
+  "ap-south-1": "Asia Pacific (Mumbai)",
+  "ap-south-2": "Asia Pacific (Hyderabad)",
+  "ap-east-1": "Asia Pacific (Hong Kong)",
+  "me-south-1": "Middle East (Bahrain)",
+  "me-central-1": "Middle East (UAE)",
+  "af-south-1": "Africa (Cape Town)",
+  "ca-central-1": "Canada (Central)",
+  "ca-west-1": "Canada West (Calgary)",
+  "sa-east-1": "South America (São Paulo)",
+  "il-central-1": "Israel (Tel Aviv)",
+  "global": "Global",
+};
+function awsRegionLabel(code) {
+  if (!code) return null;
+  return AWS_REGION_NAMES[code.toLowerCase()] || code;
 }
 
 // ── AWS fetcher ───────────────────────────────────────────────────────────────
@@ -237,8 +275,10 @@ async function fetchAWS() {
   const active = all.filter(e => parseInt(e.status) > 1);
 
   const EU_RE = /eu-west|eu-central|eu-north|ireland|frankfurt|paris|milan|spain|london|amsterdam/i;
+  // Also include Middle East (Bahrain, UAE) — relevant for Vodafone
+  const VODAFONE_RE = new RegExp(EU_RE.source + "|me-south|me-central|bahrain|uae|dubai", "i");
   const euEvents = active.filter(e =>
-    EU_RE.test(`${e.region_name} ${e.service} ${e.summary}`)
+    VODAFONE_RE.test(`${e.region_name} ${e.service} ${e.summary}`)
   );
   const shown = euEvents.length > 0 ? euEvents : active.slice(0, 5);
 
@@ -252,15 +292,30 @@ async function fetchAWS() {
     description: active.length === 0
       ? "All Systems Operational"
       : `${active.length} active event${active.length !== 1 ? "s" : ""}`,
-    activeIncidents: shown.map(e => ({
-      id:        e.arn || `aws-${e.date}`,
-      name:      e.summary || e.service_name || e.service,
-      impact:    parseInt(e.status) >= 3 ? "major" : "minor",
-      status:    "investigating",
-      createdAt: new Date(parseInt(e.date) * 1000).toISOString(),
-      updatedAt: new Date().toISOString(),
-      url:       "https://health.aws.amazon.com",
-    })),
+    activeIncidents: shown.map(e => {
+      // Extract latest log entry for update text
+      const logs       = Array.isArray(e.event_log) ? [...e.event_log].reverse() : [];
+      const latestLog  = logs[0];
+      const regionLabel = awsRegionLabel(e.region_name);
+      const svcLabel    = e.service_name || e.service || null;
+      return {
+        id:        e.arn || `aws-${e.date}`,
+        name:      e.summary || svcLabel || "AWS Incident",
+        impact:    parseInt(e.status) >= 3 ? "major" : "minor",
+        status:    "investigating",
+        region:    regionLabel,
+        service:   svcLabel,
+        createdAt: new Date(parseInt(e.date) * 1000).toISOString(),
+        updatedAt: latestLog?.date
+          ? new Date(parseInt(latestLog.date) * 1000).toISOString()
+          : new Date().toISOString(),
+        url:       "https://health.aws.amazon.com",
+        latestUpdate: latestLog ? {
+          text:      latestLog.message || latestLog.description || null,
+          updatedAt: new Date(parseInt(latestLog.date) * 1000).toISOString(),
+        } : null,
+      };
+    }),
     components:  [],
     lastUpdated: new Date().toISOString(),
     ok:    true,

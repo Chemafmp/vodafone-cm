@@ -155,6 +155,8 @@ async function fetchStatuspage(p) {
         createdAt:    i.created_at,
         updatedAt:    i.updated_at,
         url:          i.shortlink || null,
+        // Affected components surface region / service context
+        affectedComponents: (i.components || []).slice(0, 6).map(c => c.name),
         latestUpdate: latestUpdate ? {
           text:      latestUpdate.body,
           updatedAt: latestUpdate.created_at,
@@ -249,15 +251,19 @@ async function fetchGCP() {
       : "All services operating normally",
     activeIncidents: shown.map(i => {
       const sortedUpd = (i.updates || []).sort((a, b) => new Date(b.created||b.modified) - new Date(a.created||a.modified));
-      const upd = sortedUpd[0];
+      const upd  = sortedUpd[0];
+      const locs = (i.currently_affected_locations || []).map(l => l.title).slice(0, 4);
+      const svcs = (i.affected_products || []).map(p => p.title).slice(0, 4);
       return {
-        id:        String(i.number || Math.random()),
-        name:      i.external_desc || "GCP Incident",
-        impact:    i.severity === "high" ? "major" : "minor",
-        status:    "investigating",
-        createdAt: i.begin,
-        updatedAt: i.modified || i.begin,
-        url:       "https://status.cloud.google.com",
+        id:                 String(i.number || Math.random()),
+        name:               i.external_desc || "GCP Incident",
+        impact:             i.severity === "high" ? "major" : "minor",
+        status:             "investigating",
+        region:             locs.length > 0 ? locs.join(", ") : null,
+        affectedComponents: svcs,
+        createdAt:          i.begin,
+        updatedAt:          i.modified || i.begin,
+        url:                "https://status.cloud.google.com",
         latestUpdate: upd ? { text: upd.text, updatedAt: upd.created || upd.modified } : null,
       };
     }),
@@ -527,6 +533,32 @@ function IncidentRow({ inc }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.4 }}>
               {inc.name}
             </div>
+            {/* Region / service / affected component pills */}
+            {(inc.region || inc.service || inc.affectedComponents?.length > 0) && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                {inc.region && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: "#0369a1",
+                    background: "#e0f2fe", border: "1px solid #bae6fd",
+                    borderRadius: 4, padding: "2px 7px",
+                  }}>📍 {inc.region}</span>
+                )}
+                {inc.service && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: "#6d28d9",
+                    background: "#ede9fe", border: "1px solid #ddd6fe",
+                    borderRadius: 4, padding: "2px 7px",
+                  }}>⚙️ {inc.service}</span>
+                )}
+                {(inc.affectedComponents || []).map((c, i) => (
+                  <span key={i} style={{
+                    fontSize: 10, fontWeight: 500, color: "#475569",
+                    background: "#f1f5f9", border: "1px solid #e2e8f0",
+                    borderRadius: 4, padding: "2px 7px",
+                  }}>{c}</span>
+                ))}
+              </div>
+            )}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5, alignItems: "center" }}>
               <span style={{
                 fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em",
