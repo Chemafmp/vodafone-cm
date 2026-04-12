@@ -397,6 +397,101 @@ export async function simulateAlert({ type, signal, market, detail = "", ticketI
   await post({ attachments: [{ color, blocks }] });
 }
 
+// ── Cloud Dependency Status transitions ──────────────────────────────────────
+// Key: "cloud::providerId"  →  last known status ("ok" | "warning" | "outage")
+const prevCloudStatus = new Map();
+
+/**
+ * Check cloud provider statuses and notify on status changes.
+ * Fires Slack alert + auto-creates ticket on degradation.
+ *
+ * @param {{ id, name, icon, cat, status, description, activeIncidents[] }[]} providers
+ * @param {Function} [createTicketFn] - async (provider, status) => ticketId
+ */
+export async function checkCloudHealth(providers, createTicketFn) {
+  if (!WEBHOOK_URL && typeof createTicketFn !== "function") return;
+
+  const ts = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  for (const p of providers) {
+    if (!p.status || p.status === "unknown") continue;
+
+    const key  = `cloud::${p.id}`;
+    const prev = prevCloudStatus.get(key) || "ok";
+
+    // Degradation: ok→warning, ok→outage, warning→outage
+    const degraded = (prev === "ok"      && (p.status === "warning" || p.status === "outage"))
+                  || (prev === "warning" && p.status === "outage");
+
+    // Recovery
+    const recovered = (prev === "warning" || prev === "outage") && p.status === "ok";
+
+    prevCloudStatus.set(key, p.status);
+
+    if (degraded) {
+      const muteKey = `cloud-mute::${p.id}`;
+      if (isMuted(muteKey)) continue;
+      lastSent.set(muteKey, Date.now());
+
+      const isOutage  = p.status === "outage";
+      const emoji     = isOutage ? "🔴" : "🟠";
+      const color     = isOutage ? "#dc2626" : "#f59e0b";
+      const severity  = isOutage ? "OUTAGE" : "WARNING";
+
+      // Auto-create ticket
+      let ticketId = null;
+      if (typeof createTicketFn === "function") {
+        ticketId = await createTicketFn(p, p.status).catch(() => null);
+      }
+
+      if (WEBHOOK_URL) {
+        const incident = p.activeIncidents?.[0];
+        const detail   = incident ? incident.name : p.description;
+
+        const blocks = [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `${emoji} *${severity} — ${p.icon} ${p.name}*\n*Signal:* Cloud Dependency${detail ? `  ·  ${detail}` : ""}`,
+            },
+          },
+        ];
+        const link = ticketLinkBlock(ticketId);
+        if (link) blocks.push(link);
+        blocks.push({
+          type: "context",
+          elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Cloud Health · ${ts} UTC · ${p.cat?.toUpperCase() || "CLOUD"}` }],
+        });
+        await post({ attachments: [{ color, blocks }] });
+      }
+    }
+
+    if (recovered) {
+      if (WEBHOOK_URL) {
+        await post({
+          attachments: [{
+            color: "#16a34a",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: `✅ *RECOVERED — ${p.icon} ${p.name}*\n*Signal:* Cloud Dependency back to normal`,
+                },
+              },
+              {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: `Bodaphone NOC · Cloud Health · ${ts} UTC` }],
+              },
+            ],
+          }],
+        });
+      }
+    }
+  }
+}
+
 /**
  * Send a test message to verify the webhook is working.
  */

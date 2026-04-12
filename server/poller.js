@@ -33,11 +33,12 @@ import { tickDnsMeasurements, getDnsMeasurements, initDnsMeasurements } from "./
 import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive, injectHijackCandidate } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
-import { checkNetworkHealth, checkServiceStatus, checkHijackCandidates, simulateAlert, notifyTest } from "./lib/notifier.js";
+import { checkNetworkHealth, checkServiceStatus, checkHijackCandidates, checkCloudHealth, simulateAlert, notifyTest } from "./lib/notifier.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
 import { initRipeStatEnrichment, tickRipeStatEnrichment, getEnrichment } from "./lib/ripe-stat-enrichment.js";
+import { initCloudHealth, tickCloudHealth, getCloudHealth, setProviderTicketId } from "./lib/cloud-health.js";
 
 // ─── Parse CLI args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -154,6 +155,11 @@ app.get("/api/events", (req, res) => {
 // GET /api/service-status — Downdetector-style complaint data for all markets
 app.get("/api/service-status", (req, res) => {
   res.json(getServiceStatus());
+});
+
+// GET /api/cloud-health — cloud / CDN / infra provider status (AWS, GCP, Azure, Cloudflare…)
+app.get("/api/cloud-health", (req, res) => {
+  res.json(getCloudHealth());
 });
 
 // GET /api/network-health — all signal layers per Vodafone market
@@ -802,6 +808,43 @@ async function createServiceTicket(market, status) {
   }
 }
 
+// ─── Cloud Health ticket creator ─────────────────────────────────────────────
+/**
+ * Auto-create a ticket when a cloud provider degrades.
+ * @param {{ id, name, icon, cat, activeIncidents[] }} provider
+ * @param {string} status - "warning" | "outage"
+ * @returns {Promise<string|null>} ticketId or null
+ */
+async function createCloudTicket(provider, status) {
+  const isOutage = status === "outage";
+  const incident = provider.activeIncidents?.[0];
+  const detail   = incident ? ` — ${incident.name}` : "";
+  const alarm = {
+    id:               `cloud-${provider.id}-${Date.now()}`,
+    type:             "CLOUD_DEPENDENCY",
+    severity:         isOutage ? "Critical" : "Major",
+    nodeId:           `cloud-${provider.id}`,
+    message:          `${provider.icon} ${provider.name} ${status.toUpperCase()}${detail}`,
+    metric:           provider.activeIncidents?.length || null,
+    affectedServices: [provider.name],
+  };
+  const nodeMeta = {
+    country: "Global",
+    role:    `Cloud dependency (${provider.cat?.toUpperCase() || "CLOUD"})`,
+  };
+  try {
+    const ticket = await autoCreateTicketFromAlarm(alarm, nodeMeta);
+    if (ticket?.id) {
+      setProviderTicketId(provider.id, ticket.id);
+      log(chalk.cyan(`[tickets] 🎫 CLOUD_DEPENDENCY → ${ticket.id} (${provider.name})`));
+    }
+    return ticket?.id || null;
+  } catch (e) {
+    log(chalk.yellow(`[tickets] cloud ticket create failed: ${e.message}`));
+    return null;
+  }
+}
+
 // ─── Hijack ticket creator (used by checkHijackCandidates + simulate) ────────
 async function createHijackTicket(market, candidates) {
   const newest = candidates[0] || {};
@@ -974,6 +1017,19 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Cloudflare Radar — token from CF_RADAR_TOKEN env var
   initCfRadar(log);
+
+  // Cloud Health — AWS, GCP, Azure, Cloudflare, Fastly, GitHub… every 5 min
+  const CLOUD_HEALTH_INTERVAL = 5 * 60 * 1000;
+  initCloudHealth(log)
+    .then(() => {
+      log(chalk.cyan(`[cloud-health] polling 11 providers (every ${CLOUD_HEALTH_INTERVAL / 60000} min) · alarms + tickets enabled`));
+      setInterval(() => {
+        tickCloudHealth(log)
+          .then(() => checkCloudHealth(getCloudHealth(), createCloudTicket))
+          .catch(e => log(chalk.yellow(`[cloud-health] tick error: ${e.message}`)));
+      }, CLOUD_HEALTH_INTERVAL);
+    })
+    .catch(e => log(chalk.yellow(`[cloud-health] init error: ${e.message}`)));
 
   // RIPE Stat ASN enrichment — BGP peer topology, org names (1h cache, no Supabase)
   initRipeStatEnrichment(log)

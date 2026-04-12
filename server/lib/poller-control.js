@@ -1,10 +1,10 @@
 // ─── Poller Control — runtime pause/resume per module ─────────────────────────
-// Modules: ripe · bgp · dns · ioda · ris · radar · service-status
+// Modules: ripe · bgp · dns · ioda · ris · radar · service-status · cloud-health
 // Each tick function calls isPaused(name) at the top and returns early if true.
 
 const paused = new Set();
 
-export const POLLER_MODULES = ["ripe", "bgp", "dns", "ioda", "ris", "radar", "service-status"];
+export const POLLER_MODULES = ["ripe", "bgp", "dns", "ioda", "ris", "radar", "service-status", "cloud-health"];
 
 export function isPaused(module) { return paused.has(module); }
 
