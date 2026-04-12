@@ -1020,7 +1020,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
             {activeTab === "worklog" && (
               <div style={{ flex: isMobile ? "none" : 1, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden", minHeight: 0 }}>
                 {/* Entries */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "16px 22px" }}>
                   {worklogEvents.length === 0 && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No worklog entries yet. Paste command outputs, quick notes, or automation results here.</div>
                   )}
@@ -1033,6 +1033,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                         borderLeft: isAuto ? "4px solid #38bdf8" : `4px solid ${T.border}`,
                         background: isAuto ? "#f0f9ff" : T.surface,
                         overflow: "hidden",
+                        marginBottom: 10,
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: `1px solid ${isAuto ? "#bae6fd" : T.border}`, background: isAuto ? "#e0f2fe" : T.bg }}>
                           <span style={{ fontSize: 12 }}>{isAuto ? "🤖" : "📋"}</span>
@@ -1244,7 +1245,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                   </button>
                 </div>
                 {/* List */}
-                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "12px 22px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ flex: isMobile ? "none" : 1, overflowY: isMobile ? "visible" : "auto", minHeight: 0, padding: "12px 22px" }}>
                   {loadingChildren && (
                     <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Loading…</div>
                   )}
@@ -1266,7 +1267,7 @@ ESCALATE IF: (one line — specific threshold or condition)`;
                           display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
                           borderRadius: 8, cursor: "pointer", opacity: isDone ? 0.6 : 1,
                           border: `1px solid ${T.border}`, background: T.surface,
-                          transition: "background 0.12s",
+                          transition: "background 0.12s", marginBottom: 6,
                         }}
                         onMouseEnter={e => e.currentTarget.style.background = T.bg}
                         onMouseLeave={e => e.currentTarget.style.background = T.surface}>
