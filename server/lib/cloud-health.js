@@ -168,7 +168,7 @@ async function fetchStatuspage(provider) {
     }));
 
   const components = (d.components || [])
-    .filter(c => componentStatusRank(c.status) > 0 && !c.group)
+    .filter(c => componentStatusRank(c.status) >= 0 && !c.group)
     .sort((a, b) => componentStatusRank(b.status) - componentStatusRank(a.status))
     .slice(0, 6)
     .map(c => ({ name: c.name, status: c.status }));
@@ -178,6 +178,7 @@ async function fetchStatuspage(provider) {
     name:     provider.name,
     icon:     provider.icon,
     cat:      provider.cat,
+    cloud:    provider.cloud || null,
     status:   indicatorToStatus(indicator),
     indicator,
     description:      d.status?.description || "Unknown",
@@ -207,13 +208,27 @@ async function fetchAWS() {
   try {
     // Decompress if gzip (magic bytes 0x1f 0x8b)
     const bytes = (raw[0] === 0x1f && raw[1] === 0x8b) ? await gunzip(raw) : raw;
-    // AWS returns UTF-16 LE (possibly with BOM 0xFF 0xFE)
-    const hasBom = bytes[0] === 0xFF && bytes[1] === 0xFE;
-    const text   = hasBom ? bytes.slice(2).toString("utf16le") : bytes.toString("utf16le");
+    // Try UTF-8 first (most likely), then UTF-16 LE with/without BOM
+    let text;
+    if (bytes[0] === 0xFF && bytes[1] === 0xFE) {
+      // UTF-16 LE BOM
+      text = bytes.slice(2).toString("utf16le");
+    } else if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+      // UTF-16 BE BOM — rare but possible
+      text = bytes.slice(2).swap16().toString("utf16le");
+    } else {
+      // Try UTF-8 first; if it fails, try UTF-16 LE (no BOM)
+      const utf8text = bytes.toString("utf8");
+      try {
+        JSON.parse(utf8text); // test parse
+        text = utf8text;
+      } catch {
+        text = bytes.toString("utf16le");
+      }
+    }
     events = JSON.parse(text);
-  } catch {
-    // Fallback: try plain UTF-8
-    events = JSON.parse(raw.toString("utf8"));
+  } catch (e) {
+    throw new Error(`AWS decode failed: ${e.message} — first bytes: ${raw.slice(0, 8).toString("hex")}`);
   }
 
   // Shape: [{ date, arn, region_name, status, service, service_name, summary, event_log[] }]
@@ -474,6 +489,11 @@ export async function tickCloudHealth(log) {
   const results = await Promise.all([...customProviders, ...statuspageProviders]);
   state = results;
 
+  // Log per-provider failures for easier debugging
+  for (const r of state) {
+    if (!r.ok) log?.(`[cloud-health] ✗ ${r.id}: ${r.error}`);
+  }
+
   await saveToSupabase(state).catch(() => {});
   await cleanupOldData(log).catch(() => {});
 
@@ -484,7 +504,7 @@ export async function tickCloudHealth(log) {
 }
 
 export async function initCloudHealth(log) {
-  log?.("[cloud-health] initialising — polling ${STATUSPAGE_PROVIDERS.length + 3} providers...");
+  log?.(`[cloud-health] initialising — polling ${STATUSPAGE_PROVIDERS.length + 5} providers...`);
   await tickCloudHealth(log);
 }
 
