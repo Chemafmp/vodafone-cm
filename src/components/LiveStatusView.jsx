@@ -3,6 +3,7 @@ import { T } from "../data/constants.js";
 import { useNodes } from "../context/NodesContext.jsx";
 import { SITES, COUNTRY_META, LAYER_COLORS } from "../data/inventory/index.js";
 import { fetchTickets } from "../utils/ticketsDb.js";
+import { timeAgo } from "../utils/helpers.js";
 
 /**
  * LiveStatusView — "what is burning in the network right now?"
@@ -63,18 +64,6 @@ function deriveIncidentLabel(snap, nodeAlarms) {
   if (hasIf) return "INTERFACE DOWN";
   if (hasPerf) return "PERFORMANCE DEGRADATION";
   return "ACTIVE ALARMS";
-}
-
-function timeAgo(iso, now) {
-  if (!iso) return "—";
-  const ms = now - new Date(iso).getTime();
-  if (ms < 0) return "just now";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${String(m % 60).padStart(2, "0")}m ago`;
 }
 
 function metricColor(value, warn, crit) {

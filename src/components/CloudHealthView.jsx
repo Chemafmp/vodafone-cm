@@ -4,8 +4,9 @@
 // 6 providers are CORS-blocked from browser and come from /api/cloud-health:
 //   AWS, Azure, Fastly, Oracle, Zoom, PagerDuty.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { T } from "../data/constants.js";
+import { timeAgo, impactColor } from "../utils/helpers.js";
 
 // ── API base ──────────────────────────────────────────────────────────────────
 function apiBase() {
@@ -119,234 +120,10 @@ const STATUS_PAGE_URLS = {
   azure:       "https://azure.status.microsoft",
 };
 
-// ── Fetch helpers ─────────────────────────────────────────────────────────────
-
-/** Fetch with an AbortController timeout (default 12 s). Prevents hangs. */
-async function fetchWithTimeout(url, options = {}, ms = 12000) {
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...options, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function indicatorToStatus(ind) {
-  if (!ind || ind === "none") return "ok";
-  if (ind === "minor")        return "warning";
-  return "outage";
-}
-
-function compRank(s) {
-  return { major_outage:3, partial_outage:2, degraded_performance:1, under_maintenance:0 }[s] ?? -1;
-}
-
-async function fetchStatuspage(p) {
-  const baseUrl = p.url.replace("/api/v2/summary.json", "");
-  const opts = { headers: { Accept: "application/json" } };
-  const [summaryRes, historyRes] = await Promise.allSettled([
-    fetchWithTimeout(p.url, opts, 12000),
-    fetchWithTimeout(`${baseUrl}/api/v2/incidents.json?limit=100`, opts, 12000),
-  ]);
-  if (summaryRes.status !== "fulfilled" || !summaryRes.value.ok) {
-    throw new Error(summaryRes.status === "fulfilled" ? `HTTP ${summaryRes.value.status}` : "fetch failed");
-  }
-  const r = summaryRes.value;
-  const d = await r.json();
-
-  const indicator = d.status?.indicator || "none";
-
-  const activeIncidents = (d.incidents || [])
-    .filter(i => i.status !== "resolved" && i.status !== "postmortem")
-    .map(i => {
-      // Latest update text from incident_updates[]
-      const sortedUpdates = (i.incident_updates || [])
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      const latestUpdate = sortedUpdates[0] || null;
-      return {
-        id:           i.id,
-        name:         i.name,
-        impact:       i.impact || "none",
-        status:       i.status,
-        createdAt:    i.created_at,
-        updatedAt:    i.updated_at,
-        url:          i.shortlink || null,
-        // Affected components surface region / service context
-        affectedComponents: (i.components || []).slice(0, 6).map(c => c.name),
-        latestUpdate: latestUpdate ? {
-          text:      latestUpdate.body,
-          updatedAt: latestUpdate.created_at,
-        } : null,
-      };
-    });
-
-  // All non-operational components (degraded + maintenance)
-  const degradedComponents = (d.components || [])
-    .filter(c => compRank(c.status) >= 0 && !c.group)
-    .sort((a, b) => compRank(b.status) - compRank(a.status))
-    .map(c => ({ name: c.name, status: c.status }));
-
-  // Component summary: count all leaf components
-  const leafComponents = (d.components || []).filter(c => !c.group);
-  const operationalCount = leafComponents.filter(c => c.status === "operational").length;
-
-  // Historical incidents for uptime chart
-  let uptimeDays = null;
-  if (historyRes.status === "fulfilled" && historyRes.value.ok) {
-    try {
-      const hd = await historyRes.value.json();
-      uptimeDays = computeUptimeHours(hd.incidents || []);
-    } catch { /* ignore */ }
-  }
-
-  return {
-    ...p,
-    status:           indicatorToStatus(indicator),
-    indicator,
-    description:      d.status?.description || "Unknown",
-    activeIncidents,
-    components:       degradedComponents,
-    componentSummary: {
-      total:       leafComponents.length,
-      operational: operationalCount,
-      degraded:    leafComponents.length - operationalCount,
-    },
-    uptimeDays,
-    lastUpdated: d.page?.updated_at || new Date().toISOString(),
-    ok: true, error: null,
-  };
-}
-
-async function fetchGCP() {
-  const meta = { id: "gcp", name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "gcp" };
-  const r = await fetchWithTimeout("https://status.cloud.google.com/incidents.json", {}, 12000);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const incidents = await r.json();
-
-  const now = Date.now();
-  const active = (incidents || []).filter(i => !i.end && new Date(i.begin).getTime() > now - 7 * 86400000);
-  const EU_RE  = /europe|frankfurt|belgium|netherlands|london|warsaw|madrid|milan|amsterdam/i;
-  const euActive = active.filter(i => EU_RE.test(JSON.stringify(i).toLowerCase()));
-  const shown  = euActive.length > 0 ? euActive : active.slice(0, 3);
-
-  const hasOutage = shown.some(i => i.severity === "high");
-
-  // Affected locations (EU-relevant)
-  const allLocations = [...new Set(
-    shown.flatMap(i => (i.currently_affected_locations || []).map(l => l.title))
-  )].slice(0, 8);
-
-  // Latest update text
-  const allUpdates = shown.flatMap(i =>
-    (i.updates || []).map(u => ({ ...u, _ts: u.created || u.modified || "" }))
-  ).sort((a, b) => new Date(b._ts) - new Date(a._ts));
-  const latestUpdate = allUpdates[0]
-    ? { text: allUpdates[0].text, updatedAt: allUpdates[0]._ts }
-    : null;
-
-  // Uptime history from all incidents (including ended ones)
-  const allIncidentsForHistory = (incidents || []).map(i => ({
-    name:        i.external_desc || "GCP Incident",
-    impact:      i.severity === "high" ? "major" : "minor",
-    created_at:  i.begin,
-    resolved_at: i.end || null,
-  }));
-  const uptimeDays = computeUptimeHours(allIncidentsForHistory);
-
-  // Affected products
-  const affectedProducts = [...new Set(
-    shown.flatMap(i => (i.affected_products || []).map(p => p.title))
-  )].slice(0, 6);
-
-  return {
-    ...meta,
-    status:      shown.length > 0 ? (hasOutage ? "outage" : "warning") : "ok",
-    indicator:   shown.length > 0 ? (hasOutage ? "major"  : "minor")   : "none",
-    description: shown.length > 0
-      ? `${shown.length} active incident${shown.length !== 1 ? "s" : ""}`
-      : "All services operating normally",
-    activeIncidents: shown.map(i => {
-      const sortedUpd = (i.updates || []).sort((a, b) => new Date(b.created||b.modified) - new Date(a.created||a.modified));
-      const upd  = sortedUpd[0];
-      const locs = (i.currently_affected_locations || []).map(l => l.title).slice(0, 4);
-      const svcs = (i.affected_products || []).map(p => p.title).slice(0, 4);
-      return {
-        id:                 String(i.number || Math.random()),
-        name:               i.external_desc || "GCP Incident",
-        impact:             i.severity === "high" ? "major" : "minor",
-        status:             "investigating",
-        region:             locs.length > 0 ? locs.join(", ") : null,
-        affectedComponents: svcs,
-        createdAt:          i.begin,
-        updatedAt:          i.modified || i.begin,
-        url:                "https://status.cloud.google.com",
-        latestUpdate: upd ? { text: upd.text, updatedAt: upd.created || upd.modified } : null,
-      };
-    }),
-    components: affectedProducts.map(name => ({ name, status: "degraded_performance" })),
-    affectedLocations: allLocations,
-    latestUpdate,
-    uptimeDays,
-    lastUpdated: new Date().toISOString(),
-    ok: true, error: null,
-  };
-}
-
-function errProvider(meta, err) {
-  return {
-    ...meta,
-    status: "unknown", indicator: "unknown",
-    description: "Data unavailable",
-    activeIncidents: [], components: [],
-    lastUpdated: new Date().toISOString(),
-    ok: false, error: err?.message || String(err),
-  };
-}
-
 // ── Uptime history helpers ────────────────────────────────────────────────────
-/** Map: impact → severity rank (for picking worst-of-day) */
-function impactRank(impact) {
-  return { critical: 3, major: 2, minor: 1, none: 0 }[impact] ?? 0;
-}
-
-/**
- * Given an array of incidents (with created_at / resolved_at),
- * return an array of 36 hourly slots: { date, status, incidents[] }.
- */
-function computeUptimeHours(incidents, numHours = 36) {
-  const slots = [];
-  const now   = new Date();
-  for (let i = numHours - 1; i >= 0; i--) {
-    const slotStart = new Date(now);
-    slotStart.setMinutes(0, 0, 0);
-    slotStart.setHours(slotStart.getHours() - i);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setMinutes(59, 59, 999);
-
-    const active = (incidents || []).filter(inc => {
-      const created  = new Date(inc.created_at || inc.begin || 0);
-      const resolved = inc.resolved_at ? new Date(inc.resolved_at) : (inc.end ? new Date(inc.end) : new Date());
-      return created <= slotEnd && resolved >= slotStart;
-    });
-
-    const worst = active.reduce((best, inc) => {
-      const rank = impactRank(inc.impact || inc.severity || "none");
-      return rank > impactRank(best) ? (inc.impact || inc.severity || "none") : best;
-    }, "none");
-
-    slots.push({
-      date:      new Date(slotStart),
-      status:    worst === "none" ? "ok" : worst === "minor" ? "warning" : "outage",
-      incidents: active.map(i => ({ name: i.name || i.external_desc || "Incident", impact: i.impact || i.severity })),
-    });
-  }
-  return slots;
-}
-
 /**
  * Compute 36 hourly uptime slots from Supabase snapshot rows for one provider.
- * Returns null if no data found for this provider.
+ * Returns null if no data rows found for this provider.
  */
 function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
   const rows = (snapshots || []).filter(s => s.provider_id === providerId);
@@ -386,65 +163,6 @@ function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
   return slots;
 }
 
-async function fetchSlack() {
-  const meta = { id: "slack", name: "Slack", icon: "💬", cat: "comms", cloud: "aws" };
-  const [curRes, histRes] = await Promise.allSettled([
-    fetchWithTimeout("https://status.slack.com/api/v2.0.0/current", {}, 12000),
-    fetchWithTimeout("https://status.slack.com/api/v2.0.0/history", {}, 12000),
-  ]);
-  if (curRes.status !== "fulfilled" || !curRes.value.ok) throw new Error("Fetch failed");
-  const d = await curRes.value.json();
-
-  const activeIncidents = (d.active_incidents || []).map(i => ({
-    id:        i.id || String(Math.random()),
-    name:      i.title || "Slack Incident",
-    impact:    i.type === "outage" ? "major" : "minor",
-    status:    "investigating",
-    createdAt: i.date_created,
-    updatedAt: i.date_updated,
-    url:       "https://status.slack.com",
-    latestUpdate: i.notes?.length > 0
-      ? { text: i.notes[i.notes.length - 1].body, updatedAt: i.notes[i.notes.length - 1].date_created }
-      : null,
-  }));
-
-  let uptimeDays = null;
-  if (histRes.status === "fulfilled" && histRes.value.ok) {
-    try {
-      const history = await histRes.value.json();
-      const incidents = (Array.isArray(history) ? history : []).map(i => ({
-        name:        i.title || "Slack Incident",
-        impact:      i.type === "outage" ? "major" : "minor",
-        created_at:  i.date_created,
-        resolved_at: i.date_resolved || null,
-      }));
-      uptimeDays = computeUptimeHours(incidents);
-    } catch { /* ignore */ }
-  }
-
-  return {
-    ...meta,
-    status:      activeIncidents.length > 0 ? "warning" : "ok",
-    indicator:   activeIncidents.length > 0 ? "minor" : "none",
-    description: d.status === "ok" ? "All systems operational" : `${activeIncidents.length} active incident${activeIncidents.length !== 1 ? "s" : ""}`,
-    activeIncidents,
-    components: [],
-    uptimeDays,
-    lastUpdated: d.date_updated || new Date().toISOString(),
-    ok: true, error: null,
-  };
-}
-
-// Only fetch providers accessible from browser (GCP + Slack have custom fetchers):
-async function fetchBrowserProviders() {
-  const results = await Promise.allSettled([
-    fetchGCP().catch(e   => errProvider({ id: "gcp",   name: "Google Cloud", icon: "🔵", cat: "cloud", cloud: "gcp"  }, e)),
-    fetchSlack().catch(e => errProvider({ id: "slack",  name: "Slack",        icon: "💬", cat: "comms", cloud: "aws"  }, e)),
-    ...STATUSPAGE_PROVIDERS.map(p => fetchStatuspage(p).catch(e => errProvider(p, e))),
-  ]);
-  return results.map(r => r.status === "fulfilled" ? r.value : r.reason);
-}
-
 // ── Status meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
   ok:      { label: "Operational",  color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0", dot: "#22c55e" },
@@ -480,12 +198,6 @@ function StatusDot({ status, size = 10 }) {
   );
 }
 
-function impactColor(impact) {
-  if (impact === "critical" || impact === "major") return "#dc2626";
-  if (impact === "minor") return "#b45309";
-  return "#64748b";
-}
-
 function fmtTime(iso) {
   if (!iso) return "";
   try {
@@ -493,15 +205,6 @@ function fmtTime(iso) {
     return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " " +
            d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
   } catch { return iso; }
-}
-
-function timeAgo(iso) {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000)     return "just now";
-  if (diff < 3_600_000)  return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
 // ── Component status row ──────────────────────────────────────────────────────
@@ -1202,56 +905,58 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
   const isMobile = mobileProp || windowW < 640;
 
   async function refresh() {
+    // ── All 33 providers come from the backend cache (no per-provider browser
+    //    fetches). This makes the page load ~instantly instead of waiting up to
+    //    12 s for each individual statuspage API call.
     try {
-      const [browserResult, backendResult, historyResult] = await Promise.allSettled([
-        fetchBrowserProviders(),
+      const CLOUD_ID_OVERRIDE = { aws: "aws", gcp: "gcp", azure: "azure", oracle: "oracle" };
+
+      const [backendResult, historyResult] = await Promise.allSettled([
         fetch(`${base}/api/cloud-health`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`${base}/api/cloud-health/history`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
 
-      let browserProviders = browserResult.status === "fulfilled" ? browserResult.value : [];
-      const backendData    = backendResult.status === "fulfilled"  ? backendResult.value  : null;
-      const historyData    = historyResult.status === "fulfilled"  ? historyResult.value  : null;
+      const backendData = backendResult.status === "fulfilled" ? backendResult.value : null;
+      const historyData = historyResult.status === "fulfilled" ? historyResult.value : null;
 
-      let allProviders = [...browserProviders];
+      let allProviders;
 
-      if (Array.isArray(backendData)) {
-        // Merge ticketIds into browser-fetched providers
-        const ticketMap = Object.fromEntries(
-          backendData.filter(p => p.ticketId).map(p => [p.id, p.ticketId])
-        );
-        allProviders = allProviders.map(p => ({ ...p, ticketId: ticketMap[p.id] || null }));
-
-        // Add backend-only providers (AWS, Azure, Fastly, Oracle, Zoom, PagerDuty)
-        // Override cloud field for main cloud vendors so they go into their own section
-        const CLOUD_ID_OVERRIDE = { aws: "aws", gcp: "gcp", azure: "azure", oracle: "oracle" };
-        const browserIds = new Set(allProviders.map(p => p.id));
-        const backendOnly = backendData
-          .filter(p => !browserIds.has(p.id))
-          .map(p => ({ ...p, backendOnly: false, cloud: CLOUD_ID_OVERRIDE[p.id] || p.cloud }));
-        allProviders = [...allProviders, ...backendOnly];
-      } else {
-        // Backend not available — show static placeholders for backend-only providers
-        const backendPlaceholders = BACKEND_ONLY_META.map(p => ({
+      if (Array.isArray(backendData) && backendData.length > 0) {
+        // Apply cloud-section override: main clouds use their own id as section key,
+        // not the generic "own" value the backend stores for historical reasons.
+        allProviders = backendData.map(p => ({
           ...p,
-          status:          "unknown",
-          indicator:       "unknown",
-          description:     "Deploy backend to see live data",
-          activeIncidents: [],
-          components:      [],
-          lastUpdated:     new Date().toISOString(),
-          ok:              false,
-          error:           null,
-          backendOnly:     true,
+          cloud: CLOUD_ID_OVERRIDE[p.id] || p.cloud,
         }));
-        allProviders = [...allProviders, ...backendPlaceholders];
+      } else {
+        // Backend not reachable — show static placeholders so the UI isn't blank
+        allProviders = [...STATUSPAGE_PROVIDERS, ...BACKEND_ONLY_META].map(p => ({
+          ...p,
+          status: "unknown", indicator: "unknown",
+          description: "Backend offline — cannot fetch provider status",
+          activeIncidents: [], components: [],
+          lastUpdated: new Date().toISOString(),
+          ok: false, error: null,
+        }));
       }
 
-      // Enrich uptimeDays from Supabase history (overrides Atlassian incidents-based uptime)
+      // ── Uptime bars: hybrid approach ──────────────────────────────────────────
+      // 1. Backend already computed uptimeDays from incident history (all 36 h).
+      // 2. Supabase snapshots (last ~36 h, 5-min resolution) override where available
+      //    so we show real observed status rather than inferred absence-of-incidents.
+      // 3. For hourly slots where Supabase has no row yet, keep the backend value
+      //    (green if operational, rather than "unknown"/grey).
       if (Array.isArray(historyData) && historyData.length > 0) {
         allProviders = allProviders.map(p => {
-          const snapshotUptime = computeUptimeFromSnapshots(historyData, p.id);
-          return snapshotUptime ? { ...p, uptimeDays: snapshotUptime } : p;
+          const snapshotSlots = computeUptimeFromSnapshots(historyData, p.id);
+          if (!snapshotSlots) return p; // no Supabase rows for this provider yet
+          // Merge: prefer Supabase data per slot, fall back to backend uptimeDays
+          const incidentSlots = p.uptimeDays;
+          const merged = snapshotSlots.map((slot, i) => {
+            if (slot.status !== "unknown") return slot; // Supabase has real data
+            return incidentSlots?.[i] ?? slot;          // fall back to incident-based
+          });
+          return { ...p, uptimeDays: merged };
         });
       }
 

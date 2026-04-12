@@ -12,6 +12,7 @@ import TicketDetailView from "./components/TicketDetailView.jsx";
 import { ChangeWizardModal } from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import LandingPage from "./components/LandingPage.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { NodesProvider, useNodes } from "./context/NodesContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import usePollerSocket from "./hooks/usePollerSocket.js";
@@ -78,17 +79,33 @@ export default function App(){
 
   const [user,setUser]=useState(() => {
     try {
-      // localStorage persists across browser restarts (sessionStorage cleared on close)
-      const stored = localStorage.getItem("bnocUser");
-      if (stored) return JSON.parse(stored);
-      // First visit: auto-login as Chema F. (Manager) → go straight to LandingPage
-      const defaultUser = { id:"u2", name:"Chema F.", role:"Manager", team:"Core Transport", dept:"Engineering" };
-      localStorage.setItem("bnocUser", JSON.stringify(defaultUser));
-      return defaultUser;
-    } catch { return null; }
+      // D8 fix: sessionStorage for the tab session (cleared on tab close/refresh
+      // → login selector always shown on fresh visit).
+      // localStorage also written at login so spawned ticket tabs can inherit the user.
+      const session = sessionStorage.getItem("bnocUser");
+      if (session) return JSON.parse(session);
+      // New tab opened from a ticket deep-link? Inherit from localStorage so the
+      // user doesn't have to log in again just to view a ticket.
+      const inherited = localStorage.getItem("bnocUser");
+      if (inherited) {
+        const u = JSON.parse(inherited);
+        sessionStorage.setItem("bnocUser", inherited); // promote to session
+        return u;
+      }
+    } catch { /* ignore */ }
+    return null; // → show LoginScreen
   });
-  function handleLogin(u) { localStorage.setItem("bnocUser", JSON.stringify(u)); setUser(u); }
-  function handleLogout() { localStorage.removeItem("bnocUser"); setUser(null); setApp(null); }
+  function handleLogin(u) {
+    const json = JSON.stringify(u);
+    sessionStorage.setItem("bnocUser", json); // tab session
+    localStorage.setItem("bnocUser", json);   // let new tabs inherit user
+    setUser(u);
+  }
+  function handleLogout() {
+    sessionStorage.removeItem("bnocUser");
+    localStorage.removeItem("bnocUser");
+    setUser(null); setApp(null);
+  }
   const [app,setApp]=useState(null); // null = landing, "changes" | "monitoring" | "network"
   const [view,setView]=useState("changes");
 
@@ -655,17 +672,18 @@ export default function App(){
         {view==="topology_sim"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><TopologyView/></div>}
 
         {/* MONITORING */}
-        {view==="livestatus"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}
-        {view==="alarms"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div>}
+        {view==="livestatus"&&<ErrorBoundary name="Live Status"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><LiveStatusView liveAlarms={liveAlarms} nodeSnapshots={nodeSnapshots} pollerConnected={pollerConnected} crs={crs} onSelectChange={selectChange} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div></ErrorBoundary>}
+        {view==="alarms"&&<ErrorBoundary name="Alarms"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><AlarmsView liveAlarms={liveAlarms} pollerConnected={pollerConnected} onOpenTicket={ticketId=>window.open(`#ticket=${ticketId}`,"_blank")}/></div></ErrorBoundary>}
         {view==="events"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><EventsView changes={changes} liveEvents={liveEvents} pollerConnected={pollerConnected}/></div>}
         {view==="observability"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ObservabilityView/></div>}
-        {view==="service_monitor"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div>}
-        {view==="network_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView onOpenSignalFusion={()=>setView("signal_fusion")}/></div>}
-        {view==="signal_fusion"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><SignalFusionView onOpenNetworkHealth={()=>setView("network_health")}/></div>}
-        {view==="cloud_health"&&<div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><CloudHealthView /></div>}
+        {view==="service_monitor"&&<ErrorBoundary name="Service Monitor"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><ServiceStatusView/></div></ErrorBoundary>}
+        {view==="network_health"&&<ErrorBoundary name="Network Health"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><NetworkHealthView onOpenSignalFusion={()=>setView("signal_fusion")}/></div></ErrorBoundary>}
+        {view==="signal_fusion"&&<ErrorBoundary name="Signal Fusion"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><SignalFusionView onOpenNetworkHealth={()=>setView("network_health")}/></div></ErrorBoundary>}
+        {view==="cloud_health"&&<ErrorBoundary name="Cloud Health"><div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}><CloudHealthView /></div></ErrorBoundary>}
 
         {/* TICKETING — list views */}
         {["tickets_all","tickets_incidents","tickets_problems","tickets_projects","tickets_my","tickets_sla"].includes(view)&&(
+          <ErrorBoundary name="Tickets">
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <TicketListView
               key={view}
@@ -678,10 +696,11 @@ export default function App(){
               onDeepLinkConsumed={()=>setDeepLinkTicketId(null)}
             />
           </div>
+          </ErrorBoundary>
         )}
 
         {/* TICKETING — reports */}
-        {view==="tickets_reports"&&<TicketReportsView currentUser={user}/>}
+        {view==="tickets_reports"&&<ErrorBoundary name="Ticket Reports"><TicketReportsView currentUser={user}/></ErrorBoundary>}
 
       </div>
       </Suspense>

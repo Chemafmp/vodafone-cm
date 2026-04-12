@@ -95,6 +95,52 @@ export function setProviderTicketId(providerId, ticketId) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** impact/severity → rank number for worst-case comparison */
+function impactRank(impact) {
+  return { critical: 3, major: 2, minor: 1, none: 0 }[impact] ?? 0;
+}
+
+/**
+ * Given an array of incidents (with created_at / resolved_at),
+ * return an array of 36 hourly slots: { date, status, incidents[] }.
+ * Used by fetchStatuspage to build the uptime history bar.
+ */
+function computeUptimeHours(incidents, numHours = 36) {
+  const slots = [];
+  const now   = new Date();
+  for (let i = numHours - 1; i >= 0; i--) {
+    const slotStart = new Date(now);
+    slotStart.setMinutes(0, 0, 0);
+    slotStart.setHours(slotStart.getHours() - i);
+    const slotEnd = new Date(slotStart);
+    slotEnd.setMinutes(59, 59, 999);
+
+    const active = (incidents || []).filter(inc => {
+      const created  = new Date(inc.created_at || inc.begin || 0);
+      const resolved = inc.resolved_at
+        ? new Date(inc.resolved_at)
+        : (inc.end ? new Date(inc.end) : new Date());
+      return created <= slotEnd && resolved >= slotStart;
+    });
+
+    const worst = active.reduce((best, inc) => {
+      const rank = impactRank(inc.impact || inc.severity || "none");
+      return rank > impactRank(best) ? (inc.impact || inc.severity || "none") : best;
+    }, "none");
+
+    slots.push({
+      date:      new Date(slotStart),
+      status:    worst === "none" ? "ok" : worst === "minor" ? "warning" : "outage",
+      incidents: active.map(i => ({
+        name:   i.name || i.external_desc || "Incident",
+        impact: i.impact || i.severity,
+      })),
+    });
+  }
+  return slots;
+}
+
 function indicatorToStatus(indicator) {
   if (!indicator || indicator === "none") return "ok";
   if (indicator === "minor")             return "warning";
@@ -155,31 +201,65 @@ function errProvider(meta, error) {
 
 // ── Statuspage v2 fetcher ─────────────────────────────────────────────────────
 async function fetchStatuspage(provider) {
-  const r = await fetchWithTimeout(provider.url);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await safeJson(r);
+  const baseUrl = provider.url.replace("/api/v2/summary.json", "");
+  const opts    = { headers: { Accept: "application/json" } };
+
+  // Fetch summary + incident history in parallel
+  const [summaryRes, histRes] = await Promise.allSettled([
+    fetchWithTimeout(provider.url, opts),
+    fetchWithTimeout(`${baseUrl}/api/v2/incidents.json?limit=100`, opts),
+  ]);
+
+  if (summaryRes.status !== "fulfilled" || !summaryRes.value.ok) {
+    throw new Error(
+      summaryRes.status === "fulfilled"
+        ? `HTTP ${summaryRes.value.status}`
+        : "fetch failed"
+    );
+  }
+  const d = await safeJson(summaryRes.value);
 
   const indicator = d.status?.indicator || "none";
 
   const activeIncidents = (d.incidents || [])
     .filter(i => i.status !== "resolved" && i.status !== "postmortem")
-    .map(i => ({
-      id:        i.id,
-      name:      i.name,
-      impact:    i.impact || "none",
-      status:    i.status,
-      createdAt: i.created_at,
-      updatedAt: i.updated_at,
-      url:       i.shortlink || null,
-      // Affected components give region/service context
-      affectedComponents: (i.components || []).slice(0, 6).map(c => c.name),
-    }));
+    .map(i => {
+      const sortedUpd = (i.incident_updates || [])
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      const latestUpdate = sortedUpd[0]
+        ? { text: sortedUpd[0].body, updatedAt: sortedUpd[0].created_at }
+        : null;
+      return {
+        id:        i.id,
+        name:      i.name,
+        impact:    i.impact || "none",
+        status:    i.status,
+        createdAt: i.created_at,
+        updatedAt: i.updated_at,
+        url:       i.shortlink || null,
+        affectedComponents: (i.components || []).slice(0, 6).map(c => c.name),
+        latestUpdate,
+      };
+    });
+
+  // All leaf components for summary counters
+  const leafComponents = (d.components || []).filter(c => !c.group);
+  const operationalCount = leafComponents.filter(c => c.status === "operational").length;
 
   const components = (d.components || [])
     .filter(c => componentStatusRank(c.status) >= 0 && !c.group)
     .sort((a, b) => componentStatusRank(b.status) - componentStatusRank(a.status))
     .slice(0, 6)
     .map(c => ({ name: c.name, status: c.status }));
+
+  // Uptime history from the incidents endpoint
+  let uptimeDays = null;
+  if (histRes.status === "fulfilled" && histRes.value.ok) {
+    try {
+      const hd = await safeJson(histRes.value);
+      uptimeDays = computeUptimeHours(hd.incidents || []);
+    } catch { /* ignore — uptime bars will rely on Supabase history only */ }
+  }
 
   return {
     id:       provider.id,
@@ -192,6 +272,12 @@ async function fetchStatuspage(provider) {
     description:      d.status?.description || "Unknown",
     activeIncidents,
     components,
+    componentSummary: {
+      total:       leafComponents.length,
+      operational: operationalCount,
+      degraded:    leafComponents.length - operationalCount,
+    },
+    uptimeDays,
     lastUpdated:      d.page?.updated_at || new Date().toISOString(),
     ok:    true,
     error: null,
@@ -367,6 +453,16 @@ async function fetchGCP() {
 
   const hasOutage = shown.some(i => i.severity === "high");
 
+  // Uptime history from all GCP incidents (including past ones)
+  const uptimeDays = computeUptimeHours(
+    (incidents || []).map(i => ({
+      name:        i.external_desc || "GCP Incident",
+      impact:      i.severity === "high" ? "major" : "minor",
+      created_at:  i.begin,
+      resolved_at: i.end || null,
+    }))
+  );
+
   return {
     ...meta,
     status:      shown.length > 0 ? (hasOutage ? "outage" : "warning") : "ok",
@@ -386,6 +482,7 @@ async function fetchGCP() {
     components: [...new Set(
       shown.flatMap(i => (i.affected_products || []).map(p => p.title))
     )].slice(0, 6).map(name => ({ name, status: "degraded_performance" })),
+    uptimeDays,
     lastUpdated: new Date().toISOString(),
     ok:    true,
     error: null,

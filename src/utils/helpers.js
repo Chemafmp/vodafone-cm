@@ -40,6 +40,30 @@ export function fmtDT(iso){
 }
 export function fmtSec(s){ const m=Math.floor(s/60), sec=s%60; return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`; }
 
+/**
+ * Human-readable relative time. Optional `now` override (ms epoch) for
+ * deterministic rendering (e.g. LiveStatusView passes Date.now() from state).
+ */
+export function timeAgo(iso, now = Date.now()) {
+  if (!iso) return "—";
+  const ms = now - new Date(iso).getTime();
+  if (ms < 0)          return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 60)          return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60)          return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)          return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+/** Severity colour for incident impact labels. */
+export function impactColor(impact) {
+  if (impact === "critical" || impact === "major") return "#dc2626";
+  if (impact === "minor")                          return "#b45309";
+  return "#64748b";
+}
+
 export function exportAuditCSV(changes){
   const rows=[["Timestamp","Event","Type","Change Name","Change ID","By"]];
   changes.flatMap(c=>(c.auditLog||[]).map(e=>[fmt(e.at),e.msg,e.type,c.name,c.id,e.by]))

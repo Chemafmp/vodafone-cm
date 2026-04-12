@@ -18,6 +18,7 @@ import { WebSocketServer } from "ws";
 import http from "http";
 import { fork } from "child_process";
 import chalk from "chalk";
+import { rateLimit } from "express-rate-limit";
 
 import { registerNode, getAllNodes, getNodeCount, markSeen } from "./lib/registry.js";
 import { pollNode } from "./lib/snmp-poller.js";
@@ -96,7 +97,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Rate limiting (C1) ──────────────────────────────────────────────────────
+// Protects write endpoints from abuse. Read-only GETs are also covered
+// but at a generous limit so the SPA's polling doesn't get throttled.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,        // 1-minute window
+  max:      120,               // 120 requests per IP per minute (~2/s)
+  standardHeaders: "draft-7",
+  legacyHeaders:   false,
+  message: { error: "Too many requests, slow down." },
+  skip: (req) => req.method === "GET" && req.path.startsWith("/api/tickets") === false,
+});
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max:      30,                // 30 mutations per IP per minute
+  standardHeaders: "draft-7",
+  legacyHeaders:   false,
+  message: { error: "Too many write requests." },
+});
+
 // ─── Tickets router ──────────────────────────────────────────────────────────
+app.use("/api/tickets", apiLimiter);
+app.post("/api/tickets", writeLimiter);
+app.patch("/api/tickets/:id", writeLimiter);
+app.post("/api/tickets/:id/events", writeLimiter);
+app.post("/api/tickets/:id/evidence", writeLimiter);
+app.post("/api/tickets/:id/notes", writeLimiter);
 app.use("/api/tickets", ticketsRouter);
 
 // ─── Auto-ticket toggle (env-controlled only, no public HTTP endpoint) ────────
@@ -373,9 +399,9 @@ async function runPollCycle() {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ status: "resolved", actor_name: "System" }),
-                }).catch(() => {});
+                }).catch(e => log(chalk.yellow(`[poller] ticket auto-resolve failed ${t.id}: ${e.message}`)));
               }
-            }).catch(() => {});
+            }).catch(e => log(chalk.yellow(`[poller] ticket lookup failed for resolve: ${e.message}`)));
         } else if (["Critical", "Major"].includes(sev)) {
           fetch(`http://localhost:${PORT}/api/tickets?alarm_type=${encodeURIComponent(alarmType)}&node=${encodeURIComponent(nodeId)}&status=new,assigned,in_progress,waiting`)
             .then(r => r.json())
@@ -390,9 +416,9 @@ async function runPollCycle() {
                     content: `Underlying alarm cleared: ${alarm.message || alarmType}`,
                     metadata: { alarm_id: alarm.id, alarm_type: alarmType },
                   }),
-                }).catch(() => {});
+                }).catch(e => log(chalk.yellow(`[poller] ticket event failed ${t.id}: ${e.message}`)));
               }
-            }).catch(() => {});
+            }).catch(e => log(chalk.yellow(`[poller] ticket lookup failed for event: ${e.message}`)));
         }
       } catch (e) {
         // non-fatal

@@ -6,6 +6,7 @@ import {
   fetchTicketChildren, slaCountdown,
 } from "../utils/ticketsDb.js";
 import { uploadEvidenceFile, deleteEvidenceFile } from "../utils/db.js";
+import { timeAgo } from "../utils/helpers.js";
 import CreateTicketModal from "./CreateTicketModal.jsx";
 
 // ─── Lightweight Markdown renderer (bold, inline code, lists) ─────────────────
@@ -103,19 +104,6 @@ function renderMarkdown(text) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function timeAgo(iso) {
-  if (!iso) return "—";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return "just now";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 function fmtTs(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
