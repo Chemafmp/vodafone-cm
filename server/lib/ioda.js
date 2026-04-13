@@ -62,6 +62,7 @@ const INTER_CALL_MS  = 1_200;          // 1.2s between API calls (rate limit)
 // Reason for Turkey: AS15924 has essentially no IODA coverage; AS15897 does.
 const IODA_ASN_OVERRIDE = {
   tr: 15897,   // VodafoneTurkey — 772,096 IPs vs 1 RIPE probe on AS15924
+  al: 50973,   // VF-Albania — AS50973 has broader CAIDA coverage than AS21183 (Atlas primary)
 };
 
 function iodaAsn(market) {

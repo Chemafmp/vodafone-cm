@@ -3425,7 +3425,7 @@ export default function NetworkHealthView({ onOpenSignalFusion }) {
               )}
             </div>
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, maxWidth: 680 }}>
-              Real-time network quality from Vodafone operator networks — 9 markets.
+              Real-time network quality from Vodafone operator networks — {markets.length} markets.
               Click any card to see charts, probe locations and k-root nodes.
             </div>
           </div>

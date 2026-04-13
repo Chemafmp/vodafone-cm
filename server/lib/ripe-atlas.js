@@ -32,16 +32,20 @@ const BASELINE_TRIM_PCT   = 0.10;  // trim top 10% of RTT values before computin
 
 // Verified Vodafone ASNs (consumer/broadband networks, not global backbone)
 export const RIPE_MARKETS = [
-  { id: "es", name: "Spain",       flag: "🇪🇸", asn: 12430 },
-  { id: "uk", name: "UK",          flag: "🇬🇧", asn: 5378  },
-  { id: "de", name: "Germany",     flag: "🇩🇪", asn: 3209  },
-  { id: "it", name: "Italy",       flag: "🇮🇹", asn: 30722 },
-  { id: "pt", name: "Portugal",    flag: "🇵🇹", asn: 12353 },
-  { id: "nl", name: "Netherlands", flag: "🇳🇱", asn: 33915 },
-  { id: "ie", name: "Ireland",     flag: "🇮🇪", asn: 15502 },
-  { id: "gr", name: "Greece",      flag: "🇬🇷", asn: 3329  },
-  { id: "tr",  name: "Turkey",        flag: "🇹🇷", asn: 15924 },
-  { id: "int", name: "International", flag: "🌐",  asn: 1273  },
+  { id: "es",       name: "Spain",           flag: "🇪🇸", asn: 12430 },
+  { id: "uk",       name: "UK (Fixed)",      flag: "🇬🇧", asn: 5378  },
+  { id: "de",       name: "Germany",         flag: "🇩🇪", asn: 3209  },
+  { id: "de-unity", name: "VF-DE Unity",     flag: "🇩🇪", asn: 6830  },
+  { id: "it",       name: "Italy",           flag: "🇮🇹", asn: 30722 },
+  { id: "pt",       name: "Portugal",        flag: "🇵🇹", asn: 12353 },
+  { id: "nl",       name: "Netherlands",     flag: "🇳🇱", asn: 33915 },
+  { id: "ie",       name: "Ireland",         flag: "🇮🇪", asn: 15502 },
+  { id: "gr",       name: "Greece",          flag: "🇬🇷", asn: 3329  },
+  { id: "tr",       name: "Turkey",          flag: "🇹🇷", asn: 15924 },
+  { id: "cz",       name: "Czech Republic",  flag: "🇨🇿", asn: 16019 },
+  { id: "ro",       name: "Romania",         flag: "🇷🇴", asn: 12302 },
+  { id: "al",       name: "Albania",         flag: "🇦🇱", asn: 21183 },
+  { id: "int",      name: "International",   flag: "🌐",  asn: 1273  },
 ];
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
