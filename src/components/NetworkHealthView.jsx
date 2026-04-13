@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { T } from "../data/constants.js";
+import { timeAgo } from "../utils/helpers.js";
 
 function apiBase() {
   const ws = import.meta.env.VITE_POLLER_WS || "ws://localhost:4000";
@@ -1117,7 +1118,12 @@ function RpkiDetailModal({ market, onClose }) {
               {market.flag} {market.name} — RPKI Coverage
             </div>
             <div style={{ fontSize: 11, color: T.muted }}>
-              AS{market.asn} · {rpki?.sampled ?? 0} prefixes sampled · RIPE Stat rpki-validation
+              AS{market.asn} · {rpki?.total ?? rpki?.sampled ?? 0} prefixes {rpki?.full ? "validated (full)" : "sampled"} · RIPE Stat
+              {rpki?.validatedAt && (
+                <span style={{ marginLeft: 6, color: "#16a34a" }}>
+                  · last validated {timeAgo(rpki.validatedAt)}
+                </span>
+              )}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -1141,7 +1147,7 @@ function RpkiDetailModal({ market, onClose }) {
                 {rpki.coverage_pct}<span style={{ fontSize: 20 }}>%</span>
               </div>
               <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
-                RPKI coverage · {rpki.sampled} prefixes sampled
+                RPKI coverage · {rpki.total ?? rpki.sampled} prefixes {rpki.full ? "validated (full)" : "sampled"}
               </div>
             </div>
 
@@ -1199,9 +1205,11 @@ function RpkiDetailModal({ market, onClose }) {
               border: `1px solid ${T.border}`, borderRadius: 6,
               fontSize: 10, color: T.muted, lineHeight: 1.5,
             }}>
-              💡 Sample of first 10 IPv4 prefixes announced by AS{market.asn}.
-              RPKI-valid = origin AS + prefix length match a registered ROA.
-              Invalid = mismatch. Unknown = no ROA exists.
+              💡 {rpki?.full
+                ? `All ${rpki.total} announced prefixes validated against RIPE Stat. Updated daily at 03:00 UTC.`
+                : `Sample of first 10 IPv4 prefixes announced by AS${market.asn}.`
+              } RPKI-valid = origin AS + prefix length match a registered ROA.
+              Invalid = mismatch. Unknown = no ROA registered (prefix unprotected).
             </div>
           </div>
         )}

@@ -35,6 +35,7 @@ import { tickIoda, getIoda, initIoda } from "./lib/ioda.js";
 import { tickRisLive, getRisLive, initRisLive, stopRisLive, injectHijackCandidate } from "./lib/ris-live.js";
 import { tickCfRadar, getCfRadar, initCfRadar } from "./lib/cf-radar.js";
 import { checkNetworkHealth, checkServiceStatus, checkHijackCandidates, checkCloudHealth, simulateAlert, notifyTest } from "./lib/notifier.js";
+import { initRpkiDaily, loadRpkiSnapshots, scheduleRpkiDaily, getRpkiSnapshot } from "./lib/rpki-daily.js";
 import { computeCorrelation } from "./lib/correlation.js";
 import { initCorrelationHistory, saveCorrelationPoint, getCorrelationHistory } from "./lib/correlation-history.js";
 import { pauseModule, resumeModule, pauseAll, resumeAll, getPollerStatus, POLLER_MODULES } from "./lib/poller-control.js";
@@ -242,7 +243,7 @@ app.get("/api/network-health", (req, res) => {
         prefixes:        bgpData.prefixes        || null,
         prefixDiff:      bgpData.prefixDiff      || null,
         prefixChangeLog: bgpData.prefixChangeLog || [],
-        rpki:            bgpData.rpki            || null,
+        rpki:            getRpkiSnapshot(m.id) || bgpData.rpki || null,
         pathLength:      bgpData.pathLength      || null,
       } : null,
       dns: dnsData ? {
@@ -1081,6 +1082,11 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Slack notifications — send a test message on startup to confirm webhook works
   notifyTest();
+
+  // RPKI daily job — load latest snapshot from Supabase on boot, then schedule daily at 03:00 UTC
+  initRpkiDaily(supabase);
+  loadRpkiSnapshots(log).catch(e => log(chalk.yellow(`[rpki] boot load error: ${e.message}`)));
+  scheduleRpkiDaily(log);
 });
 
 // ─── Save correlation scores for all markets to Supabase ─────────────────────
