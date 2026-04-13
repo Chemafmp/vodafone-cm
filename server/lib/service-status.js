@@ -44,16 +44,19 @@ const supabase = (SUPABASE_URL && SUPABASE_KEY) ? createClient(SUPABASE_URL, SUP
 const RETENTION_H = 36;
 
 const MARKETS = [
-  { id: "es", name: "Spain",       flag: "🇪🇸", tz: "Europe/Madrid",    baseline: 45 },
-  { id: "uk", name: "UK",          flag: "🇬🇧", tz: "Europe/London",    baseline: 60 },
-  { id: "de", name: "Germany",     flag: "🇩🇪", tz: "Europe/Berlin",    baseline: 50 },
-  { id: "it", name: "Italy",       flag: "🇮🇹", tz: "Europe/Rome",      baseline: 40 },
-  { id: "pt", name: "Portugal",    flag: "🇵🇹", tz: "Europe/Lisbon",    baseline: 20 },
-  { id: "nl", name: "Netherlands", flag: "🇳🇱", tz: "Europe/Amsterdam", baseline: 25 },
-  { id: "ie", name: "Ireland",     flag: "🇮🇪", tz: "Europe/Dublin",    baseline: 15 },
-  { id: "gr", name: "Greece",      flag: "🇬🇷", tz: "Europe/Athens",    baseline: 20 },
-  { id: "ro", name: "Romania",     flag: "🇷🇴", tz: "Europe/Bucharest", baseline: 30 },
-  { id: "tr", name: "Turkey",      flag: "🇹🇷", tz: "Europe/Istanbul",  baseline: 35 },
+  { id: "es",       name: "Spain",           flag: "🇪🇸", tz: "Europe/Madrid",    baseline: 45 },
+  { id: "uk",       name: "UK (Fixed)",      flag: "🇬🇧", tz: "Europe/London",    baseline: 60 },
+  { id: "de",       name: "Germany",         flag: "🇩🇪", tz: "Europe/Berlin",    baseline: 50 },
+  { id: "de-unity", name: "VF-DE Unity",     flag: "🇩🇪", tz: "Europe/Berlin",    baseline: 15 },
+  { id: "it",       name: "Italy",           flag: "🇮🇹", tz: "Europe/Rome",      baseline: 40 },
+  { id: "pt",       name: "Portugal",        flag: "🇵🇹", tz: "Europe/Lisbon",    baseline: 20 },
+  { id: "nl",       name: "Netherlands",     flag: "🇳🇱", tz: "Europe/Amsterdam", baseline: 25 },
+  { id: "ie",       name: "Ireland",         flag: "🇮🇪", tz: "Europe/Dublin",    baseline: 15 },
+  { id: "gr",       name: "Greece",          flag: "🇬🇷", tz: "Europe/Athens",    baseline: 20 },
+  { id: "ro",       name: "Romania",         flag: "🇷🇴", tz: "Europe/Bucharest", baseline: 30 },
+  { id: "tr",       name: "Turkey",          flag: "🇹🇷", tz: "Europe/Istanbul",  baseline: 35 },
+  { id: "cz",       name: "Czech Republic",  flag: "🇨🇿", tz: "Europe/Prague",    baseline: 20 },
+  { id: "al",       name: "Albania",         flag: "🇦🇱", tz: "Europe/Tirane",    baseline: 10 },
 ];
 
 const SERVICES = [
