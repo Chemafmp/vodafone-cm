@@ -13,6 +13,7 @@ import { ChangeWizardModal } from "./components/CreateChange.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import LandingPage from "./components/LandingPage.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import PinScreen from "./components/PinScreen.jsx";
 import { NodesProvider, useNodes } from "./context/NodesContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import usePollerSocket from "./hooks/usePollerSocket.js";
@@ -76,6 +77,9 @@ export default function App(){
   } = useChanges();
 
   const { connected: pollerConnected, liveAlarms, liveEvents, nodeSnapshots } = usePollerSocket();
+
+  // ── PIN gate — checked once per device (persists in localStorage) ────────────
+  const [pinOk, setPinOk] = useState(() => localStorage.getItem("bnocPinOk") === "1");
 
   const [user,setUser]=useState(() => {
     try {
@@ -441,7 +445,8 @@ export default function App(){
 
   if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg,color:T.muted,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13,gap:10}}><span style={{fontSize:20,animation:"spin 1s linear infinite"}}>⟳</span> Connecting to database…</div>;
 
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (!pinOk) return <PinScreen onUnlock={() => setPinOk(true)} />;
+  if (!user)  return <LoginScreen onLogin={handleLogin} />;
 
   // ── Full-screen ticket page (opened via window.open with #ticket=ID hash) ────
   if (fullScreenTicketId) return (

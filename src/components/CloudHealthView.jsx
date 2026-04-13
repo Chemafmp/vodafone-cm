@@ -143,18 +143,22 @@ function computeUptimeFromSnapshots(snapshots, providerId, numHours = 36) {
       return ts >= slotStart && ts <= slotEnd;
     });
 
-    // Default to "ok" (green) — absence of a recorded incident = assumed operational.
-    // Only show warning/outage when we have Supabase data that explicitly says so.
-    // This avoids the "all grey" bar when Supabase history is less than 36 h old.
-    let status = "ok";
-    for (const s of inSlot) {
-      if (s.status === "outage")  { status = "outage"; break; }
-      if (s.status === "warning") { status = "warning"; }
+    const hasData = inSlot.length > 0;
+    // Only compute status when we have real Supabase ticks for this slot.
+    // Empty slots are marked "unknown" — the merge step below decides what to show.
+    let status = "unknown";
+    if (hasData) {
+      status = "ok";
+      for (const s of inSlot) {
+        if (s.status === "outage")  { status = "outage"; break; }
+        if (s.status === "warning") { status = "warning"; }
+      }
     }
 
     slots.push({
       date: new Date(slotStart),
       status,
+      hasData,
       incidents: inSlot
         .filter(s => s.incident_count > 0)
         .map(s => ({ name: s.description || "Incident", impact: s.status === "outage" ? "major" : "minor" })),
@@ -950,12 +954,28 @@ export default function CloudHealthView({ mobile: mobileProp = false }) {
         allProviders = allProviders.map(p => {
           const snapshotSlots = computeUptimeFromSnapshots(historyData, p.id);
           if (!snapshotSlots) return p; // no Supabase rows for this provider yet
-          // Merge: prefer Supabase data per slot, fall back to backend uptimeDays
+
           const incidentSlots = p.uptimeDays;
+          const liveStatus = p.status === "warning" ? "warning"
+                           : p.status === "ok"      ? "ok"
+                           : "outage"; // "outage" | any non-ok/warning
+
           const merged = snapshotSlots.map((slot, i) => {
-            if (slot.status !== "unknown") return slot; // Supabase has real data
-            return incidentSlots?.[i] ?? slot;          // fall back to incident-based
+            // Slot has real Supabase ticks → trust observed data
+            if (slot.hasData) return slot;
+
+            // Most recent slot (current partial hour) → use live provider status
+            // so we never show green when the provider is currently degraded/down
+            if (i === snapshotSlots.length - 1) {
+              return { ...slot, status: liveStatus };
+            }
+
+            // Older empty slots → use backend incident-based status, or assume ok
+            // Keep slot.date (real Date object) — incidentSlots from backend has date as string
+            const fallbackStatus = incidentSlots?.[i]?.status ?? "ok";
+            return { ...slot, status: fallbackStatus };
           });
+
           return { ...p, uptimeDays: merged };
         });
       }
