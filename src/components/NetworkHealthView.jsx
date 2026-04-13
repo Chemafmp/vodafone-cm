@@ -1079,11 +1079,11 @@ function RpkiDetailModal({ market, onClose }) {
 
   const STATUS = {
     valid:   { label: "VALID",   color: "#16a34a", bg: "#f0fdf4", border: "#86efac", icon: "✓",
-               desc: "ROA match — origin AS + prefix length are correct." },
+               desc: "ROA match — the origin AS and prefix length are correctly registered. RPKI-enabled routers will accept this route." },
     invalid: { label: "INVALID", color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", icon: "✗",
-               desc: "ROA mismatch — origin AS or length does not match the registered ROA." },
+               desc: "ROA mismatch — the origin AS or prefix length does not match the registered ROA. RPKI-enabled routers will reject this route as a potential hijack." },
     unknown: { label: "UNKNOWN", color: "#6b7280", bg: "#f9fafb", border: "#e5e7eb", icon: "?",
-               desc: "No ROA found — prefix not covered by RPKI." },
+               desc: "No ROA registered — this prefix is unprotected. If another AS announces it, RPKI-enabled routers cannot detect the hijack." },
   };
 
   const grouped = { valid: [], invalid: [], unknown: [] };
